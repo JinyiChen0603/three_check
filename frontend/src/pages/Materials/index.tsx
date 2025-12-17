@@ -132,7 +132,7 @@ export default function Materials() {
 
       {/* 统计信息 */}
       <Row gutter={16} style={{ marginBottom: 24 }}>
-        <Col span={8}>
+        <Col span={12}>
           <Card>
             <div style={{ textAlign: 'center' }}>
               <Text type="secondary">资料类别</Text>
@@ -143,18 +143,7 @@ export default function Materials() {
             </div>
           </Card>
         </Col>
-        <Col span={8}>
-          <Card>
-            <div style={{ textAlign: 'center' }}>
-              <Text type="secondary">题目数量</Text>
-              <Title level={3} style={{ margin: '8px 0' }}>
-                {materials.reduce((sum, m) => sum + m.problem_count, 0)}
-              </Title>
-              <Text type="secondary">题</Text>
-            </div>
-          </Card>
-        </Col>
-        <Col span={8}>
+        <Col span={12}>
           <Card>
             <div style={{ textAlign: 'center' }}>
               <Text type="secondary">总下载次数</Text>
@@ -204,14 +193,9 @@ export default function Materials() {
                       {material.description}
                     </Paragraph>
                     <Divider style={{ margin: '8px 0' }} />
-                    <Space split={<Divider type="vertical" />}>
-                      <Text type="secondary">
-                        <FileTextOutlined /> {material.problem_count} 题
-                      </Text>
-                      <Text type="secondary">
-                        <DownloadOutlined /> {material.download_count} 次下载
-                      </Text>
-                    </Space>
+                    <Text type="secondary">
+                      <DownloadOutlined /> {material.download_count} 次下载
+                    </Text>
                   </Space>
                 }
               />

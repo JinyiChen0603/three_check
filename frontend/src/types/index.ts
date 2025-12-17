@@ -101,7 +101,6 @@ export interface Material {
   baidu_link: string;
   extract_code: string;
   download_count: number;
-  problem_count: number;
 }
 
 // 交易记录

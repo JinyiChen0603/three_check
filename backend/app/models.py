@@ -421,7 +421,6 @@ class MaterialLibrary(Base):
     
     # 统计
     download_count = Column(Integer, default=0, nullable=False)  # 下载次数
-    problem_count = Column(Integer, default=0, nullable=False)  # 从该资料生成的题目数
     
     # 状态
     is_active = Column(Boolean, default=True, nullable=False)

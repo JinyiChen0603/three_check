@@ -12,12 +12,13 @@ from app.config import settings
 
 
 class OCRService:
-    """OCR 识别服务"""
+    """OCR 识别服务 - 通过 OpenRouter"""
     
     def __init__(self):
-        self.api_key = settings.OPENAI_API_KEY
-        self.model = settings.OPENAI_OCR_MODEL
-        self.base_url = "https://api.openai.com/v1/chat/completions"
+        # 使用 OpenRouter API Key
+        self.api_key = settings.OPENROUTER_API_KEY
+        self.model = settings.OPENAI_OCR_MODEL  # 使用 OpenRouter 格式的模型名
+        self.base_url = "https://openrouter.ai/api/v1/chat/completions"
     
     async def recognize_image(
         self,

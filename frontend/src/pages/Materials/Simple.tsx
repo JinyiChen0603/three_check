@@ -31,7 +31,6 @@ const materials = [
     baidu_link: 'https://pan.baidu.com/s/example1',
     extract_code: 'abcd',
     download_count: 0,
-    problem_count: 50,
   },
   {
     id: 2,
@@ -41,7 +40,6 @@ const materials = [
     baidu_link: 'https://pan.baidu.com/s/example2',
     extract_code: 'efgh',
     download_count: 0,
-    problem_count: 60,
   },
   {
     id: 3,
@@ -51,7 +49,6 @@ const materials = [
     baidu_link: 'https://pan.baidu.com/s/example3',
     extract_code: 'ijkl',
     download_count: 0,
-    problem_count: 30,
   },
   {
     id: 4,
@@ -61,7 +58,6 @@ const materials = [
     baidu_link: 'https://pan.baidu.com/s/example4',
     extract_code: 'mnop',
     download_count: 0,
-    problem_count: 25,
   },
   {
     id: 5,
@@ -71,7 +67,6 @@ const materials = [
     baidu_link: 'https://pan.baidu.com/s/example5',
     extract_code: 'qrst',
     download_count: 0,
-    problem_count: 20,
   },
   {
     id: 6,
@@ -81,7 +76,6 @@ const materials = [
     baidu_link: 'https://pan.baidu.com/s/example6',
     extract_code: 'uvwx',
     download_count: 0,
-    problem_count: 22,
   },
   {
     id: 7,
@@ -91,7 +85,6 @@ const materials = [
     baidu_link: 'https://pan.baidu.com/s/example7',
     extract_code: 'yzab',
     download_count: 0,
-    problem_count: 35,
   },
   {
     id: 8,
@@ -101,7 +94,6 @@ const materials = [
     baidu_link: 'https://pan.baidu.com/s/example8',
     extract_code: 'cdef',
     download_count: 0,
-    problem_count: 18,
   },
   {
     id: 9,
@@ -111,7 +103,6 @@ const materials = [
     baidu_link: 'https://pan.baidu.com/s/example9',
     extract_code: 'ghij',
     download_count: 0,
-    problem_count: 40,
   },
   {
     id: 10,
@@ -121,7 +112,6 @@ const materials = [
     baidu_link: 'https://pan.baidu.com/s/example10',
     extract_code: 'klmn',
     download_count: 0,
-    problem_count: 28,
   },
   {
     id: 11,
@@ -131,7 +121,6 @@ const materials = [
     baidu_link: 'https://pan.baidu.com/s/example11',
     extract_code: 'opqr',
     download_count: 0,
-    problem_count: 24,
   },
   {
     id: 12,
@@ -141,7 +130,6 @@ const materials = [
     baidu_link: 'https://pan.baidu.com/s/example12',
     extract_code: 'stuv',
     download_count: 0,
-    problem_count: 20,
   },
 ];
 
@@ -188,7 +176,7 @@ export default function MaterialsSimple() {
 
       {/* 统计信息 */}
       <Row gutter={16} style={{ marginBottom: 24 }}>
-        <Col span={8}>
+        <Col span={12}>
           <Card>
             <div style={{ textAlign: 'center' }}>
               <Text type="secondary">资料类别</Text>
@@ -199,18 +187,7 @@ export default function MaterialsSimple() {
             </div>
           </Card>
         </Col>
-        <Col span={8}>
-          <Card>
-            <div style={{ textAlign: 'center' }}>
-              <Text type="secondary">题目数量</Text>
-              <Title level={3} style={{ margin: '8px 0' }}>
-                {materials.reduce((sum, m) => sum + m.problem_count, 0)}
-              </Title>
-              <Text type="secondary">题</Text>
-            </div>
-          </Card>
-        </Col>
-        <Col span={8}>
+        <Col span={12}>
           <Card>
             <div style={{ textAlign: 'center' }}>
               <Text type="secondary">总下载次数</Text>
@@ -261,7 +238,7 @@ export default function MaterialsSimple() {
                     </Paragraph>
                     <div>
                       <Text type="secondary">
-                        📝 {material.problem_count} 题 | 📥 {material.download_count} 次下载
+                        📥 {material.download_count} 次下载
                       </Text>
                     </div>
                   </Space>

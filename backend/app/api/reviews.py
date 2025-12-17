@@ -196,10 +196,10 @@ async def verify_correctness(
     review = Review(
         problem_id=problem.id,
         reviewer_id=current_user.id,
-        answer_submitted=choices[request.selected_index] if request.selected_index < len(choices) else "",
         is_answer_correct=is_correct,
         correctness_verification={
             "selected_index": request.selected_index,
+            "selected_answer": choices[request.selected_index] if request.selected_index < len(choices) else "",
             "user_judgment": request.user_answer if not is_correct else None
         },
         status=ReviewStatus.PENDING

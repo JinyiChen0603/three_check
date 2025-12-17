@@ -1,0 +1,87 @@
+[
+  {
+    "category": "high_school_comprehensive",
+    "title": "高中数学联赛综合资料",
+    "description": "包含历年高中数学联赛综合试题及解析",
+    "baidu_link": "请填写百度网盘链接",
+    "extract_code": "请填写提取码"
+  },
+  {
+    "category": "college_comprehensive",
+    "title": "大学数学竞赛综合资料",
+    "description": "包含历年大学数学竞赛综合试题及解析",
+    "baidu_link": "请填写百度网盘链接",
+    "extract_code": "请填写提取码"
+  },
+  {
+    "category": "high_school_algebra",
+    "title": "高中数学联赛-代数专题",
+    "description": "代数相关题目，包括方程、不等式、函数等",
+    "baidu_link": "请填写百度网盘链接",
+    "extract_code": "请填写提取码"
+  },
+  {
+    "category": "high_school_geometry",
+    "title": "高中数学联赛-几何专题",
+    "description": "几何相关题目，包括平面几何、立体几何等",
+    "baidu_link": "请填写百度网盘链接",
+    "extract_code": "请填写提取码"
+  },
+  {
+    "category": "high_school_number_theory",
+    "title": "高中数学联赛-数论专题",
+    "description": "数论相关题目，包括整除、同余、素数等",
+    "baidu_link": "请填写百度网盘链接",
+    "extract_code": "请填写提取码"
+  },
+  {
+    "category": "high_school_combinatorics",
+    "title": "高中数学联赛-组合专题",
+    "description": "组合数学相关题目，包括排列组合、概率等",
+    "baidu_link": "请填写百度网盘链接",
+    "extract_code": "请填写提取码"
+  },
+  {
+    "category": "college_algebra",
+    "title": "大学数学竞赛-代数专题",
+    "description": "高等代数相关题目，包括线性代数、抽象代数等",
+    "baidu_link": "请填写百度网盘链接",
+    "extract_code": "请填写提取码"
+  },
+  {
+    "category": "college_number_theory",
+    "title": "大学数学竞赛-数论专题",
+    "description": "高等数论相关题目",
+    "baidu_link": "请填写百度网盘链接",
+    "extract_code": "请填写提取码"
+  },
+  {
+    "category": "college_analysis",
+    "title": "大学数学竞赛-分析和方程专题",
+    "description": "数学分析、微分方程相关题目",
+    "baidu_link": "请填写百度网盘链接",
+    "extract_code": "请填写提取码"
+  },
+  {
+    "category": "college_combinatorics",
+    "title": "大学数学竞赛-组合和概率专题",
+    "description": "组合数学、概率论相关题目",
+    "baidu_link": "请填写百度网盘链接",
+    "extract_code": "请填写提取码"
+  },
+  {
+    "category": "college_geometry",
+    "title": "大学数学竞赛-几何和拓扑专题",
+    "description": "高等几何、拓扑学相关题目",
+    "baidu_link": "请填写百度网盘链接",
+    "extract_code": "请填写提取码"
+  },
+  {
+    "category": "college_optimization",
+    "title": "大学数学竞赛-最优化方法专题",
+    "description": "最优化理论与方法相关题目",
+    "baidu_link": "请填写百度网盘链接",
+    "extract_code": "请填写提取码"
+  }
+]
+

@@ -12,12 +12,12 @@ from app.config import settings
 
 
 class ValidationService:
-    """题目验证服务（对抗验证）"""
+    """题目验证服务（对抗验证）- 使用 Doubao Seed Thinking"""
     
     def __init__(self):
         self.api_key = settings.DOUBAO_API_KEY
-        self.model = settings.DOUBAO_MODEL
-        # Doubao API endpoint（需要根据实际情况调整）
+        self.model = "doubao-seed-1-6-thinking-250715"  # Doubao Seed Thinking 模型
+        # Doubao API endpoint (火山引擎)
         self.base_url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
     
     async def validate_difficulty(
@@ -112,7 +112,7 @@ class ValidationService:
         standard_answer: str
     ) -> Dict[str, Any]:
         """
-        单次验证尝试
+        单次验证尝试（使用流式响应）
         
         Args:
             prompt: 提示词
@@ -122,9 +122,11 @@ class ValidationService:
             Dict: 单次尝试的结果
         """
         try:
-            # 调用Doubao API
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
+            # 调用Doubao API（流式响应）
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                # 流式请求
+                async with client.stream(
+                    "POST",
                     self.base_url,
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
@@ -133,36 +135,65 @@ class ValidationService:
                     json={
                         "model": self.model,
                         "messages": [
-                            {"role": "user", "content": prompt}
+                            {
+                                "role": "system",
+                                "content": "You are a math expert. Please reason step by step. You MUST put your final answer within \\boxed{}."
+                            },
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
                         ],
-                        "max_tokens": 1000,
-                        "temperature": 0.7,  # 使用一定随机性
+                        "stream": True,  # 启用流式响应
+                        "temperature": 0.6,
                     }
-                )
-                
-                response.raise_for_status()
-                result = response.json()
-                
-                # 提取AI的答案
-                ai_answer = result["choices"][0]["message"]["content"].strip()
-                
-                # 判断答案是否正确
-                is_correct = self._check_answer(ai_answer, standard_answer)
-                
-                return {
-                    "success": True,
-                    "ai_answer": ai_answer,
-                    "is_correct": is_correct
-                }
+                ) as response:
+                    response.raise_for_status()
+                    
+                    # 读取流式响应
+                    full_content = ""
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+                        if not line or line == "data: [DONE]":
+                            continue
+                        
+                        if line.startswith("data: "):
+                            try:
+                                import json as json_module
+                                data = json_module.loads(line[6:])  # 去掉 "data: " 前缀
+                                
+                                if 'choices' in data and len(data['choices']) > 0:
+                                    delta = data['choices'][0].get('delta', {})
+                                    
+                                    # 提取 reasoning_content 和 content
+                                    reason_piece = delta.get('reasoning_content', '')
+                                    content_piece = delta.get('content', '')
+                                    
+                                    if reason_piece:
+                                        full_content += reason_piece
+                                    if content_piece:
+                                        full_content += content_piece
+                            except:
+                                continue
+                    
+                    if not full_content:
+                        raise Exception("Empty response received")
+                    
+                    # 判断答案是否正确
+                    is_correct = self._check_answer(full_content, standard_answer)
+                    
+                    return {
+                        "success": True,
+                        "ai_answer": full_content[:500],  # 只保存前500字符用于调试
+                        "is_correct": is_correct
+                    }
         
         except Exception as e:
             raise Exception(f"单次验证失败: {str(e)}")
     
     def _check_answer(self, ai_answer: str, standard_answer: str) -> bool:
         """
-        检查答案是否正确
-        
-        这是一个简化的比较逻辑，实际应用中可能需要更复杂的数学表达式比较
+        检查答案是否正确（支持 \boxed{} 格式）
         
         Args:
             ai_answer: AI给出的答案
@@ -171,42 +202,73 @@ class ValidationService:
         Returns:
             bool: 是否正确
         """
-        # 简单的字符串匹配（实际应用中需要更智能的比较）
-        # 去除空格、标点符号后比较
-        ai_clean = self._clean_answer(ai_answer)
-        standard_clean = self._clean_answer(standard_answer)
-        
-        # 检查标准答案是否在AI答案中
-        return standard_clean in ai_clean or ai_clean in standard_clean
-    
-    def _clean_answer(self, answer: str) -> str:
-        """
-        清理答案（去除空格、标点等）
-        
-        Args:
-            answer: 原始答案
-            
-        Returns:
-            str: 清理后的答案
-        """
         import re
-        # 去除空格
-        cleaned = answer.replace(" ", "").replace("\n", "")
-        # 转为小写
-        cleaned = cleaned.lower()
-        # 去除常见标点
-        cleaned = re.sub(r'[，。；：！？、,.;:!?]', '', cleaned)
-        return cleaned
+        
+        # 辅助函数：规范化答案
+        def normalize_answer(text):
+            if not text:
+                return ""
+            text = str(text)
+            
+            # 提取 \boxed{} 中的内容（取最后一个）
+            boxed_matches = re.findall(r'\\boxed\s*\{(.*?)\}', text)
+            if boxed_matches:
+                text = boxed_matches[-1]
+            
+            # 移除各种 LaTeX 数学模式标记
+            text = text.replace('\\[', '').replace('\\]', '')
+            text = text.replace('\\(', '').replace('\\)', '')
+            text = text.replace('$', '').replace(' ', '').strip()
+            
+            return text
+        
+        # 规范化两个答案
+        extracted_model = normalize_answer(ai_answer)
+        clean_truth = normalize_answer(standard_answer)
+        
+        # 方法1: 直接字符串匹配
+        if extracted_model and extracted_model == clean_truth:
+            return True
+        
+        # 方法2: 检查标准答案是否在AI答案的末尾（后50个字符）
+        if clean_truth and clean_truth in ai_answer.replace(' ', '')[-50:]:
+            return True
+        
+        # 方法3: 对于包含多个元素的答案（如坐标、多解），尝试集合匹配
+        if ',' in extracted_model and ',' in clean_truth:
+            # 提取所有括号内的内容作为元素
+            model_elements = re.findall(r'\([^)]+\)', extracted_model)
+            truth_elements = re.findall(r'\([^)]+\)', clean_truth)
+            
+            # 如果都找到多个括号元素，按集合比较
+            if len(model_elements) > 1 and len(truth_elements) > 1:
+                model_set = set(e.replace(' ', '') for e in model_elements)
+                truth_set = set(e.replace(' ', '') for e in truth_elements)
+                if model_set == truth_set:
+                    return True
+            
+            # 如果没有多个括号，尝试按逗号分割（处理简单列表）
+            if not model_elements or not truth_elements:
+                model_items = [item.strip() for item in extracted_model.replace('(', '').replace(')', '').replace('{', '').replace('}', '').split(',')]
+                truth_items = [item.strip() for item in clean_truth.replace('(', '').replace(')', '').replace('{', '').replace('}', '').split(',')]
+                
+                # 如果元素数量相同且都不止一个，尝试集合匹配
+                if len(model_items) > 1 and len(truth_items) > 1 and len(model_items) == len(truth_items):
+                    if set(model_items) == set(truth_items):
+                        return True
+        
+        return False
 
 
 class QualityCheckService:
-    """质量检查服务（三维度）"""
+    """质量检查服务（三维度）- 通过 OpenRouter"""
     
     def __init__(self):
         self.validation_service = ValidationService()
-        self.openai_api_key = settings.OPENAI_API_KEY
-        self.gpt4_model = settings.OPENAI_GPT4_MODEL
-        self.base_url = "https://api.openai.com/v1/chat/completions"
+        # 使用 OpenRouter API Key
+        self.openai_api_key = settings.OPENROUTER_API_KEY
+        self.gpt4_model = settings.OPENAI_GPT4_MODEL  # OpenRouter 格式
+        self.base_url = "https://openrouter.ai/api/v1/chat/completions"
     
     async def full_quality_check(
         self,

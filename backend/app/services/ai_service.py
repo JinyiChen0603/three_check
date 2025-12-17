@@ -10,13 +10,14 @@ from app.config import settings
 
 
 class DeepSeekService:
-    """DeepSeek Math-V2 服务（题目创新）"""
+    """DeepSeek Math-V2 服务（题目创新）- 通过 Canopy Wave"""
     
     def __init__(self):
-        self.api_key = settings.DEEPSEEK_API_KEY
-        self.model = settings.DEEPSEEK_MATH_MODEL
-        # DeepSeek API endpoint
-        self.base_url = "https://api.deepseek.com/v1/chat/completions"
+        # 使用 Canopy Wave API Key 而不是 DeepSeek 直接 API
+        self.api_key = settings.CANOPY_WAVE_API_KEY
+        self.model = "deepseek-ai/DeepSeek-Math-V2"
+        # Canopy Wave API endpoint (兼容 OpenAI 格式)
+        self.base_url = "https://api.canopywave.io/v1/chat/completions"
     
     async def generate_variant(
         self,
@@ -280,12 +281,13 @@ class DeepSeekService:
 
 
 class GPTService:
-    """GPT-4o 服务（用于生成相似答案等）"""
+    """GPT-4o 服务（用于生成相似答案等）- 通过 OpenRouter"""
     
     def __init__(self):
-        self.api_key = settings.OPENAI_API_KEY
-        self.model = settings.OPENAI_GPT4_MODEL
-        self.base_url = "https://api.openai.com/v1/chat/completions"
+        # 使用 OpenRouter API Key 而不是 OpenAI 直接 API
+        self.api_key = settings.OPENROUTER_API_KEY
+        self.model = "openai/gpt-4o"  # OpenRouter 格式
+        self.base_url = "https://openrouter.ai/api/v1/chat/completions"
     
     async def generate_similar_answers(
         self,
