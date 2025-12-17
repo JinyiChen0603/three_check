@@ -1,0 +1,70 @@
+name: mathtasks
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:16-alpine
+    container_name: mathtasks-db
+    environment:
+      POSTGRES_DB: mathtasks
+      POSTGRES_USER: mathtasks
+      POSTGRES_PASSWORD: mathtasks123
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mathtasks"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mathtasks-network
+
+  # FastAPI 应用
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mathtasks-api
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://mathtasks:mathtasks123@postgres:5432/mathtasks
+    volumes:
+      - .:/app
+      - /app/__pycache__
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mathtasks-network
+    restart: unless-stopped
+
+  # pgAdmin (可选，用于数据库管理)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: mathtasks-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@mathtasks.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - mathtasks-network
+    profiles:
+      - dev
+
+volumes:
+  postgres_data:
+
+networks:
+  mathtasks-network:
+    driver: bridge
+
