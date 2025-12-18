@@ -35,8 +35,8 @@ export enum TaskStatus {
 export const BUSINESS_CONSTANTS = {
   MAX_TASKS_PER_CLAIM: 50,          // 每次最多领取任务数
   TASK_TIMEOUT_HOURS: 12,            // 任务超时时间（小时）
-  REWARD_PER_PROBLEM: 30,            // 每个合格题目奖励（元）
-  REWARD_PER_REVIEW: 7,              // 每个评分任务奖励（元）
+  REWARD_PER_PROBLEM: 50,            // 每个合格题目奖励（元）
+  REWARD_PER_REVIEW: 10,             // 每个评分任务奖励（元）
   MAX_VARIANTS_PER_PROBLEM: 10,     // 每个母题最多变形次数
   MAX_BATCH_VALIDATION: 10,          // 批量验证最多题目数
   VALIDATION_ATTEMPTS: 8,            // AI验证尝试次数
