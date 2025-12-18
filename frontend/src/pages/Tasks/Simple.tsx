@@ -175,7 +175,7 @@ export default function TasksSimple() {
           <Card>
             <Statistic
               title="出题奖励"
-              value={30}
+              value={50}
               prefix="¥"
               suffix="元/题"
             />
@@ -185,7 +185,7 @@ export default function TasksSimple() {
           <Card>
             <Statistic
               title="评分奖励"
-              value={7}
+              value={10}
               prefix="¥"
               suffix="元/题"
             />

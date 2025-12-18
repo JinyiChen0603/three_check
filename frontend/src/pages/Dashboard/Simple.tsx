@@ -65,8 +65,8 @@ export default function SimpleDashboard() {
       </Row>
 
       <Card title="收入说明" style={{ marginTop: 24 }}>
-        <p>每个合格题目奖励：¥30</p>
-        <p>每完成一个评分任务奖励：¥7</p>
+        <p>每个合格题目奖励：¥50</p>
+        <p>每完成一个评分任务奖励：¥10</p>
       </Card>
     </div>
   );
