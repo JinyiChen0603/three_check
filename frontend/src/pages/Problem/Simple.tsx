@@ -16,7 +16,6 @@ import {
   Tag,
   Alert,
   Divider,
-  Form,
 } from 'antd';
 import {
   UploadOutlined,
@@ -28,8 +27,9 @@ import {
   PlusOutlined,
   DeleteOutlined,
 } from '@ant-design/icons';
+import { apiClient } from '../../api';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 const { TextArea } = Input;
 
 interface ProblemItem {
@@ -38,6 +38,7 @@ interface ProblemItem {
   answer: string;
   explanation?: string;
   validationStatus?: 'pending' | 'validating' | 'passed' | 'failed';
+  validationResult?: any; // 保存后端返回的完整验证结果
 }
 
 interface VariantItem {
@@ -50,7 +51,6 @@ interface VariantItem {
 
 export default function ProblemSimple() {
   const [currentStep, setCurrentStep] = useState(0);
-  const [form] = Form.useForm();
 
   // 步骤1：母题验证
   const [problems, setProblems] = useState<ProblemItem[]>([]);
@@ -92,7 +92,7 @@ export default function ProblemSimple() {
     );
   };
 
-  const handleOCR = async (file: File) => {
+  const handleOCR = async () => {
     setOcrLoading(true);
     message.info('OCR功能需要连接后端API');
     
@@ -114,33 +114,64 @@ export default function ProblemSimple() {
     return false;
   };
 
-  const handleValidateSingle = (problem: ProblemItem) => {
+  const handleValidateSingle = async (problem: ProblemItem) => {
     if (!problem.content || !problem.answer) {
       message.warning('请填写完整的题目和答案');
       return;
     }
 
-    // 模拟验证
+    // 设置验证中状态
     setProblems(
       problems.map((p) =>
         p.key === problem.key ? { ...p, validationStatus: 'validating' } : p
       )
     );
+//
+    try {
+      // 调用真实后端API
+      const response = await apiClient.post('/problems/validate', {
+        problem: problem.content,
+        answer: problem.answer,
+        explanation: problem.explanation,
+      });
 
-    setTimeout(() => {
-      const passed = Math.random() > 0.3; // 70%通过率
+      const result = response.data;
+
+      // 更新状态
       setProblems(
         problems.map((p) =>
           p.key === problem.key
-            ? { ...p, validationStatus: passed ? 'passed' : 'failed' }
+            ? { 
+                ...p, 
+                validationStatus: result.is_passed ? 'passed' : 'failed',
+                validationResult: result
+              }
             : p
         )
       );
-      message.success(passed ? '验证通过！' : '验证未通过');
-    }, 1500);
+
+      // 显示详细结果
+      if (result.is_passed) {
+        message.success(
+          `验证通过！难度合格 - 正确率：${(result.correct_rate * 100).toFixed(1)}% (${result.correct_count}/${result.attempts}次)`
+        );
+      } else {
+        message.warning(
+          `${result.verdict} - 正确率：${(result.correct_rate * 100).toFixed(1)}% (${result.correct_count}/${result.attempts}次)`
+        );
+      }
+    } catch (error: any) {
+      setProblems(
+        problems.map((p) =>
+          p.key === problem.key ? { ...p, validationStatus: 'pending' } : p
+        )
+      );
+      message.error(`验证失败：${error.response?.data?.detail || error.message}`);
+      console.error('验证错误：', error);
+    }
   };
 
-  const handleValidateBatch = () => {
+  const handleValidateBatch = async () => {
     const validProblems = problems.filter((p) => p.content && p.answer);
 
     if (validProblems.length === 0) {
@@ -153,7 +184,7 @@ export default function ProblemSimple() {
       return;
     }
 
-    // 模拟批量验证
+    // 设置验证中
     const validKeys = validProblems.map((p) => p.key);
     setProblems(
       problems.map((p) =>
@@ -161,16 +192,54 @@ export default function ProblemSimple() {
       )
     );
 
-    setTimeout(() => {
+    try {
+      // 调用真实后端API
+      const response = await apiClient.post('/problems/validate-batch', {
+        problems: validProblems.map(p => ({
+          problem: p.content,
+          answer: p.answer,
+          explanation: p.explanation,
+        }))
+      });
+
+      const result = response.data;
+
+      // 创建一个映射，key是题目内容，value是验证结果
+      const resultMap = new Map();
+      result.problems?.forEach((r: any, index: number) => {
+        const originalProblem = validProblems[index];
+        if (originalProblem) {
+          resultMap.set(originalProblem.key, r);
+        }
+      });
+
+      // 更新每个题目的结果
       setProblems(
         problems.map((p) => {
-          if (!validKeys.includes(p.key)) return p;
-          const passed = Math.random() > 0.3;
-          return { ...p, validationStatus: passed ? 'passed' : 'failed' };
+          const resultItem = resultMap.get(p.key);
+          if (resultItem) {
+            return {
+              ...p,
+              validationStatus: resultItem.is_passed ? 'passed' : 'failed',
+              validationResult: resultItem,
+            };
+          }
+          return p;
         })
       );
-      message.success('批量验证完成');
-    }, 2000);
+
+      message.success(
+        `批量验证完成：${result.passed_count || 0}/${result.total_count || validProblems.length} 通过`
+      );
+    } catch (error: any) {
+      setProblems(
+        problems.map((p) =>
+          validKeys.includes(p.key) ? { ...p, validationStatus: 'pending' } : p
+        )
+      );
+      message.error(`批量验证失败：${error.response?.data?.detail || error.message}`);
+      console.error('批量验证错误：', error);
+    }
   };
 
   const problemColumns = [
@@ -178,7 +247,7 @@ export default function ProblemSimple() {
       title: '题目内容',
       dataIndex: 'content',
       key: 'content',
-      width: '40%',
+      width: '30%',
       render: (text: string, record: ProblemItem) => (
         <TextArea
           value={text}
@@ -194,7 +263,7 @@ export default function ProblemSimple() {
       title: '答案',
       dataIndex: 'answer',
       key: 'answer',
-      width: '25%',
+      width: '20%',
       render: (text: string, record: ProblemItem) => (
         <Input
           value={text}
@@ -209,18 +278,57 @@ export default function ProblemSimple() {
       title: '验证状态',
       dataIndex: 'validationStatus',
       key: 'validationStatus',
-      width: '15%',
-      render: (status: string) => {
+      width: '12%',
+      render: (status: string, record: ProblemItem) => {
         if (status === 'validating') {
           return <Tag icon={<SyncOutlined spin />} color="processing">验证中</Tag>;
         }
         if (status === 'passed') {
-          return <Tag icon={<CheckCircleOutlined />} color="success">通过</Tag>;
+          return (
+            <Space direction="vertical" size={0}>
+              <Tag icon={<CheckCircleOutlined />} color="success">通过</Tag>
+              {record.validationResult && (
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  {record.validationResult.correct_count}/{record.validationResult.attempts}次正确
+                </Text>
+              )}
+            </Space>
+          );
         }
         if (status === 'failed') {
-          return <Tag color="error">未通过</Tag>;
+          return (
+            <Space direction="vertical" size={0}>
+              <Tag color="error">未通过</Tag>
+              {record.validationResult && (
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  {record.validationResult.correct_count}/{record.validationResult.attempts}次正确
+                </Text>
+              )}
+            </Space>
+          );
         }
         return <Tag color="default">待验证</Tag>;
+      },
+    },
+    {
+      title: '验证详情',
+      key: 'details',
+      width: '18%',
+      render: (_: any, record: ProblemItem) => {
+        if (record.validationResult) {
+          const result = record.validationResult;
+          return (
+            <Space direction="vertical" size={0}>
+              <Text style={{ fontSize: '12px' }}>
+                正确率: {(result.correct_rate * 100).toFixed(1)}%
+              </Text>
+              <Text type={result.is_passed ? 'success' : 'warning'} style={{ fontSize: '12px' }}>
+                {result.verdict || (result.is_passed ? '难度合格' : '题目太简单')}
+              </Text>
+            </Space>
+          );
+        }
+        return <Text type="secondary" style={{ fontSize: '12px' }}>-</Text>;
       },
     },
     {
