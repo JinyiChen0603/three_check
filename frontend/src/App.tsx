@@ -16,7 +16,7 @@ import Login from './pages/Login';
 import SimpleDashboard from './pages/Dashboard/Simple';
 import MaterialsSimple from './pages/Materials/Simple';
 import AdminSimple from './pages/Admin/Simple';
-import TasksSimple from './pages/Tasks/Simple';
+import Tasks from './pages/Tasks';  // 使用完整版任务管理页面
 import ReviewSimple from './pages/Review/Simple';
 import ProblemSimple from './pages/Problem/Simple';
 
@@ -31,7 +31,7 @@ const queryClient = new QueryClient({
 });
 
 // 路由守卫组件
-function PrivateRoute({ children }: { children: JSX.Element }) {
+function PrivateRoute({ children }: { children: React.ReactElement }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   return isAuthenticated ? children : <Navigate to="/login" replace />;
 }
@@ -63,7 +63,7 @@ function App() {
               {/* 任务管理 */}
               <Route 
                 path="tasks" 
-                element={<TasksSimple />} 
+                element={<Tasks />} 
               />
               <Route 
                 path="problem" 

@@ -2,7 +2,7 @@
  * Axios 配置和拦截器
  */
 
-import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import axios, { AxiosError } from 'axios';
 import { message } from 'antd';
 import { API_BASE_URL, TOKEN_KEY } from '../config/constants';
 
@@ -17,7 +17,7 @@ export const apiClient = axios.create({
 
 // 请求拦截器 - 添加 Token
 apiClient.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
+  (config: any) => {
     const token = localStorage.getItem(TOKEN_KEY);
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;

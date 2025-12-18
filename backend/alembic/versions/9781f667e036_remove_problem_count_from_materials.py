@@ -17,8 +17,19 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # 删除 problem_count 列
-    op.drop_column('material_library', 'problem_count')
+    # 删除 problem_count 列（如果存在）
+    # 使用原生 SQL 检查列是否存在
+    connection = op.get_bind()
+    
+    # 检查列是否存在
+    result = connection.execute(sa.text("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name='material_library' AND column_name='problem_count'
+    """))
+    
+    if result.fetchone():
+        op.drop_column('material_library', 'problem_count')
 
 
 def downgrade() -> None:

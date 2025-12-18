@@ -3,7 +3,7 @@
  */
 
 import apiClient from './axios';
-import { Problem, Task, Review, Material, Ranking, Transaction } from '../types';
+import type { Problem, Task, Review, Material, Ranking, Transaction } from '../types';
 
 export { authApi } from './auth';
 export { apiClient };
@@ -18,14 +18,17 @@ export const taskApi = {
 
   // 领取任务
   claimTasks: async (taskType: string, count: number) => {
-    const response = await apiClient.post(`/tasks/claim/${taskType}`, { count });
+    const response = await apiClient.post('/tasks/claim', {
+      task_type: taskType,
+      count: count,
+    });
     return response.data;
   },
 
   // 获取我的任务
   getMyTasks: async (taskType?: string) => {
-    const response = await apiClient.get<Task[]>('/tasks/my', {
-      params: { task_type: taskType },
+    const response = await apiClient.get('/tasks/my-tasks', {
+      params: taskType ? { status: taskType } : undefined,
     });
     return response.data;
   },

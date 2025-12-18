@@ -26,16 +26,41 @@ export interface LoginResponse {
   user_info: User;
 }
 
-// 任务
+// 任务批次（后端返回的格式）
+export interface TaskBatch {
+  batch_id: string;
+  task_type: string;
+  status: string;
+  total_count: number;
+  completed_count: number;
+  claimed_at?: string;
+  expires_at?: string;
+  tasks: Array<{
+    task_id: number;
+    problem_id?: number;
+  }>;
+}
+
+// 任务批次响应
+export interface TaskBatchesResponse {
+  total_batches: number;
+  batches: TaskBatch[];
+}
+
+// 任务（前端使用的格式）
 export interface Task {
   id: number;
+  batch_id?: string;
   task_type: TaskType;
   status: TaskStatus;
+  total_count?: number;  // 任务数量（批次总数）
+  completed_count?: number;  // 已完成数量
   claimed_by_user_id?: number;
   claimed_at?: string;
   expires_at?: string;
   submitted_at?: string;
   completed_at?: string;
+  problem_id?: number;  // 关联的题目ID（评分任务有）
 }
 
 // 题目

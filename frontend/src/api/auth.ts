@@ -3,7 +3,7 @@
  */
 
 import apiClient from './axios';
-import { LoginResponse, User } from '../types';
+import type { LoginResponse, User } from '../types';
 
 export const authApi = {
   /**

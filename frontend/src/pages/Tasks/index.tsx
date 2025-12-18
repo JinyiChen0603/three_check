@@ -2,7 +2,7 @@
  * 任务管理页面
  */
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   Card,
   Table,
@@ -11,10 +11,8 @@ import {
   Tag,
   Modal,
   InputNumber,
-  message,
   Tabs,
   Typography,
-  Progress,
   Statistic,
   Row,
   Col,
@@ -26,59 +24,50 @@ import {
   DeleteOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { taskApi } from '../../api';
-import { Task, TaskType, TaskStatus } from '../../types';
+import { useTask } from '../../hooks/useTask';
+import type { Task } from '../../types';
+import { TaskType, TaskStatus } from '../../config/constants';
 import { BUSINESS_CONSTANTS } from '../../config/constants';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import utc from 'dayjs/plugin/utc';
 import 'dayjs/locale/zh-cn';
 
 dayjs.extend(relativeTime);
+dayjs.extend(utc);
 dayjs.locale('zh-cn');
 
 const { Title, Text } = Typography;
 const { TabPane } = Tabs;
 
 export default function Tasks() {
-  const [loading, setLoading] = useState(false);
-  const [myTasks, setMyTasks] = useState<Task[]>([]);
+  // 使用自定义Hook管理任务状态
+  const {
+    tasks,
+    loading,
+    problemCreationTotal,
+    problemReviewTotal,
+    claimTasks,
+    abandonTask,
+  } = useTask();
+
   const [claimModalVisible, setClaimModalVisible] = useState(false);
   const [claimCount, setClaimCount] = useState(10);
   const [currentTaskType, setCurrentTaskType] = useState<TaskType>(
     TaskType.PROBLEM_CREATION
   );
 
-  useEffect(() => {
-    fetchMyTasks();
-  }, []);
-
-  const fetchMyTasks = async () => {
-    setLoading(true);
-    try {
-      const tasks = await taskApi.getMyTasks();
-      setMyTasks(tasks);
-    } catch (error) {
-      message.error('加载任务失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleClaimTasks = async () => {
     if (claimCount < 1 || claimCount > BUSINESS_CONSTANTS.MAX_TASKS_PER_CLAIM) {
-      message.error(
-        `领取数量必须在 1-${BUSINESS_CONSTANTS.MAX_TASKS_PER_CLAIM} 之间`
-      );
       return;
     }
 
     try {
-      await taskApi.claimTasks(currentTaskType, claimCount);
-      message.success(`成功领取 ${claimCount} 个任务！`);
+      await claimTasks(currentTaskType, claimCount);
       setClaimModalVisible(false);
-      fetchMyTasks();
-    } catch (error: any) {
-      message.error(error.response?.data?.detail || '领取任务失败');
+      setClaimCount(10); // 重置数量
+    } catch (error) {
+      // 错误已在Hook中处理
     }
   };
 
@@ -90,11 +79,9 @@ export default function Tasks() {
       cancelText: '取消',
       onOk: async () => {
         try {
-          await taskApi.abandonTask(taskId);
-          message.success('已放弃任务');
-          fetchMyTasks();
+          await abandonTask(taskId);
         } catch (error) {
-          message.error('放弃任务失败');
+          // 错误已在Hook中处理
         }
       },
     });
@@ -102,8 +89,12 @@ export default function Tasks() {
 
   const getTimeRemaining = (expiresAt?: string) => {
     if (!expiresAt) return null;
-    const now = dayjs();
-    const expires = dayjs(expiresAt);
+    
+    // 后端返回的是 UTC 时间，需要正确解析
+    // 如果时间字符串没有时区信息，dayjs 会按本地时区解析，需要明确指定 UTC
+    const expires = dayjs.utc(expiresAt);
+    const now = dayjs.utc(); // 使用 UTC 时间进行比较，避免时区问题
+    
     const diff = expires.diff(now, 'minute');
     
     if (diff < 0) return <Text type="danger">已超时</Text>;
@@ -156,6 +147,13 @@ export default function Tasks() {
       render: (status: TaskStatus) => getStatusTag(status),
     },
     {
+      title: '任务数量',
+      dataIndex: 'total_count',
+      key: 'total_count',
+      width: 100,
+      render: (count?: number) => count !== undefined ? count : '-',
+    },
+    {
       title: '领取时间',
       dataIndex: 'claimed_at',
       key: 'claimed_at',
@@ -177,7 +175,7 @@ export default function Tasks() {
       key: 'action',
       render: (_: any, record: Task) => (
         <Space>
-          {record.status === TaskStatus.CLAIMED && (
+          {(record.status === TaskStatus.CLAIMED || record.status === TaskStatus.IN_PROGRESS) && (
             <Button
               type="link"
               danger
@@ -192,10 +190,10 @@ export default function Tasks() {
     },
   ];
 
-  const problemCreationTasks = myTasks.filter(
+  const problemCreationTasks = tasks.filter(
     (t) => t.task_type === TaskType.PROBLEM_CREATION
   );
-  const problemReviewTasks = myTasks.filter(
+  const problemReviewTasks = tasks.filter(
     (t) => t.task_type === TaskType.PROBLEM_REVIEW
   );
 
@@ -209,7 +207,7 @@ export default function Tasks() {
           <Card>
             <Statistic
               title="出题任务"
-              value={problemCreationTasks.length}
+              value={problemCreationTotal}
               suffix={`/ ${BUSINESS_CONSTANTS.MAX_TASKS_PER_CLAIM}`}
               prefix={<FileTextOutlined />}
             />
@@ -219,7 +217,7 @@ export default function Tasks() {
           <Card>
             <Statistic
               title="评分任务"
-              value={problemReviewTasks.length}
+              value={problemReviewTotal}
               suffix={`/ ${BUSINESS_CONSTANTS.MAX_TASKS_PER_CLAIM}`}
               prefix={<CheckCircleOutlined />}
             />
@@ -254,7 +252,7 @@ export default function Tasks() {
             tab={
               <span>
                 <FileTextOutlined />
-                出题任务 ({problemCreationTasks.length})
+                出题任务 ({problemCreationTotal})
               </span>
             }
             key="problem_creation"
@@ -288,7 +286,7 @@ export default function Tasks() {
             tab={
               <span>
                 <CheckCircleOutlined />
-                评分任务 ({problemReviewTasks.length})
+                评分任务 ({problemReviewTotal})
               </span>
             }
             key="problem_review"
