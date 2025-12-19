@@ -112,13 +112,15 @@ export default function ProblemCreation() {
         ...problems,
         {
           key: `problem-${Date.now()}`,
-          content: result.content || '',
+          content: result.problem || '',
           answer: result.answer || '',
+          explanation: result.explanation || '',
           validationStatus: 'pending',
         },
       ]);
-    } catch (error) {
-      message.error('OCR识别失败');
+    } catch (error: any) {
+      message.error(`OCR识别失败：${error.response?.data?.detail || error.message}`);
+      console.error('OCR错误：', error);
     } finally {
       setOcrLoading(false);
     }

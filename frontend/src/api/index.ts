@@ -50,10 +50,20 @@ export const taskApi = {
 export const problemApi = {
   // OCR 识别
   ocrImage: async (image: File) => {
-    const formData = new FormData();
-    formData.append('image', image);
-    const response = await apiClient.post('/problems/ocr', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    // 将文件转为 base64
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(',')[1]);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(image);
+    });
+    
+    const response = await apiClient.post('/problems/ocr', {
+      image_base64: base64,
+      extract_answer: true
     });
     return response.data;
   },

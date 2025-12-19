@@ -92,25 +92,46 @@ export default function ProblemSimple() {
     );
   };
 
-  const handleOCR = async () => {
+  const handleOCR = async (file: File) => {
     setOcrLoading(true);
-    message.info('OCR功能需要连接后端API');
-    
-    // 模拟OCR识别
-    setTimeout(() => {
+    try {
+      // 将文件转为 base64
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          resolve(result.split(',')[1]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      
+      // 调用后端OCR API
+      const response = await apiClient.post('/problems/ocr', {
+        image_base64: base64,
+        extract_answer: true
+      });
+      
+      const result = response.data;
+      
+      // 添加识别结果到问题列表
       setProblems([
         ...problems,
         {
           key: `problem-${Date.now()}`,
-          content: '（OCR识别的题目内容）',
-          answer: '（OCR识别的答案）',
+          content: result.problem || '',
+          answer: result.answer || '',
+          explanation: result.explanation || '',
           validationStatus: 'pending',
         },
       ]);
+      message.success('OCR识别成功');
+    } catch (error: any) {
+      message.error(`OCR识别失败：${error.response?.data?.detail || error.message}`);
+      console.error('OCR错误：', error);
+    } finally {
       setOcrLoading(false);
-      message.success('OCR识别完成（演示数据）');
-    }, 1000);
-    
+    }
     return false;
   };
 
