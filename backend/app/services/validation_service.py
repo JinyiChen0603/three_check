@@ -53,12 +53,12 @@ class ValidationService:
         """
         try:
             # 构建prompt
-            prompt = f"""请解答以下数学题目，直接给出最终答案即可，不需要解题过程。
+            prompt = f"""请直接给出以下数学题目的最终答案，无需解题过程，将答案放在\\boxed{{}}中。
 
 题目：
 {problem}
 
-请给出你的答案："""
+答案："""
             
             # 并发进行多次验证
             tasks = [
@@ -123,7 +123,7 @@ class ValidationService:
         """
         try:
             # 调用Doubao API（流式响应）
-            async with httpx.AsyncClient(timeout=180.0) as client:
+            async with httpx.AsyncClient(timeout=600.0) as client:
                 # 流式请求
                 async with client.stream(
                     "POST",
@@ -137,7 +137,7 @@ class ValidationService:
                         "messages": [
                             {
                                 "role": "system",
-                                "content": "You are a math expert. Please reason step by step. You MUST put your final answer within \\boxed{}."
+                                "content": "You are a math expert. Give direct answer only. Put your final answer within \\boxed{}."
                             },
                             {
                                 "role": "user",
