@@ -42,6 +42,7 @@ const { TabPane } = Tabs;
 
 interface ProblemItem {
   key: string;
+  id?: number;
   content: string;
   answer: string;
   explanation?: string;
@@ -306,9 +307,29 @@ export default function ProblemCreation() {
           <Button
             type="link"
             size="small"
-            onClick={() => {
-              setParentProblem(record);
-              setCurrentStep(1);
+            onClick={async () => {
+              if (!record.content || !record.answer) {
+                message.error('题目内容或答案缺失');
+                return;
+              }
+              try {
+                message.loading('正在创建母题...', 0);
+                const createdProblem = await problemApi.createProblem({
+                  title: record.content.substring(0, 50) + '...',
+                  content: { problem: record.content },
+                  explanation: record.explanation,
+                  answer: record.answer,
+                  category: 'high_school_algebra',
+                  source_type: 'manual',
+                });
+                message.destroy();
+                message.success('母题创建成功');
+                setParentProblem({ ...record, id: createdProblem.id });
+                setCurrentStep(1);
+              } catch (error: any) {
+                message.destroy();
+                message.error(`创建母题失败：${error.response?.data?.detail || error.message}`);
+              }
             }}
             disabled={record.validationStatus !== 'passed'}
           >
@@ -329,7 +350,12 @@ export default function ProblemCreation() {
   // ==================== 步骤2：题目变形 ====================
 
   const handleGenerateVariant = async () => {
-    if (!parentProblem || !transformPrompt) {
+    if (!parentProblem || !parentProblem.id) {
+      message.error('母题信息缺失');
+      return;
+    }
+
+    if (!transformPrompt) {
       message.warning('请填写变形提示词');
       return;
     }
@@ -342,20 +368,37 @@ export default function ProblemCreation() {
     }
 
     try {
-      const variant = await problemApi.generateVariant(
-        0, // parentProblemId，这里暂时用0
-        parentProblem.content,
-        parentProblem.explanation || '',
-        parentProblem.answer,
+      message.loading('正在生成变体...', 0);
+      const result = await problemApi.generateVariant(
+        parentProblem.id,
         transformPrompt
       );
 
-      setVariants([...variants, { ...variant, key: `variant-${Date.now()}` }]);
-      setVariantCount(variantCount + 1);
-      message.success('题目变形成功！');
-      setTransformPrompt(''); // 清空提示词
-    } catch (error) {
-      message.error('题目变形失败');
+      message.destroy();
+      
+      if (result.success) {
+        const variant: any = {
+          key: `variant-${Date.now()}`,
+          id: Date.now(),
+          content: result.new_problem,
+          answer: result.new_answer,
+          explanation: result.new_explanation,
+          variant_count: 0,
+          creator_id: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        
+        setVariants([...variants, variant]);
+        setVariantCount(result.variant_count);
+        message.success('题目变形成功！');
+        setTransformPrompt('');
+      } else {
+        message.error('题目变形失败');
+      }
+    } catch (error: any) {
+      message.destroy();
+      message.error(`题目变形失败：${error.response?.data?.detail || error.message}`);
     }
   };
 

@@ -27,13 +27,14 @@ import {
   PlusOutlined,
   DeleteOutlined,
 } from '@ant-design/icons';
-import { apiClient } from '../../api';
+import { apiClient, problemApi } from '../../api';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
 interface ProblemItem {
   key: string;
+  id?: number;
   content: string;
   answer: string;
   explanation?: string;
@@ -43,10 +44,12 @@ interface ProblemItem {
 
 interface VariantItem {
   key: string;
+  id?: number;
   content: string;
   answer: string;
   explanation?: string;
   qualityCheckStatus?: 'pending' | 'checking' | 'passed' | 'failed';
+  quality_check?: any;
 }
 
 export default function ProblemSimple() {
@@ -268,7 +271,7 @@ export default function ProblemSimple() {
       title: '题目内容',
       dataIndex: 'content',
       key: 'content',
-      width: '30%',
+      width: '25%',
       render: (text: string, record: ProblemItem) => (
         <TextArea
           value={text}
@@ -284,7 +287,7 @@ export default function ProblemSimple() {
       title: '答案',
       dataIndex: 'answer',
       key: 'answer',
-      width: '20%',
+      width: '15%',
       render: (text: string, record: ProblemItem) => (
         <Input
           value={text}
@@ -296,10 +299,26 @@ export default function ProblemSimple() {
       ),
     },
     {
+      title: '解析',
+      dataIndex: 'explanation',
+      key: 'explanation',
+      width: '25%',
+      render: (text: string, record: ProblemItem) => (
+        <TextArea
+          value={text || ''}
+          onChange={(e) =>
+            handleProblemChange(record.key, 'explanation', e.target.value)
+          }
+          placeholder="请输入解题步骤..."
+          rows={3}
+        />
+      ),
+    },
+    {
       title: '验证状态',
       dataIndex: 'validationStatus',
       key: 'validationStatus',
-      width: '12%',
+      width: '10%',
       render: (status: string, record: ProblemItem) => {
         if (status === 'validating') {
           return <Tag icon={<SyncOutlined spin />} color="processing">验证中</Tag>;
@@ -334,7 +353,7 @@ export default function ProblemSimple() {
     {
       title: '验证详情',
       key: 'details',
-      width: '18%',
+      width: '12%',
       render: (_: any, record: ProblemItem) => {
         if (record.validationResult) {
           const result = record.validationResult;
@@ -355,7 +374,7 @@ export default function ProblemSimple() {
     {
       title: '操作',
       key: 'action',
-      width: '20%',
+      width: '13%',
       render: (_: any, record: ProblemItem) => (
         <Space>
           <Button
@@ -369,9 +388,29 @@ export default function ProblemSimple() {
           <Button
             type="link"
             size="small"
-            onClick={() => {
-              setParentProblem(record);
-              setCurrentStep(1);
+            onClick={async () => {
+              if (!record.content || !record.answer || !record.explanation) {
+                message.error('题目内容、答案或解析缺失，请填写完整');
+                return;
+              }
+              try {
+                message.loading('正在创建母题...', 0);
+                const createdProblem = await problemApi.createProblem({
+                  title: record.content.substring(0, 50) + '...',
+                  content: { problem: record.content },
+                  explanation: record.explanation,
+                  answer: record.answer,
+                  category: 'high_school_algebra',
+                  source_type: 'manual',
+                });
+                message.destroy();
+                message.success('母题创建成功');
+                setParentProblem({ ...record, id: createdProblem.id });
+                setCurrentStep(1);
+              } catch (error: any) {
+                message.destroy();
+                message.error(`创建母题失败：${error.response?.data?.detail || error.message}`);
+              }
             }}
             disabled={record.validationStatus !== 'passed'}
           >
@@ -391,8 +430,13 @@ export default function ProblemSimple() {
 
   // ==================== 步骤2：题目变形 ====================
 
-  const handleGenerateVariant = () => {
-    if (!parentProblem || !transformPrompt) {
+  const handleGenerateVariant = async () => {
+    if (!parentProblem || !parentProblem.id) {
+      message.error('母题信息缺失');
+      return;
+    }
+
+    if (!transformPrompt) {
       message.warning('请填写变形提示词');
       return;
     }
@@ -402,43 +446,92 @@ export default function ProblemSimple() {
       return;
     }
 
-    message.info('AI变形功能需要连接后端API');
+    try {
+      message.loading('正在生成变体...', 0);
+      const result = await problemApi.generateVariant(
+        parentProblem.id,
+        transformPrompt
+      );
 
-    // 模拟生成变体
-    setTimeout(() => {
-      const newVariant: VariantItem = {
-        key: `variant-${Date.now()}`,
-        content: `【变形题目】${parentProblem.content}（基于提示：${transformPrompt}）`,
-        answer: `【变形答案】${parentProblem.answer}`,
-        explanation: '（AI生成的解析）',
-        qualityCheckStatus: 'pending',
-      };
-
-      setVariants([...variants, newVariant]);
-      setVariantCount(variantCount + 1);
-      message.success('题目变形成功（演示数据）');
-      setTransformPrompt('');
-    }, 1000);
+      if (result.success) {
+        // 生成成功后，立即创建到数据库以便后续质检
+        message.loading('正在保存变体...', 0);
+        const createdVariant = await problemApi.createProblem({
+          title: result.new_problem.substring(0, 50) + '...',
+          content: { problem: result.new_problem },
+          explanation: result.new_explanation,
+          answer: result.new_answer,
+          category: 'high_school_algebra',
+          source_type: 'ai_variant',
+          parent_problem_id: parentProblem.id,
+        });
+        
+        message.destroy();
+        
+        const variant: VariantItem = {
+          key: `variant-${Date.now()}`,
+          id: createdVariant.id,
+          content: result.new_problem,
+          answer: result.new_answer,
+          explanation: result.new_explanation,
+          qualityCheckStatus: 'pending',
+        };
+        
+        setVariants([...variants, variant]);
+        setVariantCount(result.variant_count);
+        message.success('题目变形成功！');
+        setTransformPrompt('');
+      } else {
+        message.destroy();
+        message.error('题目变形失败');
+      }
+    } catch (error: any) {
+      message.destroy();
+      message.error(`题目变形失败：${error.response?.data?.detail || error.message}`);
+    }
   };
 
-  const handleQualityCheck = (variant: VariantItem) => {
+  const handleQualityCheck = async (variant: VariantItem) => {
+    if (!variant.id) {
+      message.error('变体信息缺失，无法进行质检');
+      return;
+    }
+
     setVariants(
       variants.map((v) =>
         v.key === variant.key ? { ...v, qualityCheckStatus: 'checking' } : v
       )
     );
 
-    setTimeout(() => {
-      const allPassed = Math.random() > 0.4; // 60%通过率
+    try {
+      const result = await problemApi.qualityCheck(variant.id);
+      
+      const allPassed =
+        result.difficulty?.status === 'passed' &&
+        result.originality?.status === 'passed' &&
+        result.rigor?.status === 'passed';
+
       setVariants(
         variants.map((v) =>
           v.key === variant.key
-            ? { ...v, qualityCheckStatus: allPassed ? 'passed' : 'failed' }
+            ? {
+                ...v,
+                qualityCheckStatus: allPassed ? 'passed' : 'failed',
+                quality_check: result,
+              }
             : v
         )
       );
+
       message.success('质量检查完成');
-    }, 2000);
+    } catch (error: any) {
+      setVariants(
+        variants.map((v) =>
+          v.key === variant.key ? { ...v, qualityCheckStatus: 'failed' } : v
+        )
+      );
+      message.error(`质量检查失败：${error.response?.data?.detail || error.message}`);
+    }
   };
 
   const variantColumns = [
@@ -595,6 +688,7 @@ export default function ProblemSimple() {
               description={
                 <div>
                   <p><strong>内容：</strong>{parentProblem.content}</p>
+                  <p><strong>解析：</strong>{parentProblem.explanation}</p>
                   <p><strong>答案：</strong>{parentProblem.answer}</p>
                 </div>
               }
