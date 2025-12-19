@@ -42,6 +42,7 @@ const { TabPane } = Tabs;
 
 interface ProblemItem {
   key: string;
+  id?: number;
   content: string;
   answer: string;
   explanation?: string;
@@ -306,9 +307,29 @@ export default function ProblemCreation() {
           <Button
             type="link"
             size="small"
-            onClick={() => {
-              setParentProblem(record);
-              setCurrentStep(1);
+            onClick={async () => {
+              if (!record.content || !record.answer) {
+                message.error('题目内容或答案缺失');
+                return;
+              }
+              try {
+                message.loading('正在创建母题...', 0);
+                const createdProblem = await problemApi.createProblem({
+                  title: record.content.substring(0, 50) + '...',
+                  content: { problem: record.content },
+                  explanation: record.explanation,
+                  answer: record.answer,
+                  category: 'high_school_algebra',
+                  source_type: 'manual',
+                });
+                message.destroy();
+                message.success('母题创建成功');
+                setParentProblem({ ...record, id: createdProblem.id });
+                setCurrentStep(1);
+              } catch (error: any) {
+                message.destroy();
+                message.error(`创建母题失败：${error.response?.data?.detail || error.message}`);
+              }
             }}
             disabled={record.validationStatus !== 'passed'}
           >
@@ -329,7 +350,12 @@ export default function ProblemCreation() {
   // ==================== 步骤2：题目变形 ====================
 
   const handleGenerateVariant = async () => {
-    if (!parentProblem || !transformPrompt) {
+    if (!parentProblem || !parentProblem.id) {
+      message.error('母题信息缺失');
+      return;
+    }
+
+    if (!transformPrompt) {
       message.warning('请填写变形提示词');
       return;
     }
@@ -342,20 +368,37 @@ export default function ProblemCreation() {
     }
 
     try {
-      const variant = await problemApi.generateVariant(
-        0, // parentProblemId，这里暂时用0
-        parentProblem.content,
-        parentProblem.explanation || '',
-        parentProblem.answer,
+      message.loading('正在生成变体...', 0);
+      const result = await problemApi.generateVariant(
+        parentProblem.id,
         transformPrompt
       );
 
-      setVariants([...variants, { ...variant, key: `variant-${Date.now()}` }]);
-      setVariantCount(variantCount + 1);
-      message.success('题目变形成功！');
-      setTransformPrompt(''); // 清空提示词
-    } catch (error) {
-      message.error('题目变形失败');
+      message.destroy();
+      
+      if (result.success) {
+        const variant: any = {
+          key: `variant-${Date.now()}`,
+          id: Date.now(),
+          content: result.new_problem,
+          answer: result.new_answer,
+          explanation: result.new_explanation,
+          variant_count: 0,
+          creator_id: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        
+        setVariants([...variants, variant]);
+        setVariantCount(result.variant_count);
+        message.success('题目变形成功！');
+        setTransformPrompt('');
+      } else {
+        message.error('题目变形失败');
+      }
+    } catch (error: any) {
+      message.destroy();
+      message.error(`题目变形失败：${error.response?.data?.detail || error.message}`);
     }
   };
 
@@ -369,10 +412,8 @@ export default function ProblemCreation() {
     try {
       const result = await problemApi.qualityCheck(variant.id);
       
-      const allPassed =
-        result.difficulty?.status === 'passed' &&
-        result.originality?.status === 'passed' &&
-        result.rigor?.status === 'passed';
+      // 使用后端返回的 all_passed 字段
+      const allPassed = result.all_passed === true;
 
       setVariants(
         variants.map((v) =>
@@ -386,14 +427,23 @@ export default function ProblemCreation() {
         )
       );
 
-      message.success('质量检查完成');
-    } catch (error) {
+      // 显示详细结果
+      if (allPassed) {
+        message.success('✅ 质量检查全部通过！');
+      } else {
+        const failedChecks = [];
+        if (!result.difficulty?.is_passed) failedChecks.push('难度');
+        if (!result.originality?.is_original) failedChecks.push('原创性');
+        if (!result.rigor?.is_rigorous) failedChecks.push('严谨性');
+        message.warning(`⚠️ 质检未通过：${failedChecks.join('、')} 不合格`);
+      }
+    } catch (error: any) {
       setVariants(
         variants.map((v) =>
           v.key === variant.key ? { ...v, qualityCheckStatus: 'failed' } : v
         )
       );
-      message.error('质量检查失败');
+      message.error(`质量检查失败：${error.response?.data?.detail || error.message}`);
     }
   };
 
@@ -411,22 +461,36 @@ export default function ProblemCreation() {
         if (record.qualityCheckStatus === 'checking') {
           return <Tag icon={<SyncOutlined spin />} color="processing">检查中</Tag>;
         }
-        if (record.qualityCheckStatus === 'passed') {
+        
+        if (record.quality_check) {
+          const qc = record.quality_check;
           return (
             <Space direction="vertical" size="small">
-              <Tag color="success">全部通过</Tag>
-              {record.quality_check && (
-                <Space size="small">
-                  <Tag color="blue">难度✓</Tag>
-                  <Tag color="green">原创✓</Tag>
-                  <Tag color="purple">严谨✓</Tag>
-                </Space>
+              <Tag color={qc.all_passed ? 'success' : 'error'}>
+                {qc.all_passed ? '全部通过' : '未完全通过'}
+              </Tag>
+              <Space size="small">
+                <Tag color={qc.difficulty?.is_passed ? 'blue' : 'default'}>
+                  难度{qc.difficulty?.is_passed ? '✓' : '✗'}
+                </Tag>
+                <Tag color={qc.originality?.is_original ? 'green' : 'default'}>
+                  原创{qc.originality?.is_original ? '✓' : '✗'}
+                </Tag>
+                <Tag color={qc.rigor?.is_rigorous ? 'purple' : 'default'}>
+                  严谨{qc.rigor?.is_rigorous ? '✓' : '✗'}
+                </Tag>
+              </Space>
+              {qc.difficulty?.correct_count !== undefined && (
+                <Text type="secondary" style={{ fontSize: '11px' }}>
+                  难度测试: {qc.difficulty.correct_count}/{qc.difficulty.attempts}次正确
+                </Text>
               )}
             </Space>
           );
         }
+        
         if (record.qualityCheckStatus === 'failed') {
-          return <Tag color="error">未通过</Tag>;
+          return <Tag color="error">检查失败</Tag>;
         }
         return <Tag color="default">待检查</Tag>;
       },

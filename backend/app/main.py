@@ -72,7 +72,7 @@ async def health_check():
 
 
 # ==================== API 路由 ====================
-from app.api import auth, materials, problems, reviews, tasks, users
+from app.api import auth, materials, problems, reviews, tasks, users, deep_transform
 
 # 认证路由
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
@@ -91,6 +91,9 @@ app.include_router(reviews.router, prefix="/api/reviews", tags=["评分管理"])
 
 # 任务路由
 app.include_router(tasks.router, prefix="/api/tasks", tags=["任务管理"])
+
+# 深度变形路由
+app.include_router(deep_transform.router, prefix="/api/deep-transform", tags=["深度变形"])
 
 
 if __name__ == "__main__":

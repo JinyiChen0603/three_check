@@ -25,11 +25,36 @@ from app.models import (
 from app.api.deps import get_current_user
 from app.services.ocr_service import ocr_service
 from app.services.validation_service import validation_service, quality_check_service
-from app.services.ai_service import deepseek_service
+from app.services.deep_transformer_service import deep_transformer_service
 from app.config import settings
 
 
 router = APIRouter()
+
+
+# ==================== 辅助函数 ====================
+
+def extract_problem_content(content) -> str:
+    """
+    从 content 字段中提取纯文本题目内容
+    
+    支持格式：
+    - 纯文本: "题目内容"
+    - JSON对象: {"problem": "题目内容"}
+    - 其他格式: 转成字符串
+    """
+    if isinstance(content, dict):
+        # 尝试提取 problem 字段
+        if 'problem' in content:
+            return str(content['problem'])
+        # 如果没有 problem 字段，尝试其他常见字段
+        for key in ['content', 'text', 'question']:
+            if key in content:
+                return str(content[key])
+        # 都没有，转成字符串
+        return str(content)
+    else:
+        return str(content)
 
 
 # ==================== Pydantic 模型 ====================
@@ -298,7 +323,7 @@ async def generate_variant(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    基于母题生成变体（使用DeepSeek Math-V2）
+    基于母题生成变体（使用Gemini API）
     
     要求：
     - 新题目与原题目必须有明显不同
@@ -328,27 +353,37 @@ async def generate_variant(
             detail="母题已达到最大变形次数（10次）"
         )
     
-    # 生成变体
-    variant_result = await deepseek_service.generate_variant(
-        original_problem=json.dumps(parent_problem.content) if isinstance(parent_problem.content, dict) else parent_problem.content,
-        original_answer=parent_problem.answer,
-        original_explanation=parent_problem.explanation,
-        custom_prompt=request.custom_prompt
-    )
-    
-    if not variant_result["success"]:
+    # 生成变体（使用 Gemini API）
+    try:
+        # 提取纯文本题目内容
+        original_content = extract_problem_content(parent_problem.content)
+        
+        # 调用 deep_transformer_service 生成变体
+        variant_result = deep_transformer_service.generate_problem_variant_with_explanation(
+            original_content=original_content,
+            original_explanation=parent_problem.explanation or "",
+            original_answer=parent_problem.answer,
+            modification_requirement=request.custom_prompt or "",
+            max_tokens=10000,
+            temperature=0.7,
+            use_stream=True
+        )
+        
+        # 转换返回格式以匹配原有接口
+        return {
+            "success": True,
+            "parent_problem_id": problem_id,
+            "variant_count": parent_problem.variant_count + 1,
+            "new_problem": variant_result["variant_content"],
+            "new_answer": variant_result["variant_answer"],
+            "new_explanation": variant_result["variant_explanation"],
+            "note": "请检查生成的变体，确认无误后可以创建为新题目"
+        }
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=variant_result.get("error", "生成变体失败")
+            detail=f"生成变体失败: {str(e)}"
         )
-    
-    return {
-        "success": True,
-        "parent_problem_id": problem_id,
-        "variant_count": parent_problem.variant_count + 1,
-        **variant_result,
-        "note": "请检查生成的变体，确认无误后可以创建为新题目"
-    }
 
 
 @router.post("/{problem_id}/quality-check", summary="三维质检")
@@ -388,7 +423,7 @@ async def quality_check(
     await db.commit()
     
     check_result = await quality_check_service.full_quality_check(
-        problem=json.dumps(problem.content) if isinstance(problem.content, dict) else problem.content,
+        problem=extract_problem_content(problem.content),
         answer=problem.answer,
         explanation=problem.explanation
     )

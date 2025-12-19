@@ -85,20 +85,27 @@ export const problemApi = {
     return response.data;
   },
 
+  // 创建题目
+  createProblem: async (data: {
+    title: string;
+    content: any;
+    explanation?: string;
+    answer: string;
+    category: string;
+    source_type?: string;
+    parent_problem_id?: number;
+  }) => {
+    const response = await apiClient.post('/problems/create', data);
+    return response.data;
+  },
+
   // 生成题目变体
   generateVariant: async (
-    parentProblemId: number,
-    content: string,
-    explanation: string,
-    answer: string,
-    transformPrompt: string
+    problemId: number,
+    customPrompt: string
   ) => {
-    const response = await apiClient.post<Problem>('/problems/generate-variant', {
-      parent_problem_id: parentProblemId,
-      content,
-      explanation,
-      answer,
-      transform_prompt: transformPrompt,
+    const response = await apiClient.post(`/problems/${problemId}/generate-variant`, {
+      custom_prompt: customPrompt,
     });
     return response.data;
   },
