@@ -9,7 +9,7 @@ import { API_BASE_URL, TOKEN_KEY } from '../config/constants';
 // 创建 axios 实例
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000,
+  //timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
