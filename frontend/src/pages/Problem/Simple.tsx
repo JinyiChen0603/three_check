@@ -506,10 +506,8 @@ export default function ProblemSimple() {
     try {
       const result = await problemApi.qualityCheck(variant.id);
       
-      const allPassed =
-        result.difficulty?.status === 'passed' &&
-        result.originality?.status === 'passed' &&
-        result.rigor?.status === 'passed';
+      // 使用后端返回的 all_passed 字段
+      const allPassed = result.all_passed === true;
 
       setVariants(
         variants.map((v) =>
@@ -523,7 +521,16 @@ export default function ProblemSimple() {
         )
       );
 
-      message.success('质量检查完成');
+      // 显示详细结果
+      if (allPassed) {
+        message.success('✅ 质量检查全部通过！');
+      } else {
+        const failedChecks = [];
+        if (!result.difficulty?.is_passed) failedChecks.push('难度');
+        if (!result.originality?.is_original) failedChecks.push('原创性');
+        if (!result.rigor?.is_rigorous) failedChecks.push('严谨性');
+        message.warning(`⚠️ 质检未通过：${failedChecks.join('、')} 不合格`);
+      }
     } catch (error: any) {
       setVariants(
         variants.map((v) =>
@@ -548,20 +555,36 @@ export default function ProblemSimple() {
         if (record.qualityCheckStatus === 'checking') {
           return <Tag icon={<SyncOutlined spin />} color="processing">检查中</Tag>;
         }
-        if (record.qualityCheckStatus === 'passed') {
+        
+        if (record.quality_check) {
+          const qc = record.quality_check;
           return (
             <Space direction="vertical" size="small">
-              <Tag color="success">全部通过</Tag>
+              <Tag color={qc.all_passed ? 'success' : 'error'}>
+                {qc.all_passed ? '全部通过' : '未完全通过'}
+              </Tag>
               <Space size="small">
-                <Tag color="blue">难度✓</Tag>
-                <Tag color="green">原创✓</Tag>
-                <Tag color="purple">严谨✓</Tag>
+                <Tag color={qc.difficulty?.is_passed ? 'blue' : 'default'}>
+                  难度{qc.difficulty?.is_passed ? '✓' : '✗'}
+                </Tag>
+                <Tag color={qc.originality?.is_original ? 'green' : 'default'}>
+                  原创{qc.originality?.is_original ? '✓' : '✗'}
+                </Tag>
+                <Tag color={qc.rigor?.is_rigorous ? 'purple' : 'default'}>
+                  严谨{qc.rigor?.is_rigorous ? '✓' : '✗'}
+                </Tag>
               </Space>
+              {qc.difficulty?.correct_count !== undefined && (
+                <Text type="secondary" style={{ fontSize: '11px' }}>
+                  难度测试: {qc.difficulty.correct_count}/{qc.difficulty.attempts}次正确
+                </Text>
+              )}
             </Space>
           );
         }
+        
         if (record.qualityCheckStatus === 'failed') {
-          return <Tag color="error">未通过</Tag>;
+          return <Tag color="error">检查失败</Tag>;
         }
         return <Tag color="default">待检查</Tag>;
       },
