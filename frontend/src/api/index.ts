@@ -69,42 +69,48 @@ export const problemApi = {
   },
 
   // 单题验证
-  validateSingle: async (content: string, answer: string) => {
-    const response = await apiClient.post('/problems/validate/single', {
-      content,
+  validateSingle: async (content: string, answer: string, explanation?: string) => {
+    const response = await apiClient.post('/problems/validate', {
+      problem: content,
       answer,
+      explanation,
     });
     return response.data;
   },
 
   // 批量验证
-  validateBatch: async (problems: Array<{ content: string; answer: string }>) => {
-    const response = await apiClient.post('/problems/validate/batch', {
-      problems,
+  validateBatch: async (problems: Array<{ content: string; answer: string; explanation?: string }>) => {
+    const response = await apiClient.post('/problems/validate-batch', {
+      problems: problems.map(p => ({
+        problem: p.content,
+        answer: p.answer,
+        explanation: p.explanation,
+      })),
     });
     return response.data;
   },
 
   // 创建题目
-  createProblem: async (data: {
+  createProblem: async (problemData: {
     title: string;
     content: any;
     explanation?: string;
     answer: string;
     category: string;
     source_type?: string;
+    ocr_image_url?: string;
     parent_problem_id?: number;
   }) => {
-    const response = await apiClient.post('/problems/create', data);
+    const response = await apiClient.post<Problem>('/problems/create', problemData);
     return response.data;
   },
 
-  // 生成题目变体
+  // 生成题目变体（保留同事新增的解析字段）
   generateVariant: async (
-    problemId: number,
-    customPrompt: string
+    parentProblemId: number,
+    customPrompt?: string
   ) => {
-    const response = await apiClient.post(`/problems/${problemId}/generate-variant`, {
+    const response = await apiClient.post(`/problems/${parentProblemId}/generate-variant`, {
       custom_prompt: customPrompt,
     });
     return response.data;
@@ -117,8 +123,10 @@ export const problemApi = {
   },
 
   // 获取我的题目列表
-  getMyProblems: async () => {
-    const response = await apiClient.get<Problem[]>('/problems/my');
+  getMyProblems: async (status?: string) => {
+    const response = await apiClient.get('/problems/my-problems', {
+      params: status ? { status } : undefined,
+    });
     return response.data;
   },
 
@@ -135,35 +143,54 @@ export const problemApi = {
     const response = await apiClient.post(`/problems/${problemId}/abandon`);
     return response.data;
   },
+
+  // 提交审核
+  submitForReview: async (problemId: number) => {
+    const response = await apiClient.post(`/problems/${problemId}/submit-for-review`);
+    return response.data;
+  },
 };
 
 // 评分相关 API
 export const reviewApi = {
-  // 获取待评分的题目
-  getPendingReview: async () => {
-    const response = await apiClient.get<Problem>('/reviews/pending');
+  // 获取4选1选项（正确性验证）
+  getProblemChoices: async (problemId: number) => {
+    const response = await apiClient.get(`/reviews/problem/${problemId}/choices`);
     return response.data;
   },
 
   // 提交正确性验证
-  submitCorrectness: async (problemId: number, userChoice: string, judgement?: string) => {
-    const response = await apiClient.post(`/reviews/${problemId}/correctness`, {
-      user_choice: userChoice,
-      judgement,
+  submitCorrectness: async (
+    problemId: number,
+    selectedIndex: number,
+    selectedAnswer?: string,
+    correctIndex?: number,
+    userAnswer?: string
+  ) => {
+    const response = await apiClient.post(`/reviews/problem/${problemId}/verify`, {
+      selected_index: selectedIndex,
+      selected_answer: selectedAnswer,
+      correct_index: correctIndex,
+      user_answer: userAnswer,
     });
     return response.data;
   },
 
   // 提交评分
   submitScores: async (
-    problemId: number,
+    reviewId: number,
     innovationScore: number,
     rigorScore: number,
+    comment?: string,
+    isVetoed?: boolean,
     vetoReason?: string
   ) => {
-    const response = await apiClient.post(`/reviews/${problemId}/score`, {
+    const response = await apiClient.post('/reviews/score', {
+      review_id: reviewId,
       innovation_score: innovationScore,
       rigor_score: rigorScore,
+      comment,
+      is_vetoed: isVetoed || false,
       veto_reason: vetoReason,
     });
     return response.data;
@@ -171,7 +198,7 @@ export const reviewApi = {
 
   // 获取我的评分记录
   getMyReviews: async () => {
-    const response = await apiClient.get<Review[]>('/reviews/my');
+    const response = await apiClient.get<Review[]>('/reviews/my-reviews');
     return response.data;
   },
 };

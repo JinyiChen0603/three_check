@@ -18,7 +18,7 @@ import MaterialsSimple from './pages/Materials/Simple';
 import AdminSimple from './pages/Admin/Simple';
 import Tasks from './pages/Tasks';  // 使用完整版任务管理页面
 import ReviewSimple from './pages/Review/Simple';
-import ProblemSimple from './pages/Problem/Simple';
+import Problem from './pages/Problem';
 
 // 创建 React Query 客户端
 const queryClient = new QueryClient({
@@ -67,7 +67,7 @@ function App() {
               />
               <Route 
                 path="problem" 
-                element={<ProblemSimple />} 
+                element={<Problem />} 
               />
               <Route 
                 path="review" 

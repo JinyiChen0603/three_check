@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import init_db, close_db
+from app.services.problem_storage import init_mongodb, close_mongodb
 
 
 @asynccontextmanager
@@ -19,13 +20,22 @@ async def lifespan(app: FastAPI):
     # 启动时
     print(f"🚀 启动 {settings.APP_NAME} v{settings.VERSION}")
     await init_db()
-    print("✅ 数据库连接成功")
+    print("✅ PostgreSQL连接成功")
+    
+    # 初始化MongoDB
+    if settings.MONGODB_URL:
+        init_mongodb(settings.MONGODB_URL)
+        print("✅ MongoDB连接成功")
+    else:
+        print("⚠️ MongoDB URL未配置，题目内容将存储在PostgreSQL")
     
     yield
     
     # 关闭时
     print("🛑 关闭数据库连接...")
     await close_db()
+    if settings.MONGODB_URL:
+        await close_mongodb()
     print("👋 再见！")
 
 

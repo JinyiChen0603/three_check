@@ -19,12 +19,17 @@ export const apiClient = axios.create({
 apiClient.interceptors.request.use(
   (config: any) => {
     const token = localStorage.getItem(TOKEN_KEY);
+    console.log('🔵 [API Request]', config.method?.toUpperCase(), config.url, {
+      hasToken: !!token,
+      data: config.data,
+    });
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
   (error: AxiosError) => {
+    console.error('❌ [API Request Error]', error);
     return Promise.reject(error);
   }
 );
@@ -32,9 +37,18 @@ apiClient.interceptors.request.use(
 // 响应拦截器 - 统一错误处理
 apiClient.interceptors.response.use(
   (response) => {
+    console.log('✅ [API Response]', response.config.method?.toUpperCase(), response.config.url, {
+      status: response.status,
+      data: response.data,
+    });
     return response;
   },
   (error: AxiosError<any>) => {
+    console.error('❌ [API Error]', error.config?.method?.toUpperCase(), error.config?.url, {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message,
+    });
     // 处理HTTP错误
     if (error.response) {
       const { status, data } = error.response;

@@ -172,11 +172,14 @@ class Problem(Base):
     # 母题关系（自关联）
     parent_problem_id = Column(Integer, ForeignKey("problems.id"), nullable=True, index=True)
     
-    # 题目内容
+    # MongoDB关联
+    mongo_id = Column(String(24), unique=True, nullable=True, index=True)  # MongoDB ObjectId
+    
+    # 题目内容（已迁移到MongoDB，保留字段用于兼容）
     title = Column(String(200), nullable=False)
-    content = Column(JSON, nullable=False)  # 题目详细内容（JSON格式）
-    explanation = Column(Text, nullable=True)  # 题目解析
-    answer = Column(Text, nullable=False)   # 标准答案
+    content = Column(JSON, nullable=True)  # 题目详细内容（JSON格式）- 已迁移到MongoDB
+    explanation = Column(Text, nullable=True)  # 题目解析 - 已迁移到MongoDB
+    answer = Column(Text, nullable=True)   # 标准答案 - 已迁移到MongoDB
     difficulty = Column(Integer, nullable=True)  # 难度等级 1-5
     category = Column(Enum(MaterialCategory), nullable=True, index=True)  # 题目分类
     
@@ -193,7 +196,7 @@ class Problem(Base):
         nullable=False,
         index=True
     )
-    validation_result = Column(JSON, nullable=True)  # 验证结果详情（8次AI验证的记录）
+    validation_result = Column(JSON, nullable=True)  # 验证结果详情（8次AI验证的记录）- 已迁移到MongoDB
     validation_correct_count = Column(Integer, nullable=True)  # 验证正确次数
     validation_completed_at = Column(DateTime, nullable=True)
     
@@ -207,7 +210,7 @@ class Problem(Base):
     
     # 质检字段（三个维度）
     quality_check = Column(JSON, nullable=True)  # 质检结果 {"difficulty": bool, "originality": bool, "rigor": bool}
-    quality_check_details = Column(JSON, nullable=True)  # 质检详细信息
+    quality_check_details = Column(JSON, nullable=True)  # 质检详细信息 - 已迁移到MongoDB
     
     # 人工质检
     human_review_status = Column(

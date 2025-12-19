@@ -22,6 +22,25 @@ services:
     networks:
       - mathtasks-network
 
+  # MongoDB 数据库（用于存储题目内容）
+  mongodb:
+    image: mongo:7.0
+    container_name: mathtasks-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: mongodb123
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mathtasks-network
+
   # FastAPI 应用
   api:
     build:
@@ -32,6 +51,7 @@ services:
       - .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://mathtasks:mathtasks123@postgres:5432/mathtasks
+      - MONGODB_URL=mongodb://admin:mongodb123@mongodb:27017/?authSource=admin
     volumes:
       - .:/app
       - /app/__pycache__
@@ -39,6 +59,8 @@ services:
       - "8001:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      mongodb:
         condition: service_healthy
     networks:
       - mathtasks-network
@@ -63,6 +85,7 @@ services:
 
 volumes:
   postgres_data:
+  mongodb_data:
 
 networks:
   mathtasks-network:

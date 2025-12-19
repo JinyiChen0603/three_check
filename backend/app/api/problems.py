@@ -18,43 +18,80 @@ import json
 
 from app.database import get_db
 from app.models import (
-    User, Problem, ProblemStatus, ProblemSourceType,
+    User, UserRole,
+    Problem, ProblemStatus, ProblemSourceType,
     ProblemValidationStatus, HumanReviewStatus, MaterialCategory,
-    ValidationRecord, Transaction, TransactionType, TransactionStatus
+    ValidationRecord, Transaction, TransactionType, TransactionStatus,
+    Task, TaskType, TaskStatus
 )
 from app.api.deps import get_current_user
 from app.services.ocr_service import ocr_service
 from app.services.validation_service import validation_service, quality_check_service
-from app.services.deep_transformer_service import deep_transformer_service
+from app.services.ai_service import deepseek_service
+from app.services.problem_storage import get_problem_storage_service
 from app.config import settings
 
 
 router = APIRouter()
 
 
-# ==================== 辅助函数 ====================
+async def _mark_create_task_progress(
+    db: AsyncSession,
+    user_id: int,
+    problem_id: int
+):
+    """创建题目后，自动推进进行中的出题任务进度"""
+    now = datetime.utcnow()
+    result = await db.execute(
+        select(Task).where(
+            Task.user_id == user_id,
+            Task.task_type == TaskType.CREATE_PROBLEM,
+            Task.status == TaskStatus.IN_PROGRESS
+        ).order_by(Task.claimed_at.asc())
+    )
+    task = result.scalars().first()
+    if not task:
+        return
+    # 超时处理
+    if task.expires_at and now > task.expires_at:
+        task.status = TaskStatus.TIMEOUT
+        await db.commit()
+        return
+    task.completed_count = (task.completed_count or 0) + 1
+    # 记录最近创建的题目ID
+    task.problem_id = problem_id
+    if task.completed_count >= task.total_count:
+        task.status = TaskStatus.SUBMITTED
+        task.submitted_at = now
+    await db.commit()
 
-def extract_problem_content(content) -> str:
+
+async def _rollback_create_task_progress(
+    db: AsyncSession,
+    user_id: int
+) -> bool:
     """
-    从 content 字段中提取纯文本题目内容
-    
-    支持格式：
-    - 纯文本: "题目内容"
-    - JSON对象: {"problem": "题目内容"}
-    - 其他格式: 转成字符串
+    回退出题任务额度：
+    - 找到该用户的出题任务（create_problem），状态为 IN_PROGRESS 或 SUBMITTED，且 completed_count > 0
+    - completed_count -1，若原本是 SUBMITTED 则改回 IN_PROGRESS（撤销提交）
     """
-    if isinstance(content, dict):
-        # 尝试提取 problem 字段
-        if 'problem' in content:
-            return str(content['problem'])
-        # 如果没有 problem 字段，尝试其他常见字段
-        for key in ['content', 'text', 'question']:
-            if key in content:
-                return str(content[key])
-        # 都没有，转成字符串
-        return str(content)
-    else:
-        return str(content)
+    result = await db.execute(
+        select(Task).where(
+            Task.user_id == user_id,
+            Task.task_type == TaskType.CREATE_PROBLEM,
+            Task.status.in_([TaskStatus.IN_PROGRESS, TaskStatus.SUBMITTED]),
+            Task.completed_count > 0
+        ).order_by(Task.claimed_at.desc())
+    )
+    task = result.scalars().first()
+    if not task:
+        return False
+    task.completed_count = max(0, (task.completed_count or 0) - 1)
+    if task.status == TaskStatus.SUBMITTED:
+        task.status = TaskStatus.IN_PROGRESS
+        task.submitted_at = None
+    await db.commit()
+    return True
 
 
 # ==================== Pydantic 模型 ====================
@@ -286,33 +323,79 @@ async def create_problem(
                 detail="母题已达到最大变形次数（10次）"
             )
     
-    # 创建题目
-    new_problem = Problem(
-        creator_id=current_user.id,
-        parent_problem_id=request.parent_problem_id,
-        title=request.title,
-        content=request.content,
-        explanation=request.explanation,
-        answer=request.answer,
-        category=category_enum,
-        source_type=ProblemSourceType(request.source_type),
-        ocr_image_url=request.ocr_image_url,
-        status=ProblemStatus.DRAFT,
-        validation_status=ProblemValidationStatus.NOT_VALIDATED,
-        human_review_status=HumanReviewStatus.PENDING,
-        variant_count=0
-    )
-    
-    db.add(new_problem)
-    
-    # 如果是变体，更新母题的变形次数
-    if parent_problem:
-        parent_problem.variant_count += 1
-    
-    await db.commit()
-    await db.refresh(new_problem)
-    
-    return new_problem
+    # 使用ProblemStorageService创建题目（PostgreSQL + MongoDB）
+    try:
+        storage_service = get_problem_storage_service()
+        
+        # 分离元数据和内容
+        problem_metadata = {
+            "creator_id": current_user.id,
+            "parent_problem_id": request.parent_problem_id,
+            "title": request.title,
+            "category": category_enum,
+            "source_type": ProblemSourceType(request.source_type),
+            "ocr_image_url": request.ocr_image_url,
+            "status": ProblemStatus.DRAFT,
+            "validation_status": ProblemValidationStatus.NOT_VALIDATED,
+            "human_review_status": HumanReviewStatus.PENDING,
+            "variant_count": 0
+        }
+        
+        problem_content = {
+            "content": request.content,
+            "explanation": request.explanation,
+            "answer": request.answer,
+            "validation_result": None,
+            "quality_check_details": None
+        }
+        
+        # 创建题目（同时写入PostgreSQL和MongoDB）
+        problem_id, mongo_id = await storage_service.create_problem(
+            db=db,
+            problem_metadata=problem_metadata,
+            problem_content=problem_content
+        )
+        await _mark_create_task_progress(db, current_user.id, problem_id)
+        
+        # 如果是变体，更新母题的变形次数
+        if parent_problem:
+            parent_problem.variant_count += 1
+            await db.commit()
+        
+        # 获取完整题目数据返回
+        full_problem = await storage_service.get_problem(db, problem_id)
+        
+        return full_problem
+        
+    except RuntimeError:
+        # MongoDB未配置，使用PostgreSQL存储（兼容模式）
+        new_problem = Problem(
+            creator_id=current_user.id,
+            parent_problem_id=request.parent_problem_id,
+            title=request.title,
+            content=request.content,
+            explanation=request.explanation,
+            answer=request.answer,
+            category=category_enum,
+            source_type=ProblemSourceType(request.source_type),
+            ocr_image_url=request.ocr_image_url,
+            status=ProblemStatus.DRAFT,
+            validation_status=ProblemValidationStatus.NOT_VALIDATED,
+            human_review_status=HumanReviewStatus.PENDING,
+            variant_count=0
+        )
+        
+        db.add(new_problem)
+        
+        if parent_problem:
+            parent_problem.variant_count += 1
+        
+        await db.commit()
+        await db.refresh(new_problem)
+        
+        await _mark_create_task_progress(db, current_user.id, new_problem.id)
+        
+        return new_problem
 
 
 @router.post("/{problem_id}/generate-variant", summary="生成题目变体")
@@ -353,37 +436,46 @@ async def generate_variant(
             detail="母题已达到最大变形次数（10次）"
         )
     
-    # 生成变体（使用 Gemini API）
+    # 生成变体：优先从 MongoDB 读取完整内容，取不到再用 Postgres 字段
     try:
-        # 提取纯文本题目内容
-        original_content = extract_problem_content(parent_problem.content)
-        
-        # 调用 deep_transformer_service 生成变体
-        variant_result = deep_transformer_service.generate_problem_variant_with_explanation(
-            original_content=original_content,
-            original_explanation=parent_problem.explanation or "",
-            original_answer=parent_problem.answer,
-            modification_requirement=request.custom_prompt or "",
-            max_tokens=10000,
-            temperature=0.7,
-            use_stream=True
-        )
-        
-        # 转换返回格式以匹配原有接口
-        return {
-            "success": True,
-            "parent_problem_id": problem_id,
-            "variant_count": parent_problem.variant_count + 1,
-            "new_problem": variant_result["variant_content"],
-            "new_answer": variant_result["variant_answer"],
-            "new_explanation": variant_result["variant_explanation"],
-            "note": "请检查生成的变体，确认无误后可以创建为新题目"
-        }
-    except Exception as e:
+        storage_service = get_problem_storage_service()
+        full_problem = await storage_service.get_problem(db, problem_id)
+        problem_content = full_problem.get("content", {})
+        problem_answer = full_problem.get("answer", "") or ""
+        problem_explanation = full_problem.get("explanation", "") or ""
+    except RuntimeError:
+        problem_content = parent_problem.content if parent_problem.content else {}
+        problem_answer = parent_problem.answer or ""
+        problem_explanation = parent_problem.explanation or ""
+
+    if isinstance(problem_content, dict):
+        # 若有 text 字段，用 text；否则序列化整个内容
+        problem_text = problem_content.get("text") or json.dumps(problem_content, ensure_ascii=False)
+    else:
+        problem_text = problem_content or ""
+
+    variant_result = await deepseek_service.generate_variant(
+        original_problem=problem_text,
+        original_answer=problem_answer,
+        original_explanation=problem_explanation,
+        custom_prompt=request.custom_prompt
+    )
+    
+    if not variant_result["success"]:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"生成变体失败: {str(e)}"
+            detail=f"生成变体失败: {variant_result.get('error', '未知错误')}"
         )
+
+    # 返回生成的变体内容给前端，用于创建题目
+    return {
+        "success": True,
+        "new_problem": variant_result.get("new_problem"),
+        "new_answer": variant_result.get("new_answer"),
+        "new_explanation": variant_result.get("new_explanation"),
+        "model": variant_result.get("model"),
+        "tokens": variant_result.get("tokens"),
+    }
 
 
 @router.post("/{problem_id}/quality-check", summary="三维质检")
@@ -418,12 +510,25 @@ async def quality_check(
             detail="只能质检自己创建的题目"
         )
     
+    # 获取完整题目内容（从MongoDB）
+    try:
+        storage_service = get_problem_storage_service()
+        full_problem = await storage_service.get_problem(db, problem_id)
+        problem_content = full_problem.get("content", {})
+        problem_answer = full_problem.get("answer", "")
+        problem_explanation = full_problem.get("explanation", "")
+    except RuntimeError:
+        # MongoDB未配置，使用PostgreSQL数据（兼容模式）
+        problem_content = problem.content if problem.content else {}
+        problem_answer = problem.answer if problem.answer else ""
+        problem_explanation = problem.explanation if problem.explanation else ""
+    
     # 执行质检
     problem.validation_status = ProblemValidationStatus.VALIDATING
     await db.commit()
     
     check_result = await quality_check_service.full_quality_check(
-        problem=extract_problem_content(problem.content),
+        problem=json.dumps(problem.content) if isinstance(problem.content, dict) else problem.content,
         answer=problem.answer,
         explanation=problem.explanation
     )
@@ -438,7 +543,6 @@ async def quality_check(
     
     # 更新题目质检结果
     problem.quality_check = check_result["summary"]
-    problem.quality_check_details = check_result
     problem.validation_status = (
         ProblemValidationStatus.PASSED
         if check_result["all_passed"]
@@ -449,6 +553,20 @@ async def quality_check(
     # 如果质检通过，更新状态为待审核
     if check_result["all_passed"]:
         problem.status = ProblemStatus.PENDING_REVIEW
+    
+    # 更新MongoDB中的质检详情
+    try:
+        storage_service = get_problem_storage_service()
+        await storage_service.update_problem_content(
+            db=db,
+            problem_id=problem_id,
+            updates={"quality_check_details": check_result}
+        )
+    except RuntimeError:
+        # MongoDB未配置，使用PostgreSQL存储（兼容模式）
+        problem.quality_check_details = check_result
+    
+    await db.commit()
     
     # 保存验证记录
     for check_type, check_data in [
@@ -479,6 +597,160 @@ async def quality_check(
             else "❌ 质检未通过，请根据反馈修改题目或选择放弃。"
         )
     }
+
+
+@router.post("/{problem_id}/submit-for-review", summary="提交题目到审核")
+async def submit_for_review(
+    problem_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    提交题目到人工审核队列
+    要求：
+    - 题目存在
+    - 仅创建者或管理员可提交
+    - 状态必须是 DRAFT（或尚未进入审核）
+    - 质检必须通过（validation_status == PASSED）
+    """
+    result = await db.execute(select(Problem).where(Problem.id == problem_id))
+    problem = result.scalar_one_or_none()
+    
+    if not problem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="题目不存在")
+    
+    # 权限检查
+    if problem.creator_id != current_user.id and current_user.role.value != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权提交该题目")
+    
+    if problem.status not in [ProblemStatus.DRAFT, ProblemStatus.PENDING_REVIEW]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前状态不可提交审核")
+    
+    if problem.validation_status != ProblemValidationStatus.PASSED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="质检未通过，无法提交审核")
+    
+    problem.status = ProblemStatus.PENDING_REVIEW
+    await db.commit()
+    await db.refresh(problem)
+    return problem
+
+
+@router.post("/{problem_id}/approve", summary="管理员审核通过")
+async def approve_problem(
+    problem_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    管理员审核通过：
+    - 功能可通过配置关闭（ADMIN_APPROVAL_ENABLED=False 时拒绝调用）
+    - 仅 admin 可操作
+    - 状态更新为 PUBLISHED
+    - 记录人工审核通过
+    - 发放出题奖励
+    """
+    if not settings.ADMIN_APPROVAL_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="管理员审核功能当前已关闭"
+        )
+
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅管理员可审核")
+    
+    result = await db.execute(select(Problem).where(Problem.id == problem_id))
+    problem = result.scalar_one_or_none()
+    if not problem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="题目不存在")
+    
+    problem.status = ProblemStatus.PUBLISHED
+    problem.human_review_status = HumanReviewStatus.APPROVED
+    problem.human_review_note = None
+    problem.published_at = datetime.utcnow()
+    
+    # 发放出题奖励
+    transaction = Transaction(
+        user_id=problem.creator_id,
+        amount=settings.PROBLEM_REWARD,
+        transaction_type=TransactionType.PROBLEM_REWARD,
+        related_problem_id=problem.id,
+        status=TransactionStatus.CONFIRMED,
+        description=f"题目 #{problem.id} 审核通过奖励",
+        confirmed_at=datetime.utcnow()
+    )
+    db.add(transaction)
+    
+    # 更新用户余额
+    user_result = await db.execute(select(User).where(User.id == problem.creator_id))
+    creator = user_result.scalar_one_or_none()
+    if creator:
+        creator.balance += settings.PROBLEM_REWARD
+        transaction.balance_after = creator.balance
+    
+    await db.commit()
+    await db.refresh(problem)
+    return problem
+
+
+@router.post("/{problem_id}/reject", summary="管理员审核拒绝")
+async def reject_problem(
+    problem_id: int,
+    reason: str = Form(..., description="拒绝理由"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    管理员审核拒绝：
+    - 功能可通过配置关闭（ADMIN_APPROVAL_ENABLED=False 时拒绝调用）
+    - 状态退回 DRAFT
+    - 记录人工审核状态和理由
+    """
+    if not settings.ADMIN_APPROVAL_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="管理员审核功能当前已关闭"
+        )
+
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅管理员可审核")
+    
+    result = await db.execute(select(Problem).where(Problem.id == problem_id))
+    problem = result.scalar_one_or_none()
+    if not problem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="题目不存在")
+    
+    problem.status = ProblemStatus.DRAFT
+    problem.human_review_status = HumanReviewStatus.REJECTED
+    problem.human_review_note = reason
+    await db.commit()
+    await db.refresh(problem)
+    return problem
+
+
+@router.post("/{problem_id}/rollback-task", summary="回退出题任务进度（撤销额度）")
+async def rollback_task_progress(
+    problem_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    回退出题任务额度：
+    - 限创建者或管理员
+    - 将该用户的出题任务 completed_count -1，若任务已 SUBMITTED 则改回 IN_PROGRESS
+    - 不删除题目，仅用于额度回退
+    """
+    result = await db.execute(select(Problem).where(Problem.id == problem_id))
+    problem = result.scalar_one_or_none()
+    if not problem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="题目不存在")
+    if problem.creator_id != current_user.id and current_user.role.value != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权操作该题目")
+    
+    success = await _rollback_create_task_progress(db, current_user.id)
+    if not success:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="没有可回退的出题任务额度")
+    
+    return {"success": True, "message": "已回退出题任务额度，如有需要请自行处理题目状态/删除"}
 
 
 @router.get("/my-problems", summary="查看我创建的题目")
@@ -532,24 +804,32 @@ async def get_problem(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """获取指定题目的详细信息"""
+    """获取指定题目的详细信息（从PostgreSQL和MongoDB合并）"""
+    # 先检查权限
     result = await db.execute(
         select(Problem).where(Problem.id == problem_id)
     )
-    problem = result.scalar_one_or_none()
+    problem_meta = result.scalar_one_or_none()
     
-    if not problem:
+    if not problem_meta:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="题目不存在"
         )
     
     # 只有创建者或管理员可以查看题目详情
-    if problem.creator_id != current_user.id and current_user.role.value != "admin":
+    if problem_meta.creator_id != current_user.id and current_user.role.value != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权查看该题目"
         )
     
-    return problem
+    # 使用ProblemStorageService获取完整数据
+    try:
+        storage_service = get_problem_storage_service()
+        full_problem = await storage_service.get_problem(db, problem_id)
+        return full_problem
+    except RuntimeError:
+        # MongoDB未配置，返回PostgreSQL数据（兼容模式）
+        return problem_meta
 

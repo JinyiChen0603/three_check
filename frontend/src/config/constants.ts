@@ -2,34 +2,38 @@
  * 全局常量配置
  */
 
-// API 基础 URL
-export const API_BASE_URL = 'http://localhost:8001/api';
+// API 基础 URL（优先读取环境变量，默认使用相对路径以便通过反向代理）
+export const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || '/api';
 
 // Token 存储 key
 export const TOKEN_KEY = 'mathtasks_token';
 export const USER_INFO_KEY = 'mathtasks_user';
 
-// 用户角色
-export enum UserRole {
-  ADMIN = 'admin',
-  USER = 'user'
-}
+// 用户角色（对象 + 字面量类型，避免使用 enum 以兼容 erasableSyntaxOnly）
+export const UserRole = {
+  ADMIN: 'admin',
+  USER: 'user',
+} as const;
+export type UserRole = (typeof UserRole)[keyof typeof UserRole];
 
 // 任务类型
-export enum TaskType {
-  PROBLEM_CREATION = 'problem_creation',
-  PROBLEM_REVIEW = 'problem_review'
-}
+export const TaskType = {
+  PROBLEM_CREATION: 'problem_creation',
+  PROBLEM_REVIEW: 'problem_review',
+} as const;
+export type TaskType = (typeof TaskType)[keyof typeof TaskType];
 
 // 任务状态
-export enum TaskStatus {
-  AVAILABLE = 'available',
-  CLAIMED = 'claimed',
-  IN_PROGRESS = 'in_progress',
-  SUBMITTED = 'submitted',
-  COMPLETED = 'completed',
-  REJECTED = 'rejected'
-}
+export const TaskStatus = {
+  AVAILABLE: 'available',
+  CLAIMED: 'claimed',
+  IN_PROGRESS: 'in_progress',
+  SUBMITTED: 'submitted',
+  COMPLETED: 'completed',
+  REJECTED: 'rejected',
+} as const;
+export type TaskStatus = (typeof TaskStatus)[keyof typeof TaskStatus];
 
 // 业务常量
 export const BUSINESS_CONSTANTS = {

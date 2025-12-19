@@ -81,6 +81,9 @@ cat > .env << 'EOF'
 # 数据库配置
 DATABASE_URL=postgresql+asyncpg://mathtasks:mathtasks123@postgres:5432/mathtasks
 
+# MongoDB配置（用于存储题目内容，可选）
+MONGODB_URL=mongodb://admin:mongodb123@mongodb:27017/?authSource=admin
+
 # 应用配置
 APP_NAME=MathTasks
 DEBUG=true
@@ -89,15 +92,22 @@ ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=10080
 
 # AI API Keys（请填入您的真实API Key）
-DEEPSEEK_API_KEY=sk-your-deepseek-api-key-here
-DEEPSEEK_MATH_MODEL=deepseek-math-v2
+# OpenRouter（用于 GPT 模型调用）
+OPENROUTER_API_KEY=sk-your-openrouter-api-key-here
 
+# Canopy Wave（用于 DeepSeek Math-V2 调用）
+CANOPY_WAVE_API_KEY=sk-your-canopy-wave-api-key-here
+DEEPSEEK_MATH_MODEL=deepseek-ai/DeepSeek-Math-V2
+
+# 保留旧的配置以兼容性
 OPENAI_API_KEY=sk-your-openai-api-key-here
-OPENAI_GPT4_MODEL=gpt-4o
-OPENAI_OCR_MODEL=gpt-4o
+OPENAI_GPT4_MODEL=openai/gpt-4o
+OPENAI_OCR_MODEL=openai/gpt-4o
+DEEPSEEK_API_KEY=sk-your-deepseek-api-key-here
 
+# Doubao（用于对抗验证）
 DOUBAO_API_KEY=your-doubao-api-key-here
-DOUBAO_MODEL=doubao-seed-thinking-250715
+DOUBAO_MODEL=doubao-seed-1-6-thinking-250715
 
 # 业务配置
 PROBLEM_REWARD=30.0
@@ -128,10 +138,7 @@ docker-compose logs -f api
 ### 步骤 3: 创建数据库迁移并初始化
 
 ```bash
-# 1. 创建数据库迁移
-docker-compose exec api alembic revision --autogenerate -m "Initial schema with all tables"
-
-# 2. 应用迁移
+# 1. 应用数据库迁移（包括添加mongo_id字段）
 docker-compose exec api alembic upgrade head
 
 # 3. 初始化用户（管理员和普通用户）

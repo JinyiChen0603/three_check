@@ -16,7 +16,8 @@ import random
 
 from app.database import get_db
 from app.models import (
-    User, Problem, Review, ReviewStatus, Task, TaskStatus,
+    User, Problem, ProblemStatus, HumanReviewStatus,
+    Review, ReviewStatus, Task, TaskStatus, TaskType,
     Transaction, TransactionType, TransactionStatus
 )
 from app.api.deps import get_current_user
@@ -25,6 +26,37 @@ from app.config import settings
 
 
 router = APIRouter()
+
+
+async def _get_review_task_or_error(
+    db: AsyncSession,
+    user_id: int,
+    problem_id: int
+) -> Task:
+    """校验并获取用户的评分任务（必须是进行中且未过期）"""
+    now = datetime.utcnow()
+    result = await db.execute(
+        select(Task).where(
+            Task.user_id == user_id,
+            Task.task_type == TaskType.REVIEW_PROBLEM,
+            Task.problem_id == problem_id,
+            Task.status == TaskStatus.IN_PROGRESS
+        ).order_by(Task.claimed_at.asc())
+    )
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="当前题目未分配给你的评分任务，或已处理完成"
+        )
+    if task.expires_at and now > task.expires_at:
+        task.status = TaskStatus.TIMEOUT
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="任务已超时"
+        )
+    return task
 
 
 # ==================== Pydantic 模型 ====================
@@ -40,7 +72,9 @@ class ChoicesResponse(BaseModel):
 class VerifyCorrectnessRequest(BaseModel):
     """验证正确性请求"""
     problem_id: int
-    selected_index: int = Field(..., ge=0, le=3, description="选择的选项索引（0-3）")
+    selected_index: int = Field(..., ge=0, le=10, description="选择的选项索引")
+    selected_answer: Optional[str] = Field(None, description="选择的答案文本（用于确保顺序一致）")
+    correct_index: Optional[int] = Field(None, description="正确答案的索引（来自获取选项接口）")
     user_answer: Optional[str] = Field(None, description="用户判断错误时的说明")
 
 
@@ -103,6 +137,9 @@ async def get_problem_choices(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="不能评分自己出的题目"
         )
+    
+    # 校验任务（评分任务必须存在且未超时）
+    task = await _get_review_task_or_error(db, current_user.id, problem.id)
     
     # 生成3个相似的错误答案
     similar_result = await gpt_service.generate_similar_answers(
@@ -178,28 +215,27 @@ async def verify_correctness(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="不能评分自己出的题目"
         )
+
+    # 校验并获取对应的评分任务
+    task = await _get_review_task_or_error(db, current_user.id, problem.id)
     
-    # 重新生成选项（应该与之前一致，实际应用中可以缓存）
-    similar_result = await gpt_service.generate_similar_answers(
-        problem=str(problem.content),
-        correct_answer=problem.answer,
-        count=3
-    )
-    
-    choices = [problem.answer] + similar_result["similar_answers"][:3]
-    
-    # 这里简化处理，实际应该使用缓存的选项顺序
-    # 假设前端传来的是正确答案的索引
-    is_correct = (request.selected_index == 0)  # 简化处理
+    # 判定正确性（使用传回的选项文本优先，避免顺序不一致）
+    is_correct = False
+    if request.selected_answer is not None:
+        is_correct = str(request.selected_answer).strip() == str(problem.answer).strip()
+    elif request.correct_index is not None:
+        is_correct = (request.selected_index == request.correct_index)
     
     # 创建或更新评分记录
     review = Review(
         problem_id=problem.id,
         reviewer_id=current_user.id,
+        task_id=task.id,
         is_answer_correct=is_correct,
         correctness_verification={
             "selected_index": request.selected_index,
-            "selected_answer": choices[request.selected_index] if request.selected_index < len(choices) else "",
+            "selected_answer": request.selected_answer,
+            "correct_index": request.correct_index,
             "user_judgment": request.user_answer if not is_correct else None
         },
         status=ReviewStatus.PENDING
@@ -263,6 +299,19 @@ async def submit_score(
             detail="不能修改他人的评分"
         )
     
+    # 校验任务存在且未过期
+    task = None
+    if review.task_id:
+        task_result = await db.execute(select(Task).where(Task.id == review.task_id))
+        task = task_result.scalar_one_or_none()
+    if not task:
+        # 尝试按问题匹配一个评分任务
+        try:
+            task = await _get_review_task_or_error(db, current_user.id, review.problem_id)
+            review.task_id = task.id
+        except HTTPException:
+            task = None
+    
     # 验证一票否决必须有理由
     if request.is_vetoed and not request.veto_reason:
         raise HTTPException(
@@ -305,9 +354,31 @@ async def submit_score(
         problem.avg_innovation_score = float(stats.avg_innovation) if stats.avg_innovation else None
         problem.avg_rigor_score = float(stats.avg_rigor) if stats.avg_rigor else None
         problem.review_count = stats.review_count
+
+        # 评分完成后的状态流转
+        if request.is_vetoed:
+            # 一票否决，退回草稿并记录原因
+            problem.status = ProblemStatus.DRAFT
+            problem.human_review_status = HumanReviewStatus.NEED_MODIFICATION
+            problem.human_review_note = request.veto_reason
+        else:
+            # 达到最低评分数则发布（当前阈值 1，可按需调整或配置化）
+            min_reviews_for_publish = 1
+            if (problem.review_count or 0) >= min_reviews_for_publish:
+                problem.status = ProblemStatus.PUBLISHED
+                problem.published_at = datetime.utcnow()
+                problem.human_review_status = HumanReviewStatus.APPROVED
     
     # 增加用户的评分完成计数
     current_user.reviews_completed_count += 1
+    
+    # 更新任务进度
+    now = datetime.utcnow()
+    if task and task.status == TaskStatus.IN_PROGRESS:
+        task.completed_count = (task.completed_count or 0) + 1
+        if task.completed_count >= task.total_count:
+            task.status = TaskStatus.SUBMITTED
+            task.submitted_at = now
     
     # 创建奖励交易（7元）
     transaction = Transaction(

@@ -2,7 +2,7 @@
  * 出题流程页面
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Card,
   Steps,
@@ -14,12 +14,9 @@ import {
   message,
   Table,
   Tag,
-  Progress,
   Alert,
   Divider,
   Modal,
-  Form,
-  Tabs,
 } from 'antd';
 import {
   UploadOutlined,
@@ -32,13 +29,13 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons';
 import { problemApi } from '../../api';
-import { Problem, QualityCheck } from '../../types';
+import type { Problem } from '../../types';
 import { BUSINESS_CONSTANTS } from '../../config/constants';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 const { TextArea } = Input;
-const { Step } = Steps;
-const { TabPane } = Tabs;
+
+type ValidationStatus = 'pending' | 'queued' | 'validating' | 'passed' | 'failed';
 
 interface ProblemItem {
   key: string;
@@ -46,7 +43,7 @@ interface ProblemItem {
   content: string;
   answer: string;
   explanation?: string;
-  validationStatus?: 'pending' | 'validating' | 'passed' | 'failed';
+  validationStatus?: ValidationStatus;
   validationResult?: any;
 }
 
@@ -57,22 +54,29 @@ interface VariantItem extends Problem {
 
 export default function ProblemCreation() {
   const [currentStep, setCurrentStep] = useState(0);
-  const [form] = Form.useForm();
 
   // 步骤1：母题验证
   const [problems, setProblems] = useState<ProblemItem[]>([]);
+  const problemsRef = useRef<ProblemItem[]>([]);
   const [ocrLoading, setOcrLoading] = useState(false);
 
-  // 步骤2：题目变形
-  const [parentProblem, setParentProblem] = useState<ProblemItem | null>(null);
-  const [transformPrompt, setTransformPrompt] = useState('');
-  const [variants, setVariants] = useState<VariantItem[]>([]);
-  const [variantCount, setVariantCount] = useState(0);
+  // 步骤2：题目变形（多母题）
+  const [parentProblems, setParentProblems] = useState<Array<{ id: number; source: ProblemItem }>>([]);
+  const [transformPrompts, setTransformPrompts] = useState<Record<number, string>>({});
+  const [variantsMap, setVariantsMap] = useState<Record<number, VariantItem[]>>({});
+  const [variantCountMap, setVariantCountMap] = useState<Record<number, number>>({});
 
-  // 步骤3：质量检查
-  const [selectedVariants, setSelectedVariants] = useState<number[]>([]);
+  const addParentProblem = (createdId: number, source: ProblemItem) => {
+    setParentProblems((prev) => [...prev, { id: createdId, source }]);
+    setVariantsMap((prev) => ({ ...prev, [createdId]: prev[createdId] || [] }));
+    setVariantCountMap((prev) => ({ ...prev, [createdId]: prev[createdId] || 0 }));
+    setTransformPrompts((prev) => ({ ...prev, [createdId]: prev[createdId] || '' }));
+  };
 
   // ==================== 步骤1：母题验证 ====================
+
+  const validationQueueRef = useRef<string[]>([]);
+  const isProcessingRef = useRef(false);
 
   const handleAddProblem = () => {
     setProblems([
@@ -86,8 +90,13 @@ export default function ProblemCreation() {
     ]);
   };
 
+  useEffect(() => {
+    problemsRef.current = problems;
+  }, [problems]);
+
   const handleRemoveProblem = (key: string) => {
     setProblems(problems.filter((p) => p.key !== key));
+    validationQueueRef.current = validationQueueRef.current.filter((k) => k !== key);
   };
 
   const handleProblemChange = (
@@ -128,49 +137,113 @@ export default function ProblemCreation() {
     return false; // 阻止自动上传
   };
 
-  const handleValidateSingle = async (problem: ProblemItem) => {
+  const enqueueProblems = (keys: string[]) => {
+    // 标记为排队中（仅对未通过/待验证状态更新）
+    setProblems((prev) =>
+      prev.map((p) =>
+        keys.includes(p.key)
+          ? {
+              ...p,
+              validationStatus:
+                p.validationStatus === 'validating' || p.validationStatus === 'queued'
+                  ? p.validationStatus
+                  : ('queued' as ValidationStatus),
+            }
+          : p
+      )
+    );
+    const existing = new Set(validationQueueRef.current);
+    keys.forEach((k) => {
+      if (!existing.has(k)) {
+        validationQueueRef.current.push(k);
+        existing.add(k);
+      }
+    });
+    // 如果当前未在处理，则启动；若之前可能卡住，强制重启处理
+    if (!isProcessingRef.current) {
+      processQueue();
+    } else if (validationQueueRef.current.length > 0) {
+      isProcessingRef.current = false;
+      processQueue();
+    }
+  };
+
+  const processQueue = async () => {
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
+    try {
+      while (true) {
+        const nextKey = validationQueueRef.current.shift();
+        if (!nextKey) break;
+
+        const current = problemsRef.current.find((p) => p.key === nextKey);
+        if (!current) {
+          console.warn('⚠️ [QUEUE] current not found for key', nextKey, 'skip validate');
+          continue;
+        }
+
+        setProblems((prev) => {
+          const updated = prev.map((p) => {
+            if (p.key === nextKey) {
+              return { ...p, validationStatus: 'validating' as ValidationStatus };
+            }
+            // 保证同一时间只有一个“验证中”，其他非终态的保持排队
+            if (p.validationStatus === 'validating') {
+              return { ...p, validationStatus: 'queued' as ValidationStatus };
+            }
+            return p;
+          });
+          return updated;
+        });
+
+        try {
+          console.log('🔵 [API] 调用 validateSingle', {
+            key: current.key,
+            content: current.content,
+            answer: current.answer,
+          });
+          const result = await problemApi.validateSingle(
+            current.content,
+            current.answer,
+            current.explanation
+          );
+          const passed = result.correct_count <= BUSINESS_CONSTANTS.VALIDATION_THRESHOLD;
+          setProblems((prev) =>
+            prev.map((p) =>
+              p.key === current!.key
+                ? {
+                    ...p,
+                    validationStatus: (passed ? 'passed' : 'failed') as ValidationStatus,
+                    validationResult: result,
+                  }
+                : p
+            )
+          );
+        } catch (err) {
+          setProblems((prev) =>
+            prev.map((p) =>
+              p.key === current!.key
+                ? { ...p, validationStatus: 'failed' as ValidationStatus }
+                : p
+            )
+          );
+        }
+      }
+    } finally {
+      isProcessingRef.current = false;
+      // 如果运行过程中又有新任务入队，继续处理
+      if (validationQueueRef.current.length > 0) {
+        processQueue();
+      }
+    }
+  };
+
+  const handleValidateSingle = (problem: ProblemItem) => {
     if (!problem.content || !problem.answer) {
       message.warning('请填写完整的题目和答案');
       return;
     }
-
-    // 更新状态为验证中
-    setProblems(
-      problems.map((p) =>
-        p.key === problem.key ? { ...p, validationStatus: 'validating' } : p
-      )
-    );
-
-    try {
-      const result = await problemApi.validateSingle(problem.content, problem.answer);
-      
-      const passed = result.correct_count <= BUSINESS_CONSTANTS.VALIDATION_THRESHOLD;
-      
-      setProblems(
-        problems.map((p) =>
-          p.key === problem.key
-            ? {
-                ...p,
-                validationStatus: passed ? 'passed' : 'failed',
-                validationResult: result,
-              }
-            : p
-        )
-      );
-
-      message.success(
-        passed
-          ? '验证通过！这个题目难度合适'
-          : '验证未通过，题目可能过于简单'
-      );
-    } catch (error) {
-      setProblems(
-        problems.map((p) =>
-          p.key === problem.key ? { ...p, validationStatus: 'failed' } : p
-        )
-      );
-      message.error('验证失败');
-    }
+    enqueueProblems([problem.key]);
   };
 
   const handleValidateBatch = async () => {
@@ -183,51 +256,47 @@ export default function ProblemCreation() {
       return;
     }
 
-    if (validProblems.length > BUSINESS_CONSTANTS.MAX_BATCH_VALIDATION) {
-      message.warning(
-        `批量验证最多支持 ${BUSINESS_CONSTANTS.MAX_BATCH_VALIDATION} 个题目`
-      );
-      return;
-    }
-
-    // 更新状态为验证中
+    // 并发上限（前端侧队列），避免一个卡住拖住全部
     const validKeys = validProblems.map((p) => p.key);
+
+    // 标记排队
     setProblems(
       problems.map((p) =>
-        validKeys.includes(p.key) ? { ...p, validationStatus: 'validating' } : p
+        validKeys.includes(p.key) ? { ...p, validationStatus: 'queued' } : p
       )
     );
 
+    enqueueProblems(validProblems.map((p) => p.key));
+    message.success('已加入验证队列');
+  };
+
+  const handleBatchUse = async () => {
+    const passed = problems.filter((p) => p.validationStatus === 'passed');
+    if (passed.length === 0) {
+      message.warning('请先完成验证并选择通过的题目');
+      return;
+    }
     try {
-      const result = await problemApi.validateBatch(
-        validProblems.map((p) => ({ content: p.content, answer: p.answer }))
-      );
-
-      // 更新验证结果
-      setProblems(
-        problems.map((p, index) => {
-          if (!validKeys.includes(p.key)) return p;
-          
-          const resultIndex = validKeys.indexOf(p.key);
-          const itemResult = result[resultIndex];
-          const passed = itemResult.correct_count <= BUSINESS_CONSTANTS.VALIDATION_THRESHOLD;
-          
-          return {
-            ...p,
-            validationStatus: passed ? 'passed' : 'failed',
-            validationResult: itemResult,
-          };
-        })
-      );
-
-      message.success('批量验证完成');
-    } catch (error) {
-      message.error('批量验证失败');
-      setProblems(
-        problems.map((p) =>
-          validKeys.includes(p.key) ? { ...p, validationStatus: 'failed' } : p
-        )
-      );
+      const createdList: Array<{ id: number; source: ProblemItem }> = [];
+      for (const item of passed) {
+        const problemData = {
+          title: `母题-${Date.now()}`,
+          content: { text: item.content },
+          explanation: item.explanation,
+          answer: item.answer,
+          category: 'high_school_comprehensive',
+          source_type: 'manual',
+        };
+        const created = await problemApi.createProblem(problemData);
+        createdList.push({ id: created.id, source: item });
+        addParentProblem(created.id, item);
+      }
+      if (createdList.length > 0) {
+        setCurrentStep(1);
+        message.success(`批量使用成功，已创建 ${createdList.length} 个母题`);
+      }
+    } catch (error: any) {
+      message.error('批量使用失败: ' + (error.response?.data?.detail || error.message));
     }
   };
 
@@ -240,11 +309,45 @@ export default function ProblemCreation() {
       render: (text: string, record: ProblemItem) => (
         <TextArea
           value={text}
+          disabled={record.validationStatus === 'validating' || record.validationStatus === 'queued' || record.validationStatus === 'passed'}
+          style={{
+            fontWeight:
+              record.validationStatus === 'passed' || record.validationStatus === 'failed'
+                ? 600
+                : undefined,
+          }}
           onChange={(e) =>
             handleProblemChange(record.key, 'content', e.target.value)
           }
           placeholder="请输入题目内容..."
           rows={3}
+        />
+      ),
+    },
+    {
+      title: '解析',
+      dataIndex: 'explanation',
+      key: 'explanation',
+      width: '25%',
+      render: (text: string, record: ProblemItem) => (
+        <TextArea
+          value={text}
+          disabled={
+            record.validationStatus === 'validating' ||
+            record.validationStatus === 'queued' ||
+            record.validationStatus === 'passed'
+          }
+          style={{
+            fontWeight:
+              record.validationStatus === 'passed' || record.validationStatus === 'failed'
+                ? 600
+                : undefined,
+          }}
+          onChange={(e) =>
+            handleProblemChange(record.key, 'explanation', e.target.value)
+          }
+          placeholder="请输入解析（可选）..."
+          rows={2}
         />
       ),
     },
@@ -256,6 +359,13 @@ export default function ProblemCreation() {
       render: (text: string, record: ProblemItem) => (
         <Input
           value={text}
+          disabled={record.validationStatus === 'validating' || record.validationStatus === 'queued' || record.validationStatus === 'passed'}
+          style={{
+            fontWeight:
+              record.validationStatus === 'passed' || record.validationStatus === 'failed'
+                ? 600
+                : undefined,
+          }}
           onChange={(e) =>
             handleProblemChange(record.key, 'answer', e.target.value)
           }
@@ -269,6 +379,9 @@ export default function ProblemCreation() {
       key: 'validationStatus',
       width: '15%',
       render: (status: string, record: ProblemItem) => {
+        if (status === 'queued') {
+          return <Tag color="default">排队中</Tag>;
+        }
         if (status === 'validating') {
           return <Tag icon={<SyncOutlined spin />} color="processing">验证中</Tag>;
         }
@@ -307,31 +420,52 @@ export default function ProblemCreation() {
           <Button
             type="link"
             size="small"
+            disabled={record.validationStatus !== 'passed'}
             onClick={async () => {
-              if (!record.content || !record.answer) {
-                message.error('题目内容或答案缺失');
+              console.log('🔵 [DEBUG] ========== 使用按钮被点击 ==========');
+              console.log('🔵 [DEBUG] 验证状态:', record.validationStatus);
+              console.log('🔵 [DEBUG] 按钮是否禁用:', record.validationStatus !== 'passed');
+              console.log('🔵 [DEBUG] 题目记录:', record);
+              
+              if (record.validationStatus !== 'passed') {
+                console.warn('⚠️ [DEBUG] 按钮被禁用，无法创建母题');
+                message.warning('请先验证题目并通过验证');
                 return;
               }
+              
+              // 先创建母题到数据库
               try {
-                message.loading('正在创建母题...', 0);
-                const createdProblem = await problemApi.createProblem({
-                  title: record.content.substring(0, 50) + '...',
-                  content: { problem: record.content },
+                console.log('🔵 [DEBUG] 开始创建母题到数据库...');
+                console.log('🔵 [DEBUG] API Base URL:', window.location.origin);
+                console.log('🔵 [DEBUG] Token:', localStorage.getItem('mathtasks_token') ? '存在' : '不存在');
+                
+                const problemData = {
+                  title: `母题-${Date.now()}`,
+                  content: { text: record.content },
                   explanation: record.explanation,
                   answer: record.answer,
-                  category: 'high_school_algebra',
+                  category: 'high_school_comprehensive',
                   source_type: 'manual',
-                });
-                message.destroy();
-                message.success('母题创建成功');
-                setParentProblem({ ...record, id: createdProblem.id });
+                };
+                console.log('🔵 [DEBUG] 请求数据:', problemData);
+                
+                const created = await problemApi.createProblem(problemData);
+                console.log('✅ [DEBUG] 母题创建成功:', created);
+                
+                addParentProblem(created.id, record);
                 setCurrentStep(1);
+                message.success('母题已保存到数据库，ID: ' + created.id);
               } catch (error: any) {
-                message.destroy();
-                message.error(`创建母题失败：${error.response?.data?.detail || error.message}`);
+                console.error('❌ [DEBUG] 保存母题失败:', error);
+                console.error('❌ [DEBUG] 错误详情:', {
+                  message: error.message,
+                  response: error.response?.data,
+                  status: error.response?.status,
+                  config: error.config,
+                });
+                message.error('保存母题失败: ' + (error.response?.data?.detail || error.message));
               }
             }}
-            disabled={record.validationStatus !== 'passed'}
           >
             使用
           </Button>
@@ -349,18 +483,15 @@ export default function ProblemCreation() {
 
   // ==================== 步骤2：题目变形 ====================
 
-  const handleGenerateVariant = async () => {
-    if (!parentProblem || !parentProblem.id) {
-      message.error('母题信息缺失');
-      return;
-    }
-
-    if (!transformPrompt) {
+  const handleGenerateVariant = async (parentId: number) => {
+    const prompt = transformPrompts[parentId] || '';
+    if (!prompt) {
       message.warning('请填写变形提示词');
       return;
     }
 
-    if (variantCount >= BUSINESS_CONSTANTS.MAX_VARIANTS_PER_PROBLEM) {
+    const count = variantCountMap[parentId] || 0;
+    if (count >= BUSINESS_CONSTANTS.MAX_VARIANTS_PER_PROBLEM) {
       message.warning(
         `每个母题最多可以变形 ${BUSINESS_CONSTANTS.MAX_VARIANTS_PER_PROBLEM} 次`
       );
@@ -368,55 +499,81 @@ export default function ProblemCreation() {
     }
 
     try {
-      message.loading('正在生成变体...', 0);
-      const result = await problemApi.generateVariant(
-        parentProblem.id,
-        transformPrompt
-      );
+      console.log('🔵 [DEBUG] 开始生成变体, parentProblemId:', parentId);
+      const variantResult = await problemApi.generateVariant(parentId, prompt);
+      console.log('✅ [DEBUG] 变体生成成功:', variantResult);
 
-      message.destroy();
-      
-      if (result.success) {
-        const variant: any = {
-          key: `variant-${Date.now()}`,
-          id: Date.now(),
-          content: result.new_problem,
-          answer: result.new_answer,
-          explanation: result.new_explanation,
-          variant_count: 0,
-          creator_id: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-        
-        setVariants([...variants, variant]);
-        setVariantCount(result.variant_count);
-        message.success('题目变形成功！');
-        setTransformPrompt('');
-      } else {
-        message.error('题目变形失败');
+      if (!variantResult || variantResult.success === false) {
+        message.error(variantResult?.error || '生成变体失败');
+        return;
       }
+
+      console.log('🔵 [DEBUG] 开始创建变体题目到数据库...');
+      const createdVariant = await problemApi.createProblem({
+        title: `变体-${Date.now()}`,
+        content: typeof variantResult.new_problem === 'string'
+          ? { text: variantResult.new_problem }
+          : variantResult.new_problem,
+        explanation: variantResult.new_explanation,
+        answer: variantResult.new_answer,
+        category: 'high_school_comprehensive', // 默认分类
+        source_type: 'ai_variant',
+        parent_problem_id: parentId,
+      });
+      console.log('✅ [DEBUG] 变体题目创建成功:', createdVariant);
+
+      setVariantsMap((prev) => ({
+        ...prev,
+        [parentId]: [
+          ...(prev[parentId] || []),
+          {
+            ...createdVariant,
+            key: `variant-${Date.now()}`,
+            qualityCheckStatus: 'pending' as const,
+          },
+        ],
+      }));
+      setVariantCountMap((prev) => ({ ...prev, [parentId]: count + 1 }));
+      message.success('题目变形成功并已保存到数据库！');
+      setTransformPrompts((prev) => ({ ...prev, [parentId]: '' }));
     } catch (error: any) {
-      message.destroy();
-      message.error(`题目变形失败：${error.response?.data?.detail || error.message}`);
+      console.error('❌ [DEBUG] 题目变形失败:', error);
+      console.error('❌ [DEBUG] 错误详情:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+      message.error('题目变形失败: ' + (error.response?.data?.detail || error.message));
     }
   };
 
-  const handleQualityCheck = async (variant: VariantItem) => {
-    setVariants(
-      variants.map((v) =>
+  const handleQualityCheck = async (parentId: number, variant: VariantItem) => {
+    if (!variant.id) {
+      message.error('题目ID不存在，无法进行质检');
+      return;
+    }
+
+    setVariantsMap((prev) => ({
+      ...prev,
+      [parentId]: (prev[parentId] || []).map((v) =>
         v.key === variant.key ? { ...v, qualityCheckStatus: 'checking' } : v
-      )
-    );
+      ),
+    }));
 
     try {
+      console.log('🔵 [DEBUG] 开始质检, problemId:', variant.id);
       const result = await problemApi.qualityCheck(variant.id);
+      console.log('✅ [DEBUG] 质检结果:', result);
       
-      // 使用后端返回的 all_passed 字段
-      const allPassed = result.all_passed === true;
+      const allPassed =
+        result.all_passed === true ||
+        (result.difficulty?.status === 'passed' &&
+          result.originality?.status === 'passed' &&
+          result.rigor?.status === 'passed');
 
-      setVariants(
-        variants.map((v) =>
+      setVariantsMap((prev) => ({
+        ...prev,
+        [parentId]: (prev[parentId] || []).map((v) =>
           v.key === variant.key
             ? {
                 ...v,
@@ -424,123 +581,43 @@ export default function ProblemCreation() {
                 quality_check: result,
               }
             : v
-        )
-      );
+        ),
+      }));
 
-      // 显示详细结果
-      if (allPassed) {
-        message.success('✅ 质量检查全部通过！');
-      } else {
-        const failedChecks = [];
-        if (!result.difficulty?.is_passed) failedChecks.push('难度');
-        if (!result.originality?.is_original) failedChecks.push('原创性');
-        if (!result.rigor?.is_rigorous) failedChecks.push('严谨性');
-        message.warning(`⚠️ 质检未通过：${failedChecks.join('、')} 不合格`);
-      }
-    } catch (error: any) {
-      setVariants(
-        variants.map((v) =>
+      message.success('质量检查完成');
+    } catch (error) {
+      setVariantsMap((prev) => ({
+        ...prev,
+        [parentId]: (prev[parentId] || []).map((v) =>
           v.key === variant.key ? { ...v, qualityCheckStatus: 'failed' } : v
-        )
-      );
-      message.error(`质量检查失败：${error.response?.data?.detail || error.message}`);
+        ),
+      }));
+      message.error('质量检查失败');
     }
   };
 
-  const variantColumns = [
-    {
-      title: '题目内容',
-      dataIndex: 'content',
-      key: 'content',
-      ellipsis: true,
-    },
-    {
-      title: '质量检查',
-      key: 'quality',
-      render: (_: any, record: VariantItem) => {
-        if (record.qualityCheckStatus === 'checking') {
-          return <Tag icon={<SyncOutlined spin />} color="processing">检查中</Tag>;
-        }
-        
-        if (record.quality_check) {
-          const qc = record.quality_check;
-          return (
-            <Space direction="vertical" size="small">
-              <Tag color={qc.all_passed ? 'success' : 'error'}>
-                {qc.all_passed ? '全部通过' : '未完全通过'}
-              </Tag>
-              <Space size="small">
-                <Tag color={qc.difficulty?.is_passed ? 'blue' : 'default'}>
-                  难度{qc.difficulty?.is_passed ? '✓' : '✗'}
-                </Tag>
-                <Tag color={qc.originality?.is_original ? 'green' : 'default'}>
-                  原创{qc.originality?.is_original ? '✓' : '✗'}
-                </Tag>
-                <Tag color={qc.rigor?.is_rigorous ? 'purple' : 'default'}>
-                  严谨{qc.rigor?.is_rigorous ? '✓' : '✗'}
-                </Tag>
-              </Space>
-              {qc.difficulty?.correct_count !== undefined && (
-                <Text type="secondary" style={{ fontSize: '11px' }}>
-                  难度测试: {qc.difficulty.correct_count}/{qc.difficulty.attempts}次正确
-                </Text>
-              )}
-            </Space>
-          );
-        }
-        
-        if (record.qualityCheckStatus === 'failed') {
-          return <Tag color="error">检查失败</Tag>;
-        }
-        return <Tag color="default">待检查</Tag>;
-      },
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_: any, record: VariantItem) => (
-        <Space>
-          <Button
-            type="link"
-            size="small"
-            onClick={() => handleQualityCheck(record)}
-            loading={record.qualityCheckStatus === 'checking'}
-          >
-            质检
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            onClick={() => {
-              Modal.info({
-                title: '题目详情',
-                width: 800,
-                content: (
-                  <div>
-                    <p><strong>内容：</strong>{record.content}</p>
-                    <p><strong>答案：</strong>{record.answer}</p>
-                    {record.explanation && (
-                      <p><strong>解析：</strong>{record.explanation}</p>
-                    )}
-                  </div>
-                ),
-              });
-            }}
-          >
-            查看
-          </Button>
-          <Button
-            type="link"
-            danger
-            size="small"
-            onClick={() => setVariants(variants.filter((v) => v.key !== record.key))}
-          >
-            删除
-          </Button>
-        </Space>
-      ),
-    },
-  ];
+  const handleSubmitForReview = async (parentId: number, variant: VariantItem) => {
+    if (!variant.id) {
+      message.error('题目ID不存在，无法提交审核');
+      return;
+    }
+    if (variant.qualityCheckStatus !== 'passed') {
+      message.warning('请先通过质量检查，再提交审核');
+      return;
+    }
+    try {
+      await problemApi.submitForReview(variant.id);
+      message.success('已提交审核，状态已更新为待审核');
+      setVariantsMap((prev) => ({
+        ...prev,
+        [parentId]: (prev[parentId] || []).map((v) =>
+          v.key === variant.key ? { ...v, status: 'pending_review' } : v
+        ),
+      }));
+    } catch (error: any) {
+      message.error('提交审核失败: ' + (error.response?.data?.detail || error.message));
+    }
+  };
 
   // ==================== 渲染 ====================
 
@@ -552,11 +629,14 @@ export default function ProblemCreation() {
 
       {/* 进度步骤 */}
       <Card style={{ marginBottom: 24 }}>
-        <Steps current={currentStep}>
-          <Step title="母题验证" icon={<CheckCircleOutlined />} />
-          <Step title="题目变形" icon={<ExperimentOutlined />} />
-          <Step title="质量检查" icon={<SafetyCertificateOutlined />} />
-        </Steps>
+        <Steps
+          current={currentStep}
+          items={[
+            { title: '母题验证', icon: <CheckCircleOutlined /> },
+            { title: '题目变形', icon: <ExperimentOutlined /> },
+            { title: '质量检查', icon: <SafetyCertificateOutlined /> },
+          ]}
+        />
       </Card>
 
       {/* 步骤1：母题验证 */}
@@ -604,7 +684,13 @@ export default function ProblemCreation() {
                 onClick={handleValidateBatch}
                 disabled={problems.length === 0}
               >
-                批量验证（最多{BUSINESS_CONSTANTS.MAX_BATCH_VALIDATION}个）
+                批量验证
+              </Button>
+              <Button
+                onClick={handleBatchUse}
+                disabled={problems.filter((p) => p.validationStatus === 'passed').length === 0}
+              >
+                批量使用
               </Button>
             </Space>
 
@@ -628,67 +714,181 @@ export default function ProblemCreation() {
         </Card>
       )}
 
-      {/* 步骤2：题目变形 */}
-      {currentStep === 1 && parentProblem && (
+      {/* 步骤2：题目变形（多母题列表） */}
+      {currentStep === 1 && parentProblems.length > 0 && (
         <Card title="步骤2：题目变形">
           <Space direction="vertical" style={{ width: '100%' }} size="large">
-            {/* 母题显示 */}
-            <Alert
-              message="母题信息"
-              description={
-                <div>
-                  <p><strong>内容：</strong>{parentProblem.content}</p>
-                  <p><strong>答案：</strong>{parentProblem.answer}</p>
-                </div>
-              }
-              type="success"
-              showIcon
-            />
+            {parentProblems.map((p, idx) => {
+              const parentId = p.id;
+              const promptValue = transformPrompts[parentId] || '';
+              const variants = variantsMap[parentId] || [];
+              const variantCount = variantCountMap[parentId] || 0;
+              const columns = [
+                {
+                  title: '题目内容',
+                  dataIndex: 'content',
+                  key: 'content',
+                  ellipsis: true,
+                },
+                {
+                  title: '质量检查',
+                  key: 'quality',
+                  render: (_: any, record: VariantItem) => {
+                    if (record.qualityCheckStatus === 'checking') {
+                      return <Tag icon={<SyncOutlined spin />} color="processing">检查中</Tag>;
+                    }
+                    if (record.qualityCheckStatus === 'passed') {
+                      return (
+                        <Space direction="vertical" size="small">
+                          <Tag color="success">全部通过</Tag>
+                          {record.quality_check && (
+                            <Space size="small">
+                              <Tag color="blue">难度✓</Tag>
+                              <Tag color="green">原创✓</Tag>
+                              <Tag color="purple">严谨✓</Tag>
+                            </Space>
+                          )}
+                        </Space>
+                      );
+                    }
+                    if (record.qualityCheckStatus === 'failed') {
+                      return <Tag color="error">未通过</Tag>;
+                    }
+                    return <Tag color="default">待检查</Tag>;
+                  },
+                },
+                {
+                  title: '操作',
+                  key: 'action',
+                  render: (_: any, record: VariantItem) => (
+                    <Space>
+                      <Button
+                        type="link"
+                        size="small"
+                        onClick={() => handleQualityCheck(parentId, record)}
+                        loading={record.qualityCheckStatus === 'checking'}
+                      >
+                        质检
+                      </Button>
+                      <Button
+                        type="link"
+                        size="small"
+                        disabled={record.qualityCheckStatus !== 'passed'}
+                        onClick={() => handleSubmitForReview(parentId, record)}
+                      >
+                        提交审核
+                      </Button>
+                      <Button
+                        type="link"
+                        size="small"
+                        onClick={() => {
+                          Modal.info({
+                            title: '题目详情',
+                            width: 800,
+                            content: (
+                              <div>
+                                <p><strong>内容：</strong>{record.content}</p>
+                                <p><strong>答案：</strong>{record.answer}</p>
+                                {record.explanation && (
+                                  <p><strong>解析：</strong>{record.explanation}</p>
+                                )}
+                              </div>
+                            ),
+                          });
+                        }}
+                      >
+                        查看
+                      </Button>
+                      <Button
+                        type="link"
+                        danger
+                        size="small"
+                        onClick={() =>
+                          setVariantsMap((prev) => ({
+                            ...prev,
+                            [parentId]: (prev[parentId] || []).filter((v) => v.key !== record.key),
+                          }))
+                        }
+                      >
+                        删除
+                      </Button>
+                    </Space>
+                  ),
+                },
+              ];
 
-            {/* 变形提示 */}
-            <Card size="small">
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Text strong>变形提示词：</Text>
-                <TextArea
-                  value={transformPrompt}
-                  onChange={(e) => setTransformPrompt(e.target.value)}
-                  placeholder="请输入如何变形这道题目的提示，例如：将题目中的数字改为其他值，或改变题目的表述方式..."
-                  rows={3}
-                />
-                <Space>
-                  <Button
-                    type="primary"
-                    onClick={handleGenerateVariant}
-                    disabled={!transformPrompt || variantCount >= BUSINESS_CONSTANTS.MAX_VARIANTS_PER_PROBLEM}
-                  >
-                    生成变体
-                  </Button>
-                  <Text type="secondary">
-                    已生成 {variantCount}/{BUSINESS_CONSTANTS.MAX_VARIANTS_PER_PROBLEM}
-                  </Text>
-                </Space>
-              </Space>
-            </Card>
+              return (
+                <Card
+                  key={parentId}
+                  type="inner"
+                  title={`母题 ${idx + 1}（ID: ${parentId}）`}
+                  style={{ borderColor: '#f0f0f0' }}
+                >
+                  <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                    <Alert
+                      message="母题信息"
+                      description={
+                        <div>
+                          <p><strong>内容：</strong>{p.source.content}</p>
+                          <p><strong>答案：</strong>{p.source.answer}</p>
+                        </div>
+                      }
+                      type="success"
+                      showIcon
+                    />
 
-            {/* 变体列表 */}
-            {variants.length > 0 && (
-              <>
-                <Divider>生成的变体</Divider>
-                <Table
-                  columns={variantColumns}
-                  dataSource={variants}
-                  rowKey="key"
-                  pagination={false}
-                />
-              </>
-            )}
+                    <Card size="small">
+                      <Space direction="vertical" style={{ width: '100%' }}>
+                        <Text strong>变形提示词：</Text>
+                        <TextArea
+                          value={promptValue}
+                          onChange={(e) =>
+                            setTransformPrompts((prev) => ({ ...prev, [parentId]: e.target.value }))
+                          }
+                          placeholder="请输入如何变形这道题目的提示，例如：将题目中的数字改为其他值，或改变题目的表述方式..."
+                          rows={3}
+                        />
+                        <Space>
+                          <Button
+                            type="primary"
+                            onClick={() => handleGenerateVariant(parentId)}
+                            disabled={!promptValue || variantCount >= BUSINESS_CONSTANTS.MAX_VARIANTS_PER_PROBLEM}
+                          >
+                            生成变体
+                          </Button>
+                          <Text type="secondary">
+                            已生成 {variantCount}/{BUSINESS_CONSTANTS.MAX_VARIANTS_PER_PROBLEM}
+                          </Text>
+                        </Space>
+                      </Space>
+                    </Card>
+
+                    {variants.length > 0 && (
+                      <>
+                        <Divider>生成的变体</Divider>
+                        <Table
+                          columns={columns}
+                          dataSource={variants}
+                          rowKey="key"
+                          pagination={false}
+                        />
+                      </>
+                    )}
+                  </Space>
+                </Card>
+              );
+            })}
 
             <Space>
               <Button onClick={() => setCurrentStep(0)}>返回上一步</Button>
               <Button
                 type="primary"
                 onClick={() => setCurrentStep(2)}
-                disabled={variants.filter((v) => v.qualityCheckStatus === 'passed').length === 0}
+                disabled={
+                  Object.values(variantsMap)
+                    .flat()
+                    .filter((v) => v.qualityCheckStatus === 'passed').length === 0
+                }
               >
                 下一步：提交合格题目
               </Button>
@@ -701,36 +901,56 @@ export default function ProblemCreation() {
       {currentStep === 2 && (
         <Card title="步骤3：提交题目">
           <Space direction="vertical" style={{ width: '100%' }} size="large">
-            <Alert
-              message="恭喜！"
-              description={`您已完成 ${variants.filter((v) => v.qualityCheckStatus === 'passed').length} 个合格题目的创建。这些题目将进入人工质检流程。`}
-              type="success"
-              showIcon
-            />
+            {(() => {
+              const allVariants = Object.values(variantsMap).flat();
+              const passedVariants = allVariants.filter((v) => v.qualityCheckStatus === 'passed');
+              return (
+                <>
+                  <Alert
+                    message="恭喜！"
+                    description={`您已完成 ${passedVariants.length} 个合格题目的创建。这些题目将进入人工质检流程。`}
+                    type="success"
+                    showIcon
+                  />
 
-            <Table
-              columns={variantColumns.slice(0, 2)}
-              dataSource={variants.filter((v) => v.qualityCheckStatus === 'passed')}
-              rowKey="key"
-              pagination={false}
-            />
+                  <Table
+                    columns={[
+                      { title: '题目内容', dataIndex: 'content', key: 'content', ellipsis: true },
+                      { title: '答案', dataIndex: 'answer', key: 'answer', ellipsis: true },
+                    ]}
+                    dataSource={passedVariants}
+                    rowKey="key"
+                    pagination={false}
+                  />
 
-            <Space>
-              <Button onClick={() => setCurrentStep(1)}>返回上一步</Button>
-              <Button
-                type="primary"
-                onClick={() => {
-                  message.success('题目已提交！');
-                  // 重置状态
-                  setCurrentStep(0);
-                  setParentProblem(null);
-                  setVariants([]);
-                  setVariantCount(0);
-                }}
-              >
-                提交所有合格题目
-              </Button>
-            </Space>
+                  <Space>
+                    <Button onClick={() => setCurrentStep(1)}>返回上一步</Button>
+                    <Button
+                      type="primary"
+                      onClick={async () => {
+                        try {
+                          if (passedVariants.length === 0) {
+                            message.warning('没有合格的题目可以提交');
+                            return;
+                          }
+                          message.success(`已提交 ${passedVariants.length} 个合格题目到数据库！`);
+                          // 重置状态
+                          setCurrentStep(0);
+                          setParentProblems([]);
+                          setTransformPrompts({});
+                          setVariantsMap({});
+                          setVariantCountMap({});
+                        } catch (error: any) {
+                          message.error('提交失败: ' + (error.response?.data?.detail || error.message));
+                        }
+                      }}
+                    >
+                      提交所有合格题目
+                    </Button>
+                  </Space>
+                </>
+              );
+            })()}
           </Space>
         </Card>
       )}

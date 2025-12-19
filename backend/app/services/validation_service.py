@@ -4,6 +4,8 @@
 """
 
 import asyncio
+import logging
+import os
 from typing import Dict, Any, List, Optional
 import httpx
 import json
@@ -19,6 +21,24 @@ class ValidationService:
         self.model = "doubao-seed-1-6-thinking-250715"  # Doubao Seed Thinking 模型
         # Doubao API endpoint (火山引擎)
         self.base_url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.INFO)
+
+        # 将验证日志写入文件，便于排查卡住问题
+        log_dir = "/app/logs"
+        log_path = os.path.join(log_dir, "validation.log")
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            # 避免重复添加 handler
+            if not any(isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == log_path for h in self.logger.handlers):
+                file_handler = logging.FileHandler(log_path, encoding="utf-8")
+                file_handler.setLevel(logging.INFO)
+                formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s - %(message)s")
+                file_handler.setFormatter(formatter)
+                self.logger.addHandler(file_handler)
+        except Exception:
+            # 文件日志失败不阻断服务
+            pass
     
     async def validate_difficulty(
         self,
@@ -60,13 +80,14 @@ class ValidationService:
 
 答案："""
             
-            # 并发进行多次验证
-            tasks = [
-                self._single_attempt(prompt, answer)
-                for _ in range(attempts)
-            ]
-            
-            attempt_results = await asyncio.gather(*tasks, return_exceptions=True)
+            # 顺序进行多次验证，避免上游连接过载
+            attempt_results = []
+            for i in range(attempts):
+                try:
+                    attempt_results.append(await self._single_attempt(prompt, answer, i + 1))
+                except Exception as exc:
+                    attempt_results.append(exc)
+                await asyncio.sleep(0.1)  # 小间隔，降低对上游的压力
             
             # 统计结果
             correct_count = 0
@@ -90,6 +111,29 @@ class ValidationService:
             is_passed = correct_count <= settings.VALIDATION_MAX_CORRECT
             correct_rate = correct_count / attempts if attempts > 0 else 0
             
+            # 记录日志：每次尝试与总体统计（截断答案以免过长）
+            try:
+                brief_problem = (str(problem) or "")[:200]
+                self.logger.info(
+                    "[validate] problem=%.200s attempts=%s correct=%s rate=%.2f details=%s",
+                    brief_problem,
+                    attempts,
+                    correct_count,
+                    correct_rate,
+                    [
+                        {
+                            "attempt": a.get("attempt"),
+                            "success": a.get("success"),
+                            "is_correct": a.get("is_correct"),
+                            "error": a.get("error"),
+                            "ai_answer": (a.get("ai_answer") or "")[:120] if isinstance(a, dict) else None,
+                        }
+                        for a in valid_attempts
+                    ],
+                )
+            except Exception:
+                pass
+            
             return {
                 "success": True,
                 "is_passed": is_passed,
@@ -101,6 +145,7 @@ class ValidationService:
             }
         
         except Exception as e:
+            self.logger.exception("validate_difficulty failed")
             return {
                 "success": False,
                 "error": f"验证失败: {str(e)}"
@@ -109,7 +154,8 @@ class ValidationService:
     async def _single_attempt(
         self,
         prompt: str,
-        standard_answer: str
+        standard_answer: str,
+        attempt_no: int
     ) -> Dict[str, Any]:
         """
         单次验证尝试（使用流式响应）
@@ -189,7 +235,7 @@ class ValidationService:
                     }
         
         except Exception as e:
-            raise Exception(f"单次验证失败: {str(e)}")
+            raise Exception(f"单次验证失败 (attempt {attempt_no}): {str(e)}")
     
     def _check_answer(self, ai_answer: str, standard_answer: str) -> bool:
         """

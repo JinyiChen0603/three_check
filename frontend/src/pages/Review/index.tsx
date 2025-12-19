@@ -1,89 +1,147 @@
 /**
- * 评分流程页面
+ * 评分流程页面（任务驱动版）
+ * - 从“我的任务”获取评分任务（review_problem）
+ * - 依次完成正确性验证和评分，自动推进任务进度
  */
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Card,
-  Steps,
-  Button,
-  Space,
-  Typography,
-  Radio,
-  InputNumber,
-  Input,
-  message,
   Alert,
-  Divider,
+  Button,
+  Card,
   Empty,
+  Input,
+  InputNumber,
+  message,
+  Radio,
+  Space,
   Spin,
+  Steps,
+  Tag,
+  Typography,
 } from 'antd';
-import {
-  CheckCircleOutlined,
-  StarOutlined,
-  CloseCircleOutlined,
-} from '@ant-design/icons';
-import { reviewApi } from '../../api';
-import { Problem } from '../../types';
+import { CheckCircleOutlined, StarOutlined } from '@ant-design/icons';
+import { reviewApi, taskApi } from '../../api';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
-const { Step } = Steps;
+
+interface ReviewChoiceResponse {
+  problem_id: number;
+  problem_title?: string;
+  problem_content: any;
+  problem_explanation?: string;
+  choices: string[];
+  correct_index?: number;
+  instruction?: string;
+}
+
+interface TaskItem {
+  task_id: number;
+  problem_id: number;
+}
+
+interface TaskBatch {
+  batch_id: string;
+  task_type: string;
+  status: string;
+  total_count: number;
+  completed_count: number;
+  claimed_at?: string;
+  expires_at?: string;
+  tasks: TaskItem[];
+}
 
 export default function Review() {
   const [loading, setLoading] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [currentProblem, setCurrentProblem] = useState<Problem | null>(null);
-  
-  // 步骤1：正确性验证
-  const [userChoice, setUserChoice] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0); // 0: 正确性，1: 评分
+
+  const [currentTask, setCurrentTask] = useState<TaskItem | null>(null);
+  const [currentBatch, setCurrentBatch] = useState<TaskBatch | null>(null);
+  const [problemData, setProblemData] = useState<ReviewChoiceResponse | null>(null);
   const [options, setOptions] = useState<string[]>([]);
+  const [userChoiceIndex, setUserChoiceIndex] = useState<number | null>(null);
+  const [reviewId, setReviewId] = useState<number | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [showSolution, setShowSolution] = useState(false);
-  const [judgement, setJudgement] = useState<string>('');
 
-  // 步骤2：评分
   const [innovationScore, setInnovationScore] = useState<number>(5);
   const [rigorScore, setRigorScore] = useState<number>(5);
-  const [vetoReason, setVetoReason] = useState<string>('');
   const [isVeto, setIsVeto] = useState(false);
+  const [vetoReason, setVetoReason] = useState('');
 
   useEffect(() => {
-    fetchPendingProblem();
+    loadNextTask();
   }, []);
 
-  const fetchPendingProblem = async () => {
+  const resetStatesForProblem = () => {
+    setCurrentStep(0);
+    setUserChoiceIndex(null);
+    setReviewId(null);
+    setIsCorrect(null);
+    setShowSolution(false);
+    setInnovationScore(5);
+    setRigorScore(5);
+    setIsVeto(false);
+    setVetoReason('');
+  };
+
+  const loadNextTask = async () => {
     setLoading(true);
     try {
-      const problem = await reviewApi.getPendingReview();
-      setCurrentProblem(problem);
-      
-      // 模拟生成4个选项（1个正确答案 + 3个相似错误答案）
-      // 实际应该从后端获取
-      const correctAnswer = problem.answer;
-      const similarAnswers = [
-        `${correctAnswer} + ε`, // 示例：稍微不同的答案
-        `${correctAnswer}/2`,
-        `2${correctAnswer}`,
-      ];
-      
-      // 随机打乱选项顺序
-      const allOptions = [correctAnswer, ...similarAnswers].sort(() => Math.random() - 0.5);
-      setOptions(allOptions);
-      
-      // 重置状态
-      setCurrentStep(0);
-      setUserChoice('');
-      setIsCorrect(null);
-      setShowSolution(false);
-      setJudgement('');
-      setInnovationScore(5);
-      setRigorScore(5);
-      setVetoReason('');
-      setIsVeto(false);
+      const data = await taskApi.getMyTasks();
+      const batches: TaskBatch[] = data?.batches || [];
+      const targetBatch = batches.find(
+        (b) =>
+          b.task_type === 'review_problem' &&
+          b.status === 'in_progress' &&
+          Array.isArray(b.tasks) &&
+          b.tasks.length > 0
+      );
+      if (!targetBatch) {
+        setCurrentTask(null);
+        setCurrentBatch(null);
+        setProblemData(null);
+        setOptions([]);
+        resetStatesForProblem();
+        return;
+      }
+      const task = targetBatch.tasks.find((t) => t.problem_id);
+      if (!task) {
+        setCurrentTask(null);
+        setCurrentBatch(targetBatch);
+        setProblemData(null);
+        setOptions([]);
+        resetStatesForProblem();
+        return;
+      }
+      setCurrentTask(task);
+      setCurrentBatch(targetBatch);
+      await loadProblem(task.problem_id);
+    } catch (error) {
+      message.error('加载任务失败');
+      setCurrentTask(null);
+      setCurrentBatch(null);
+      setProblemData(null);
+      setOptions([]);
+      resetStatesForProblem();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadProblem = async (problemId: number) => {
+    setLoading(true);
+    try {
+      const res: ReviewChoiceResponse = await reviewApi.getProblemChoices(problemId);
+      setProblemData(res);
+      setOptions(res.choices || []);
+      resetStatesForProblem();
     } catch (error: any) {
       if (error.response?.status === 404) {
-        message.info('暂无待评分的题目');
+        message.info('题目不存在，尝试下一题');
+        await loadNextTask();
       } else {
         message.error('加载题目失败');
       }
@@ -93,52 +151,29 @@ export default function Review() {
   };
 
   const handleSubmitCorrectness = async () => {
-    if (!userChoice) {
+    if (userChoiceIndex === null) {
       message.warning('请选择一个答案');
       return;
     }
-
-    if (!currentProblem) return;
-
-    // 检查答案是否正确
-    const correct = userChoice === currentProblem.answer;
-    setIsCorrect(correct);
-
-    if (correct) {
-      // 答案正确，直接进入评分阶段
-      try {
-        await reviewApi.submitCorrectness(currentProblem.id, userChoice);
-        message.success('答案正确，请继续评分');
-        setCurrentStep(1);
-      } catch (error) {
-        message.error('提交失败');
-      }
-    } else {
-      // 答案错误，显示解题过程和标准答案
-      setShowSolution(true);
-    }
-  };
-
-  const handleSubmitJudgement = async () => {
-    if (!judgement) {
-      message.warning('请判断题目的正确性');
-      return;
-    }
-
-    if (!currentProblem) return;
-
+    if (!problemData) return;
+    setSubmitting(true);
     try {
-      await reviewApi.submitCorrectness(currentProblem.id, userChoice, judgement);
-      
-      if (judgement === 'correct') {
-        message.success('题目确认正确，请继续评分');
-        setCurrentStep(1);
-      } else {
-        message.info('题目已标记为不正确，将返回给出题者修改');
-        fetchPendingProblem(); // 加载下一题
-      }
+      const resp = await reviewApi.submitCorrectness(
+        problemData.problem_id,
+        userChoiceIndex,
+        options[userChoiceIndex],
+        problemData.correct_index
+      );
+      setReviewId(resp.review_id);
+      const correct = resp.is_correct === true;
+      setIsCorrect(correct);
+      setShowSolution(!correct);
+      setCurrentStep(1);
+      message.success(correct ? '答案正确，请继续评分' : '答案不正确，请参考解析并给出评分/否决');
     } catch (error) {
-      message.error('提交失败');
+      message.error('提交正确性失败');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -147,21 +182,26 @@ export default function Review() {
       message.warning('一票否决需要填写理由');
       return;
     }
-
-    if (!currentProblem) return;
-
+    if (!reviewId) {
+      message.error('缺少评分记录，请先完成正确性验证');
+      return;
+    }
+    setSubmitting(true);
     try {
       await reviewApi.submitScores(
-        currentProblem.id,
+        reviewId,
         innovationScore,
         rigorScore,
-        isVeto ? vetoReason : undefined
+        undefined,
+        isVeto,
+        vetoReason || undefined
       );
-      
-      message.success(isVeto ? '已提交否决意见' : '评分完成！');
-      fetchPendingProblem(); // 加载下一题
+      message.success(isVeto ? '已提交否决意见' : '评分完成，已计入任务进度');
+      await loadNextTask();
     } catch (error) {
-      message.error('提交失败');
+      message.error('提交评分失败');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -173,17 +213,17 @@ export default function Review() {
     );
   }
 
-  if (!currentProblem) {
+  if (!currentTask || !problemData) {
     return (
       <div>
         <Title level={2}>评分流程</Title>
         <Card>
           <Empty
-            description="暂无待评分的题目"
+            description="暂无进行中的评分任务，请先领取任务后刷新"
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           >
-            <Button type="primary" onClick={fetchPendingProblem}>
-              刷新
+            <Button type="primary" onClick={loadNextTask}>
+              刷新任务
             </Button>
           </Empty>
         </Card>
@@ -195,137 +235,101 @@ export default function Review() {
     <div>
       <Title level={2}>评分流程</Title>
 
-      {/* 进度步骤 */}
       <Card style={{ marginBottom: 24 }}>
-        <Steps current={currentStep}>
-          <Step title="正确性验证" icon={<CheckCircleOutlined />} />
-          <Step title="质量评分" icon={<StarOutlined />} />
-        </Steps>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Steps
+            current={currentStep}
+            items={[
+              { title: '正确性验证', icon: <CheckCircleOutlined /> },
+              { title: '质量评分', icon: <StarOutlined /> },
+            ]}
+          />
+          {currentBatch && (
+            <Space size="small">
+              <Tag color="blue">批次: {currentBatch.batch_id}</Tag>
+              <Tag color="green">
+                进度: {currentBatch.completed_count}/{currentBatch.total_count}
+              </Tag>
+            </Space>
+          )}
+        </Space>
       </Card>
 
-      {/* 题目展示 */}
-      <Card title="题目信息" style={{ marginBottom: 24 }}>
+      <Card title={problemData.problem_title || '题目信息'} style={{ marginBottom: 24 }}>
         <Space direction="vertical" style={{ width: '100%' }} size="large">
           <div>
             <Text strong>题目内容：</Text>
             <Paragraph style={{ marginTop: 8, fontSize: 16 }}>
-              {currentProblem.content}
+              {typeof problemData.problem_content === 'string'
+                ? problemData.problem_content
+                : JSON.stringify(problemData.problem_content, null, 2)}
             </Paragraph>
           </div>
 
-          {currentProblem.explanation && showSolution && (
+          {showSolution && problemData.problem_explanation && (
             <div>
               <Text strong>解题过程：</Text>
               <Paragraph style={{ marginTop: 8 }}>
-                {currentProblem.explanation}
-              </Paragraph>
-            </div>
-          )}
-
-          {showSolution && (
-            <div>
-              <Text strong>标准答案：</Text>
-              <Paragraph style={{ marginTop: 8 }} copyable>
-                {currentProblem.answer}
+                {problemData.problem_explanation}
               </Paragraph>
             </div>
           )}
         </Space>
       </Card>
 
-      {/* 步骤1：正确性验证 */}
       {currentStep === 0 && (
         <Card title="步骤1：正确性验证">
-          {!showSolution ? (
-            <Space direction="vertical" style={{ width: '100%' }} size="large">
-              <Alert
-                message="请选择正确答案"
-                description="从以下4个选项中选择您认为正确的答案。如果选错，系统会显示解题过程和标准答案供您判断。"
-                type="info"
-                showIcon
-              />
-
-              <Radio.Group
-                value={userChoice}
-                onChange={(e) => setUserChoice(e.target.value)}
-                style={{ width: '100%' }}
-              >
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  {options.map((option, index) => (
-                    <Radio
-                      key={index}
-                      value={option}
-                      style={{
-                        fontSize: 16,
-                        padding: '12px',
-                        border: '1px solid #d9d9d9',
-                        borderRadius: '4px',
-                        width: '100%',
-                      }}
-                    >
-                      选项 {String.fromCharCode(65 + index)}: {option}
-                    </Radio>
-                  ))}
-                </Space>
-              </Radio.Group>
-
-              <Button
-                type="primary"
-                size="large"
-                onClick={handleSubmitCorrectness}
-                disabled={!userChoice}
-              >
-                提交答案
-              </Button>
-            </Space>
-          ) : (
-            <Space direction="vertical" style={{ width: '100%' }} size="large">
-              <Alert
-                message="您的答案不正确"
-                description="请查看解题过程和标准答案，判断题目本身是否正确。"
-                type="warning"
-                showIcon
-              />
-
-              <div>
-                <Text strong>请判断：</Text>
-                <Radio.Group
-                  value={judgement}
-                  onChange={(e) => setJudgement(e.target.value)}
-                  style={{ marginTop: 12 }}
-                >
-                  <Space direction="vertical">
-                    <Radio value="correct">题目和答案都是正确的（我选错了）</Radio>
-                    <Radio value="incorrect">题目或答案有问题（需要修改）</Radio>
-                  </Space>
-                </Radio.Group>
-              </div>
-
-              <Button
-                type="primary"
-                size="large"
-                onClick={handleSubmitJudgement}
-                disabled={!judgement}
-              >
-                提交判断
-              </Button>
-            </Space>
-          )}
-        </Card>
-      )}
-
-      {/* 步骤2：质量评分 */}
-      {currentStep === 1 && (
-        <Card title="步骤2：质量评分">
           <Space direction="vertical" style={{ width: '100%' }} size="large">
             <Alert
-              message="请对题目进行评分"
-              description="从创新性和数学严谨性两个维度评分，满分10分。如果题目存在严重问题，可以使用一票否决。"
+              message="请选择正确答案"
+              description={problemData.instruction || '从以下选项中选择您认为正确的答案。'}
               type="info"
               showIcon
             />
 
-            {/* 创新性评分 */}
+            <Radio.Group
+              value={userChoiceIndex}
+              onChange={(e) => setUserChoiceIndex(e.target.value)}
+              style={{ width: '100%' }}
+            >
+              <Space direction="vertical" style={{ width: '100%' }}>
+                {options.map((option, index) => (
+                  <Radio
+                    key={index}
+                    value={index}
+                    style={{
+                      fontSize: 16,
+                      padding: '12px',
+                      border: '1px solid #d9d9d9',
+                      borderRadius: '4px',
+                      width: '100%',
+                    }}
+                  >
+                    选项 {String.fromCharCode(65 + index)}: {option}
+                  </Radio>
+                ))}
+              </Space>
+            </Radio.Group>
+
+            <Button type="primary" onClick={handleSubmitCorrectness} loading={submitting}>
+              提交答案
+            </Button>
+          </Space>
+        </Card>
+      )}
+
+      {currentStep === 1 && (
+        <Card title="步骤2：质量评分">
+          <Space direction="vertical" style={{ width: '100%' }} size="large">
+            {isCorrect === false && (
+              <Alert
+                message="答案不正确"
+                description="请参考解析，必要时可一票否决或给出较低评分。"
+                type="warning"
+                showIcon
+              />
+            )}
+
             <div>
               <Text strong>创新性评分：</Text>
               <div style={{ marginTop: 12 }}>
@@ -337,17 +341,11 @@ export default function Review() {
                   style={{ width: 200 }}
                 />
                 <Text type="secondary" style={{ marginLeft: 12 }}>
-                  分（0-10分，10分为最高）
+                  分（0-10）
                 </Text>
               </div>
-              <Paragraph type="secondary" style={{ marginTop: 8 }}>
-                评价标准：题目的新颖程度、思路独特性、与常规题目的差异度
-              </Paragraph>
             </div>
 
-            <Divider />
-
-            {/* 数学严谨性评分 */}
             <div>
               <Text strong>数学严谨性评分：</Text>
               <div style={{ marginTop: 12 }}>
@@ -359,58 +357,41 @@ export default function Review() {
                   style={{ width: 200 }}
                 />
                 <Text type="secondary" style={{ marginLeft: 12 }}>
-                  分（0-10分，10分为最高）
+                  分（0-10）
                 </Text>
               </div>
-              <Paragraph type="secondary" style={{ marginTop: 8 }}>
-                评价标准：数学表述的准确性、逻辑的严密性、条件的完备性
-              </Paragraph>
             </div>
 
-            <Divider />
-
-            {/* 一票否决 */}
             <div>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Radio.Group
-                  value={isVeto}
-                  onChange={(e) => setIsVeto(e.target.value)}
-                >
-                  <Space direction="vertical">
-                    <Radio value={false}>通过评分</Radio>
-                    <Radio value={true}>
-                      <Space>
-                        <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
-                        <Text type="danger">一票否决</Text>
-                      </Space>
-                    </Radio>
-                  </Space>
-                </Radio.Group>
-
-                {isVeto && (
-                  <TextArea
-                    value={vetoReason}
-                    onChange={(e) => setVetoReason(e.target.value)}
-                    placeholder="请详细说明否决理由..."
-                    rows={4}
-                    style={{ marginTop: 12 }}
-                  />
-                )}
-              </Space>
+              <Text strong>一票否决：</Text>
+              <Radio.Group
+                value={isVeto}
+                onChange={(e) => setIsVeto(e.target.value)}
+              >
+                <Radio value={false}>否</Radio>
+                <Radio value={true}>是</Radio>
+              </Radio.Group>
+              {isVeto && (
+                <TextArea
+                  value={vetoReason}
+                  onChange={(e) => setVetoReason(e.target.value)}
+                  placeholder="请输入否决理由"
+                  rows={3}
+                  style={{ marginTop: 8 }}
+                />
+              )}
             </div>
 
             <Space>
               <Button
                 type="primary"
-                size="large"
+                icon={<StarOutlined />}
                 onClick={handleSubmitScore}
-                disabled={isVeto && !vetoReason}
+                loading={submitting}
               >
-                {isVeto ? '提交否决' : '提交评分'}
+                提交评分
               </Button>
-              <Button size="large" onClick={() => setCurrentStep(0)}>
-                返回上一步
-              </Button>
+              <Button onClick={loadNextTask}>跳过/下一题</Button>
             </Space>
           </Space>
         </Card>
