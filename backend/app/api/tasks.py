@@ -135,7 +135,7 @@ async def claim_tasks(
             select(Problem)
             .where(
                 and_(
-                    Problem.status == ProblemStatus.PUBLISHED,
+                    Problem.status.in_([ProblemStatus.PENDING_REVIEW, ProblemStatus.PUBLISHED]),
                     Problem.creator_id != current_user.id
                 )
             )

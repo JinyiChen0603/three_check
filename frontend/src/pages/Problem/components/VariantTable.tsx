@@ -1,8 +1,10 @@
-import { Button, Modal, Space, Table, Tag } from 'antd';
+import { Button, Modal, Space, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SyncOutlined } from '@ant-design/icons';
 
 import type { VariantItem } from '../types';
+
+const { Text } = Typography;
 
 export function VariantTable({
   parentId,
@@ -58,22 +60,36 @@ export function VariantTable({
             </Tag>
           );
         }
-        if (record.qualityCheckStatus === 'passed') {
+        
+        if (record.quality_check) {
+          const qc = record.quality_check;
           return (
-            <Space orientation="vertical" size="small">
-              <Tag color="success">全部通过</Tag>
-              {record.quality_check && (
-                <Space size="small">
-                  <Tag color="blue">难度✓</Tag>
-                  <Tag color="green">原创✓</Tag>
-                  <Tag color="purple">严谨✓</Tag>
-                </Space>
+            <Space direction="vertical" size="small">
+              <Tag color={qc.all_passed ? 'success' : 'error'}>
+                {qc.all_passed ? '全部通过' : '未完全通过'}
+              </Tag>
+              <Space size="small">
+                <Tag color={qc.difficulty?.is_passed ? 'blue' : 'default'}>
+                  难度{qc.difficulty?.is_passed ? '✓' : '✗'}
+                </Tag>
+                <Tag color={qc.originality?.is_original ? 'green' : 'default'}>
+                  原创{qc.originality?.is_original ? '✓' : '✗'}
+                </Tag>
+                <Tag color={qc.rigor?.is_rigorous ? 'purple' : 'default'}>
+                  严谨{qc.rigor?.is_rigorous ? '✓' : '✗'}
+                </Tag>
+              </Space>
+              {qc.difficulty?.correct_count !== undefined && (
+                <Text type="secondary" style={{ fontSize: '11px' }}>
+                  难度测试: {qc.difficulty.correct_count}/{qc.difficulty.attempts || qc.difficulty.total_attempts || 8}次正确
+                </Text>
               )}
             </Space>
           );
         }
+        
         if (record.qualityCheckStatus === 'failed') {
-          return <Tag color="error">未通过</Tag>;
+          return <Tag color="error">检查失败</Tag>;
         }
         return <Tag color="default">待检查</Tag>;
       },
@@ -108,21 +124,120 @@ export function VariantTable({
                 width: 800,
                 content: (
                   <div>
-                    <p>
-                      <strong>内容：</strong>
-                      {typeof record.content === 'string'
-                        ? record.content
-                        : (record.content as any)?.text ?? String(record.content ?? '')}
-                    </p>
-                    <p>
-                      <strong>答案：</strong>
-                      {record.answer}
-                    </p>
-                    {record.explanation && (
+                    <div style={{ marginBottom: '20px' }}>
                       <p>
-                        <strong>解析：</strong>
-                        {record.explanation}
+                        <strong>内容：</strong>
                       </p>
+                      <div style={{ marginLeft: '20px', marginTop: '8px' }}>
+                        {typeof record.content === 'string'
+                          ? record.content
+                          : (record.content as any)?.text ?? String(record.content ?? '')}
+                      </div>
+                    </div>
+                    
+                    <div style={{ marginBottom: '20px' }}>
+                      <p>
+                        <strong>答案：</strong>
+                      </p>
+                      <div style={{ marginLeft: '20px', marginTop: '8px' }}>
+                        {record.answer}
+                      </div>
+                    </div>
+                    
+                    {record.explanation && (
+                      <div style={{ marginBottom: '20px' }}>
+                        <p>
+                          <strong>解析：</strong>
+                        </p>
+                        <div style={{ marginLeft: '20px', marginTop: '8px' }}>
+                          {record.explanation}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* 质检详情 */}
+                    {record.quality_check && (
+                      <div style={{ marginTop: '30px', paddingTop: '20px', borderTop: '2px solid #f0f0f0' }}>
+                        <h4 style={{ marginBottom: '16px' }}>质检结果详情</h4>
+                        
+                        {/* 总体状态 */}
+                        <div style={{ marginBottom: '16px' }}>
+                          <Tag color={record.quality_check.all_passed ? 'success' : 'error'} style={{ fontSize: '14px' }}>
+                            {record.quality_check.all_passed ? '✅ 全部通过' : '❌ 未完全通过'}
+                          </Tag>
+                        </div>
+                        
+                        {/* 难度检测 */}
+                        {record.quality_check.difficulty && (
+                          <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#f9f9f9', borderRadius: '4px' }}>
+                            <div style={{ marginBottom: '8px' }}>
+                              <strong>难度检测：</strong>
+                              <Tag color={record.quality_check.difficulty.is_passed ? 'blue' : 'orange'} style={{ marginLeft: '8px' }}>
+                                {record.quality_check.difficulty.is_passed ? '通过' : '未通过'}
+                              </Tag>
+                            </div>
+                            <div style={{ fontSize: '13px', color: '#666', marginLeft: '20px' }}>
+                              <div>测试结果：{record.quality_check.difficulty.correct_count}/{record.quality_check.difficulty.attempts || record.quality_check.difficulty.total_attempts || 8}次正确</div>
+                              {record.quality_check.difficulty.verdict && (
+                                <div style={{ marginTop: '4px' }}>判定：{record.quality_check.difficulty.verdict}</div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* 原创性检测 */}
+                        {record.quality_check.originality && (
+                          <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#f9f9f9', borderRadius: '4px' }}>
+                            <div style={{ marginBottom: '8px' }}>
+                              <strong>原创性检测：</strong>
+                              <Tag color={record.quality_check.originality.is_original ? 'green' : 'orange'} style={{ marginLeft: '8px' }}>
+                                {record.quality_check.originality.is_original ? '通过' : '未通过'}
+                              </Tag>
+                            </div>
+                            <div style={{ fontSize: '13px', color: '#666', marginLeft: '20px' }}>
+                              {record.quality_check.originality.verdict && (
+                                <div>判定：{record.quality_check.originality.verdict}</div>
+                              )}
+                              {record.quality_check.originality.details && (
+                                <div style={{ marginTop: '8px', padding: '8px', backgroundColor: '#fff', borderLeft: '3px solid #52c41a', whiteSpace: 'pre-wrap' }}>
+                                  {record.quality_check.originality.details}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* 严谨性检测 */}
+                        {record.quality_check.rigor && (
+                          <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#f9f9f9', borderRadius: '4px' }}>
+                            <div style={{ marginBottom: '8px' }}>
+                              <strong>严谨性检测：</strong>
+                              <Tag color={record.quality_check.rigor.is_rigorous ? 'purple' : 'orange'} style={{ marginLeft: '8px' }}>
+                                {record.quality_check.rigor.is_rigorous ? '通过' : '未通过'}
+                              </Tag>
+                            </div>
+                            <div style={{ fontSize: '13px', color: '#666', marginLeft: '20px' }}>
+                              {record.quality_check.rigor.verdict && (
+                                <div>判定：{record.quality_check.rigor.verdict}</div>
+                              )}
+                              {record.quality_check.rigor.details && (
+                                <div style={{ marginTop: '8px', padding: '8px', backgroundColor: '#fff', borderLeft: '3px solid #722ed1', whiteSpace: 'pre-wrap' }}>
+                                  {record.quality_check.rigor.details}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* 提前终止提示 */}
+                        {record.quality_check.early_stop && record.quality_check.early_stop_reason && (
+                          <div style={{ marginTop: '16px', padding: '12px', backgroundColor: '#fff7e6', border: '1px solid #ffd591', borderRadius: '4px' }}>
+                            <Text type="warning">
+                              ⚠️ 提前终止：{record.quality_check.early_stop_reason}（未执行难度检测）
+                            </Text>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 ),

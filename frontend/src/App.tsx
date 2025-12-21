@@ -19,6 +19,7 @@ import Materials from './pages/Materials';
 import Admin from './pages/Admin';
 import Tasks from './pages/Tasks';  // 使用完整版任务管理页面
 import Review from './pages/Review';
+import ReviewHistory from './pages/ReviewHistory';
 import Problem from './pages/Problem';
 
 // 创建 React Query 客户端
@@ -73,6 +74,10 @@ function App() {
               <Route 
                 path="review" 
                 element={<Review />} 
+              />
+              <Route 
+                path="review-history" 
+                element={<ReviewHistory />} 
               />
               <Route 
                 path="materials" 

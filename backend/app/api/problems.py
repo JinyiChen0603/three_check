@@ -27,7 +27,7 @@ from app.models import (
 from app.api.deps import get_current_user
 from app.services.ocr_service import ocr_service
 from app.services.validation_service import validation_service, quality_check_service
-from app.services.ai_service import deepseek_service
+from app.services.deep_transformer_service import deep_transformer_service
 from app.services.problem_storage import get_problem_storage_service
 from app.config import settings
 
@@ -459,21 +459,29 @@ async def generate_variant(
         problem_text = problem_content or ""
 
     try:
-        variant_result = await deepseek_service.generate_variant(
-            original_problem=problem_text,
-            original_answer=problem_answer,
+        # 调用 deep_transformer_service 生成变体（使用 Gemini API）
+        variant_result = deep_transformer_service.generate_problem_variant_with_explanation(
+            original_content=problem_text,
             original_explanation=problem_explanation,
-            custom_prompt=request.custom_prompt
+            original_answer=problem_answer,
+            modification_requirement=request.custom_prompt or "",
+            max_tokens=10000,
+            temperature=0.7,
+            use_stream=True
         )
         
-        if not variant_result.get("success", False):
-            error_msg = variant_result.get('error', '未知错误')
+        # 验证返回的数据
+        new_problem = variant_result.get("variant_content", "").strip()
+        new_answer = variant_result.get("variant_answer", "").strip()
+        new_explanation = variant_result.get("variant_explanation", "").strip()
+        
+        if not new_problem or not new_answer:
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"生成变体失败: {error_msg}")
+            logger.error(f"生成变体失败：内容为空。new_problem={new_problem[:100] if new_problem else ''}, new_answer={new_answer[:100] if new_answer else ''}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"生成变体失败: {error_msg}"
+                detail="生成变体失败：AI返回的内容为空或格式不正确"
             )
     except HTTPException:
         raise
@@ -484,21 +492,6 @@ async def generate_variant(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"生成变体失败: {str(e)}"
-        )
-
-    # 验证返回的数据
-    new_problem = variant_result.get("new_problem", "").strip()
-    new_answer = variant_result.get("new_answer", "").strip()
-    new_explanation = variant_result.get("new_explanation", "").strip()
-    
-    if not new_problem or not new_answer:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"生成变体失败：内容为空。new_problem={new_problem[:100]}, new_answer={new_answer[:100]}")
-        logger.error(f"原始返回结果: {variant_result.get('raw_content', '')[:500]}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="生成变体失败：AI返回的内容为空或格式不正确。请检查后端日志获取详细信息。"
         )
     
     # 返回生成的变体内容给前端，用于创建题目
@@ -562,9 +555,9 @@ async def quality_check(
     await db.commit()
     
     check_result = await quality_check_service.full_quality_check(
-        problem=json.dumps(problem.content) if isinstance(problem.content, dict) else problem.content,
-        answer=problem.answer,
-        explanation=problem.explanation
+        problem=json.dumps(problem_content) if isinstance(problem_content, dict) else problem_content,
+        answer=problem_answer,
+        explanation=problem_explanation
     )
     
     if not check_result["success"]:

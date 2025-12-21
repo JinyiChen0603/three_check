@@ -198,8 +198,23 @@ export const reviewApi = {
 
   // 获取我的评分记录
   getMyReviews: async () => {
-    const response = await apiClient.get<Review[]>('/reviews/my-reviews');
-    return response.data;
+    const response = await apiClient.get<{ total: number; reviews: any[] }>('/reviews/my-reviews');
+    // 转换后端返回的数据格式以匹配前端类型
+    return response.data.reviews.map((r: any) => ({
+      id: r.id,
+      problem_id: r.problem_id,
+      reviewer_id: 0, // 后端未返回此字段
+      correctness_verification: r.is_answer_correct !== undefined ? {
+        user_choice: '',
+        is_correct: r.is_answer_correct,
+      } : undefined,
+      innovation_score: r.innovation_score ?? undefined,
+      rigor_score: r.rigor_score ?? undefined,
+      veto_reason: r.is_vetoed ? '(具体理由未返回)' : undefined,
+      status: r.status,
+      created_at: r.created_at,
+      updated_at: r.created_at, // 后端未返回updated_at，使用created_at
+    })) as Review[];
   },
 };
 

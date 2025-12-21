@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { message } from 'antd';
 
 import { reviewApi } from '../../../api';
+import { useAuthStore } from '../../../store/useAuthStore';
 import type { ReviewChoiceResponse } from '../types';
 
 export function useReviewFlow({
@@ -13,6 +14,7 @@ export function useReviewFlow({
   options: string[];
   onFinishOne: () => Promise<void>;
 }) {
+  const { user, updateUser } = useAuthStore();
   const [submitting, setSubmitting] = useState(false);
   const [currentStep, setCurrentStep] = useState(0); // 0: 正确性，1: 评分
 
@@ -79,7 +81,7 @@ export function useReviewFlow({
     }
     setSubmitting(true);
     try {
-      await reviewApi.submitScores(
+      const response = await reviewApi.submitScores(
         reviewId,
         innovationScore,
         rigorScore,
@@ -87,7 +89,21 @@ export function useReviewFlow({
         isVeto,
         vetoReason || undefined
       );
-      message.success(isVeto ? '已提交否决意见' : '评分完成，已计入任务进度');
+      
+      // 更新用户余额和评分计数
+      if (user && response.new_balance !== undefined) {
+        updateUser({
+          ...user,
+          balance: response.new_balance,
+          reviews_completed_count: user.reviews_completed_count + 1,
+        });
+      }
+      
+      const successMessage = isVeto 
+        ? '已提交否决意见' 
+        : `评分完成！已获得 ¥${response.reward?.toFixed(2)} 奖励`;
+      message.success(successMessage);
+      
       await onFinishOne();
       resetStatesForProblem();
     } catch (error) {
@@ -95,7 +111,7 @@ export function useReviewFlow({
     } finally {
       setSubmitting(false);
     }
-  }, [innovationScore, isVeto, onFinishOne, resetStatesForProblem, reviewId, rigorScore, vetoReason]);
+  }, [innovationScore, isVeto, onFinishOne, resetStatesForProblem, reviewId, rigorScore, vetoReason, user, updateUser]);
 
   return {
     submitting,

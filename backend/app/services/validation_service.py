@@ -1,44 +1,26 @@
 """
-验证服务模块
-使用 Doubao 进行对抗验证（难度检测）
+验证服务模块（协调器）
+整合三个独立的检测服务：难度、原创性、严谨性
 """
 
 import asyncio
-import logging
-import os
-from typing import Dict, Any, List, Optional
-import httpx
-import json
+from typing import Dict, Any, Optional
 
-from app.config import settings
+# 导入三个独立的检测服务
+from app.services.difficulty_check_service import difficulty_check_service
+from app.services.originality_check_service import originality_check_service
+from app.services.rigor_check_service import rigor_check_service
 
 
 class ValidationService:
-    """题目验证服务（对抗验证）- 使用 Doubao Seed Thinking"""
+    """
+    题目验证服务（对抗验证）- 使用 Doubao Seed Thinking
+    
+    这是一个兼容层，实际调用 difficulty_check_service
+    """
     
     def __init__(self):
-        self.api_key = settings.DOUBAO_API_KEY
-        self.model = "doubao-seed-1-6-thinking-250715"  # Doubao Seed Thinking 模型
-        # Doubao API endpoint (火山引擎)
-        self.base_url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.INFO)
-
-        # 将验证日志写入文件，便于排查卡住问题
-        log_dir = "/app/logs"
-        log_path = os.path.join(log_dir, "validation.log")
-        try:
-            os.makedirs(log_dir, exist_ok=True)
-            # 避免重复添加 handler
-            if not any(isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == log_path for h in self.logger.handlers):
-                file_handler = logging.FileHandler(log_path, encoding="utf-8")
-                file_handler.setLevel(logging.INFO)
-                formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s - %(message)s")
-                file_handler.setFormatter(formatter)
-                self.logger.addHandler(file_handler)
-        except Exception:
-            # 文件日志失败不阻断服务
-            pass
+        self.difficulty_service = difficulty_check_service
     
     async def validate_difficulty(
         self,
@@ -50,268 +32,31 @@ class ValidationService:
         """
         验证题目难度（对抗验证）
         
-        通过让AI模型多次回答题目，统计正确率来判断难度：
-        - 正确次数 <= 4：难度合格（题目有一定难度）
-        - 正确次数 > 4：难度不合格（题目太简单）
-        
-        Args:
-            problem: 题目内容
-            answer: 标准答案
-            explanation: 解析（可选）
-            attempts: 尝试次数（默认8次）
-            
-        Returns:
-            Dict: {
-                "success": bool,
-                "is_passed": bool,  # 是否通过验证
-                "attempts": int,    # 尝试次数
-                "correct_count": int,  # 正确次数
-                "correct_rate": float,  # 正确率
-                "attempts_details": List[Dict],  # 每次尝试的详细结果
-                "error": str  # 错误信息（如果失败）
-            }
+        委托给 difficulty_check_service 处理
         """
-        try:
-            # 构建prompt
-            prompt = f"""请直接给出以下数学题目的最终答案，无需解题过程，将答案放在\\boxed{{}}中。
-
-题目：
-{problem}
-
-答案："""
-            
-            # 并发进行多次验证，提高速度
-            # 创建所有验证任务
-            tasks = [self._single_attempt(prompt, answer, i + 1) for i in range(attempts)]
-            # 并发执行所有验证
-            attempt_results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # 统计结果
-            correct_count = 0
-            valid_attempts = []
-            
-            for i, result in enumerate(attempt_results):
-                if isinstance(result, Exception):
-                    # 如果某次尝试失败，记录错误
-                    valid_attempts.append({
-                        "attempt": i + 1,
-                        "success": False,
-                        "error": str(result)
-                    })
-                else:
-                    valid_attempts.append(result)
-                    if result.get("is_correct", False):
-                        correct_count += 1
-            
-            # 判断是否通过验证
-            # 正确次数 <= 4 才算通过（题目有难度）
-            is_passed = correct_count <= settings.VALIDATION_MAX_CORRECT
-            correct_rate = correct_count / attempts if attempts > 0 else 0
-            
-            # 记录日志：每次尝试与总体统计（截断答案以免过长）
-            try:
-                brief_problem = (str(problem) or "")[:200]
-                self.logger.info(
-                    "[validate] problem=%.200s attempts=%s correct=%s rate=%.2f details=%s",
-                    brief_problem,
-                    attempts,
-                    correct_count,
-                    correct_rate,
-                    [
-                        {
-                            "attempt": a.get("attempt"),
-                            "success": a.get("success"),
-                            "is_correct": a.get("is_correct"),
-                            "error": a.get("error"),
-                            "ai_answer": (a.get("ai_answer") or "")[:120] if isinstance(a, dict) else None,
-                        }
-                        for a in valid_attempts
-                    ],
-                )
-            except Exception:
-                pass
-            
-            return {
-                "success": True,
-                "is_passed": is_passed,
-                "attempts": attempts,
-                "correct_count": correct_count,
-                "correct_rate": correct_rate,
-                "attempts_details": valid_attempts,
-                "verdict": "难度合格" if is_passed else "题目太简单"
-            }
-        
-        except Exception as e:
-            self.logger.exception("validate_difficulty failed")
-            return {
-                "success": False,
-                "error": f"验证失败: {str(e)}"
-            }
-    
-    async def _single_attempt(
-        self,
-        prompt: str,
-        standard_answer: str,
-        attempt_no: int
-    ) -> Dict[str, Any]:
-        """
-        单次验证尝试（使用流式响应）
-        
-        Args:
-            prompt: 提示词
-            standard_answer: 标准答案
-            
-        Returns:
-            Dict: 单次尝试的结果
-        """
-        try:
-            # 调用Doubao API（流式响应）
-            async with httpx.AsyncClient(timeout=30.0) as client:  # 减少超时时间到30秒
-                # 流式请求
-                async with client.stream(
-                    "POST",
-                    self.base_url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "You are a math expert. Give direct answer only. Put your final answer within \\boxed{}."
-                            },
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ],
-                        "stream": True,  # 启用流式响应
-                        "temperature": 0.6,
-                    }
-                ) as response:
-                    response.raise_for_status()
-                    
-                    # 读取流式响应
-                    full_content = ""
-                    async for line in response.aiter_lines():
-                        line = line.strip()
-                        if not line or line == "data: [DONE]":
-                            continue
-                        
-                        if line.startswith("data: "):
-                            try:
-                                import json as json_module
-                                data = json_module.loads(line[6:])  # 去掉 "data: " 前缀
-                                
-                                if 'choices' in data and len(data['choices']) > 0:
-                                    delta = data['choices'][0].get('delta', {})
-                                    
-                                    # 提取 reasoning_content 和 content
-                                    reason_piece = delta.get('reasoning_content', '')
-                                    content_piece = delta.get('content', '')
-                                    
-                                    if reason_piece:
-                                        full_content += reason_piece
-                                    if content_piece:
-                                        full_content += content_piece
-                            except:
-                                continue
-                    
-                    if not full_content:
-                        raise Exception("Empty response received")
-                    
-                    # 判断答案是否正确
-                    is_correct = self._check_answer(full_content, standard_answer)
-                    
-                    return {
-                        "success": True,
-                        "ai_answer": full_content[:500],  # 只保存前500字符用于调试
-                        "is_correct": is_correct
-                    }
-        
-        except Exception as e:
-            raise Exception(f"单次验证失败 (attempt {attempt_no}): {str(e)}")
-    
-    def _check_answer(self, ai_answer: str, standard_answer: str) -> bool:
-        """
-        检查答案是否正确（支持 \boxed{} 格式）
-        
-        Args:
-            ai_answer: AI给出的答案
-            standard_answer: 标准答案
-            
-        Returns:
-            bool: 是否正确
-        """
-        import re
-        
-        # 辅助函数：规范化答案
-        def normalize_answer(text):
-            if not text:
-                return ""
-            text = str(text)
-            
-            # 提取 \boxed{} 中的内容（取最后一个）
-            boxed_matches = re.findall(r'\\boxed\s*\{(.*?)\}', text)
-            if boxed_matches:
-                text = boxed_matches[-1]
-            
-            # 移除各种 LaTeX 数学模式标记
-            text = text.replace('\\[', '').replace('\\]', '')
-            text = text.replace('\\(', '').replace('\\)', '')
-            text = text.replace('$', '').replace(' ', '').strip()
-            
-            return text
-        
-        # 规范化两个答案
-        extracted_model = normalize_answer(ai_answer)
-        clean_truth = normalize_answer(standard_answer)
-        
-        # 方法1: 直接字符串匹配
-        if extracted_model and extracted_model == clean_truth:
-            return True
-        
-        # 方法2: 检查标准答案是否在AI答案的末尾（后50个字符）
-        if clean_truth and clean_truth in ai_answer.replace(' ', '')[-50:]:
-            return True
-        
-        # 方法3: 对于包含多个元素的答案（如坐标、多解），尝试集合匹配
-        if ',' in extracted_model and ',' in clean_truth:
-            # 提取所有括号内的内容作为元素
-            model_elements = re.findall(r'\([^)]+\)', extracted_model)
-            truth_elements = re.findall(r'\([^)]+\)', clean_truth)
-            
-            # 如果都找到多个括号元素，按集合比较
-            if len(model_elements) > 1 and len(truth_elements) > 1:
-                model_set = set(e.replace(' ', '') for e in model_elements)
-                truth_set = set(e.replace(' ', '') for e in truth_elements)
-                if model_set == truth_set:
-                    return True
-            
-            # 如果没有多个括号，尝试按逗号分割（处理简单列表）
-            if not model_elements or not truth_elements:
-                model_items = [item.strip() for item in extracted_model.replace('(', '').replace(')', '').replace('{', '').replace('}', '').split(',')]
-                truth_items = [item.strip() for item in clean_truth.replace('(', '').replace(')', '').replace('{', '').replace('}', '').split(',')]
-                
-                # 如果元素数量相同且都不止一个，尝试集合匹配
-                if len(model_items) > 1 and len(truth_items) > 1 and len(model_items) == len(truth_items):
-                    if set(model_items) == set(truth_items):
-                        return True
-        
-        return False
+        return await self.difficulty_service.validate_difficulty(
+            problem=problem,
+            answer=answer,
+            explanation=explanation,
+            attempts=attempts
+        )
 
 
 class QualityCheckService:
-    """质量检查服务（三维度）- 通过 OpenRouter"""
+    """
+    质量检查协调服务（三维度）
+    
+    整合三个独立的检测服务：
+    1. 难度检测 - DifficultyCheckService (Doubao)
+    2. 原创性检测 - OriginalityCheckService (GPT-4o)
+    3. 严谨性检测 - RigorCheckService (GPT-4o)
+    """
     
     def __init__(self):
-        self.validation_service = ValidationService()
-        # 使用 OpenRouter API Key
-        self.openai_api_key = settings.OPENROUTER_API_KEY
-        self.gpt4_model = settings.OPENAI_GPT4_MODEL  # OpenRouter 格式
-        self.base_url = "https://openrouter.ai/api/v1/chat/completions"
+        # 使用三个独立的服务
+        self.difficulty_service = difficulty_check_service
+        self.originality_service = originality_check_service
+        self.rigor_service = rigor_check_service
     
     async def full_quality_check(
         self,
@@ -342,11 +87,11 @@ class QualityCheckService:
         """
         try:
             # 并发执行三个维度的检测
-            difficulty_task = self.validation_service.validate_difficulty(
+            difficulty_task = self.difficulty_service.validate_difficulty(
                 problem, answer, explanation
             )
-            originality_task = self._check_originality(problem)
-            rigor_task = self._check_rigor(problem, answer, explanation)
+            originality_task = self.originality_service.check_originality(problem)
+            rigor_task = self.rigor_service.check_rigor(problem, answer, explanation)
             
             results = await asyncio.gather(
                 difficulty_task,
@@ -385,150 +130,114 @@ class QualityCheckService:
                 "error": f"质量检查失败: {str(e)}"
             }
     
-    async def _check_originality(self, problem: str) -> Dict[str, Any]:
-        """
-        检查原创性（使用GPT-4o Research联网搜索）
-        
-        Args:
-            problem: 题目内容
-            
-        Returns:
-            Dict: 原创性检测结果
-        """
-        try:
-            prompt = f"""请判断以下数学题目是否为原创题目。
-
-请联网搜索，判断这道题目（不考虑具体的数字和语义环境）是否在网络上已经存在相同或高度相似的题目。
-
-题目：
-{problem}
-
-请按照以下格式回答：
-【判断结果】（原创/非原创）
-【相似度】（如果找到相似题目，说明相似度）
-【依据】（说明判断依据）"""
-            
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    self.base_url,
-                    headers={
-                        "Authorization": f"Bearer {self.openai_api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": self.gpt4_model,
-                        "messages": [
-                            {"role": "user", "content": prompt}
-                        ],
-                        "max_tokens": 1000,
-                        "temperature": 0.3,
-                    }
-                )
-                
-                response.raise_for_status()
-                result = response.json()
-                
-                content = result["choices"][0]["message"]["content"]
-                
-                # 简单解析判断结果
-                is_original = "原创" in content and "非原创" not in content
-                
-                return {
-                    "success": True,
-                    "is_original": is_original,
-                    "details": content,
-                    "verdict": "原创性合格" if is_original else "可能存在相似题目"
-                }
-        
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"原创性检测失败: {str(e)}"
-            }
-    
-    async def _check_rigor(
+    async def sequential_quality_check(
         self,
         problem: str,
         answer: str,
         explanation: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        检查数学严谨性（使用GPT-4o）
+        顺序执行质量检查（三个维度）
         
-        Args:
-            problem: 题目内容
-            answer: 标准答案
-            explanation: 解析
-            
+        1. 先检查创新性和严谨性（并发）
+        2. 只有两项都通过后，才检查难度（豆包对抗验证）
+        
+        这样可以节省成本，如果基础检测不通过就不调用昂贵的难度检测
+        
         Returns:
-            Dict: 严谨性检测结果
+            Dict: {
+                "success": bool,
+                "all_passed": bool,
+                "originality": Dict,
+                "rigor": Dict,
+                "difficulty": Dict,  # 可能为 None
+                "early_stop": bool,
+                "early_stop_reason": str
+            }
         """
         try:
-            prompt = f"""请从数学专业的角度，判断以下题目在数学语境下是否严格、严谨。
-
-题目：
-{problem}
-
-答案：
-{answer}"""
+            # 第一步：先检查创新性和严谨性（并发执行这两项）
+            originality_result, rigor_result = await asyncio.gather(
+                self.originality_service.check_originality(problem),
+                self.rigor_service.check_rigor(problem, answer, explanation),
+                return_exceptions=True
+            )
             
-            if explanation:
-                prompt += f"\n\n解析：\n{explanation}"
+            # 处理异常
+            if isinstance(originality_result, Exception):
+                originality_result = {"success": False, "error": str(originality_result)}
+            if isinstance(rigor_result, Exception):
+                rigor_result = {"success": False, "error": str(rigor_result)}
             
-            prompt += """
-
-请检查：
-1. 题目表述是否清晰、无歧义
-2. 数学符号使用是否规范
-3. 题目条件是否充分
-4. 答案是否唯一且正确
-5. 解析（如有）是否逻辑严密
-
-请按照以下格式回答：
-【判断结果】（严谨/不严谨）
-【问题说明】（如果不严谨，说明具体问题）
-【建议】（如果有问题，给出修改建议）"""
+            # 检查创新性和严谨性是否都通过
+            originality_passed = (
+                originality_result.get("success", False) and 
+                originality_result.get("is_original", False)
+            )
+            rigor_passed = (
+                rigor_result.get("success", False) and 
+                rigor_result.get("is_rigorous", False)
+            )
             
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    self.base_url,
-                    headers={
-                        "Authorization": f"Bearer {self.openai_api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": self.gpt4_model,
-                        "messages": [
-                            {"role": "user", "content": prompt}
-                        ],
-                        "max_tokens": 1500,
-                        "temperature": 0.2,
-                    }
-                )
-                
-                response.raise_for_status()
-                result = response.json()
-                
-                content = result["choices"][0]["message"]["content"]
-                
-                # 简单解析判断结果
-                is_rigorous = "严谨" in content and "不严谨" not in content
+            # 如果创新性或严谨性未通过，提前终止
+            if not (originality_passed and rigor_passed):
+                early_stop_reasons = []
+                if not originality_passed:
+                    early_stop_reasons.append("创新性检测未通过")
+                if not rigor_passed:
+                    early_stop_reasons.append("严谨性检测未通过")
                 
                 return {
                     "success": True,
-                    "is_rigorous": is_rigorous,
-                    "details": content,
-                    "verdict": "数学严谨性合格" if is_rigorous else "存在严谨性问题"
+                    "all_passed": False,
+                    "originality": originality_result,
+                    "rigor": rigor_result,
+                    "difficulty": None,  # 未执行难度检测
+                    "early_stop": True,
+                    "early_stop_reason": "；".join(early_stop_reasons),
+                    "summary": {
+                        "difficulty_passed": None,  # 未检测
+                        "originality_passed": originality_passed,
+                        "rigor_passed": rigor_passed,
+                    }
                 }
+            
+            # 第二步：创新性和严谨性都通过，执行难度检测
+            difficulty_result = await self.difficulty_service.validate_difficulty(
+                problem, answer, explanation
+            )
+            
+            if isinstance(difficulty_result, Exception):
+                difficulty_result = {"success": False, "error": str(difficulty_result)}
+            
+            # 判断是否全部通过
+            all_passed = (
+                difficulty_result.get("success", False) and 
+                difficulty_result.get("is_passed", False)
+            )
+            
+            return {
+                "success": True,
+                "all_passed": all_passed,
+                "originality": originality_result,
+                "rigor": rigor_result,
+                "difficulty": difficulty_result,
+                "early_stop": False,
+                "early_stop_reason": None,
+                "summary": {
+                    "difficulty_passed": difficulty_result.get("is_passed", False),
+                    "originality_passed": originality_passed,
+                    "rigor_passed": rigor_passed,
+                }
+            }
         
         except Exception as e:
             return {
                 "success": False,
-                "error": f"严谨性检测失败: {str(e)}"
+                "error": f"质量检查失败: {str(e)}"
             }
 
 
 # 全局服务实例
 validation_service = ValidationService()
 quality_check_service = QualityCheckService()
-

@@ -26,6 +26,7 @@ import {
   LockOutlined,
   TeamOutlined,
   WalletOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/useAuthStore';
 import { UserRole } from '../config/constants';
@@ -96,6 +97,11 @@ export default function MainLayout() {
       key: '/review',
       icon: <CheckCircleOutlined />,
       label: '评分流程',
+    },
+    {
+      key: '/review-history',
+      icon: <HistoryOutlined />,
+      label: '我的评分记录',
     },
     {
       key: '/materials',

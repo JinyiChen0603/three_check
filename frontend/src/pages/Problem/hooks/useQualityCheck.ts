@@ -53,7 +53,16 @@ export function useQualityCheck({
         ),
       }));
 
-      message.success('质量检查完成');
+      // 显示详细结果
+      if (allPassed) {
+        message.success('✅ 质量检查全部通过！');
+      } else {
+        const failedChecks = [];
+        if (!result.difficulty?.is_passed) failedChecks.push('难度');
+        if (!result.originality?.is_original) failedChecks.push('原创性');
+        if (!result.rigor?.is_rigorous) failedChecks.push('严谨性');
+        message.warning(`⚠️ 质检未通过：${failedChecks.join('、')} 不合格。点击"查看"按钮查看详情`);
+      }
     } catch (error) {
       setVariantsMap((prev) => ({
         ...prev,

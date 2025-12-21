@@ -22,6 +22,7 @@ from app.models import (
 )
 from app.api.deps import get_current_user
 from app.services.ai_service import gpt_service
+from app.services.problem_storage import get_problem_storage_service
 from app.config import settings
 
 
@@ -71,7 +72,6 @@ class ChoicesResponse(BaseModel):
 
 class VerifyCorrectnessRequest(BaseModel):
     """验证正确性请求"""
-    problem_id: int
     selected_index: int = Field(..., ge=0, le=10, description="选择的选项索引")
     selected_answer: Optional[str] = Field(None, description="选择的答案文本（用于确保顺序一致）")
     correct_index: Optional[int] = Field(None, description="正确答案的索引（来自获取选项接口）")
@@ -141,10 +141,25 @@ async def get_problem_choices(
     # 校验任务（评分任务必须存在且未超时）
     task = await _get_review_task_or_error(db, current_user.id, problem.id)
     
+    # 使用ProblemStorageService获取完整题目数据（包括MongoDB内容）
+    try:
+        storage_service = get_problem_storage_service()
+        full_problem = await storage_service.get_problem(db, problem_id)
+        
+        problem_content = full_problem.get("content")
+        problem_answer = full_problem.get("answer")
+        problem_explanation = full_problem.get("explanation")
+        
+    except RuntimeError:
+        # MongoDB未配置，回退到PostgreSQL（兼容模式）
+        problem_content = problem.content
+        problem_answer = problem.answer
+        problem_explanation = problem.explanation
+    
     # 生成3个相似的错误答案
     similar_result = await gpt_service.generate_similar_answers(
-        problem=str(problem.content),
-        correct_answer=problem.answer,
+        problem=str(problem_content) if problem_content else "",
+        correct_answer=problem_answer or "",
         count=3
     )
     
@@ -155,7 +170,7 @@ async def get_problem_choices(
         )
     
     # 组合正确答案和错误答案
-    choices = [problem.answer] + similar_result["similar_answers"][:3]
+    choices = [problem_answer] + similar_result["similar_answers"][:3]
     
     # 记录正确答案的原始位置
     correct_index = 0
@@ -174,8 +189,8 @@ async def get_problem_choices(
     return {
         "problem_id": problem.id,
         "problem_title": problem.title,
-        "problem_content": problem.content,
-        "problem_explanation": problem.explanation,
+        "problem_content": problem_content,
+        "problem_explanation": problem_explanation,
         "choices": shuffled_choices,
         "correct_index": correct_index,  # 在实际应用中，这个不应该返回给前端
         "instruction": "请选择你认为正确的答案："
@@ -219,14 +234,55 @@ async def verify_correctness(
     # 校验并获取对应的评分任务
     task = await _get_review_task_or_error(db, current_user.id, problem.id)
     
+    # 检查该任务是否已有评分记录（防止重复提交）
+    existing_review_result = await db.execute(
+        select(Review).where(Review.task_id == task.id)
+    )
+    existing_review = existing_review_result.scalar_one_or_none()
+    
+    # 使用ProblemStorageService获取完整题目数据（包括MongoDB内容）
+    try:
+        storage_service = get_problem_storage_service()
+        full_problem = await storage_service.get_problem(db, problem_id)
+        
+        problem_answer = full_problem.get("answer")
+        problem_explanation = full_problem.get("explanation")
+        
+    except RuntimeError:
+        # MongoDB未配置，回退到PostgreSQL（兼容模式）
+        problem_answer = problem.answer
+        problem_explanation = problem.explanation
+    
+    if existing_review:
+        # 如果已经有评分记录，返回现有记录（防止重复提交）
+        if existing_review.is_answer_correct:
+            return {
+                "success": True,
+                "is_correct": True,
+                "review_id": existing_review.id,
+                "message": "✅ 该题目已完成正确性验证，请继续评分。",
+                "next_step": "scoring"
+            }
+        else:
+            return {
+                "success": True,
+                "is_correct": False,
+                "review_id": existing_review.id,
+                "message": "❌ 该题目已完成正确性验证。",
+                "problem_explanation": problem_explanation,
+                "correct_answer": problem_answer,
+                "question": "请判断：题目的解析和答案是否正确？",
+                "next_step": "manual_verification"
+            }
+    
     # 判定正确性（使用传回的选项文本优先，避免顺序不一致）
     is_correct = False
     if request.selected_answer is not None:
-        is_correct = str(request.selected_answer).strip() == str(problem.answer).strip()
+        is_correct = str(request.selected_answer).strip() == str(problem_answer).strip()
     elif request.correct_index is not None:
         is_correct = (request.selected_index == request.correct_index)
     
-    # 创建或更新评分记录
+    # 创建评分记录（现在确保不会重复）
     review = Review(
         problem_id=problem.id,
         reviewer_id=current_user.id,
@@ -261,8 +317,8 @@ async def verify_correctness(
             "is_correct": False,
             "review_id": review.id,
             "message": "❌ 答案不正确。请查看题目的解析和标准答案：",
-            "problem_explanation": problem.explanation,
-            "correct_answer": problem.answer,
+            "problem_explanation": problem_explanation,
+            "correct_answer": problem_answer,
             "question": "请判断：题目的解析和答案是否正确？",
             "next_step": "manual_verification"
         }
