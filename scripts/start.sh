@@ -4,10 +4,12 @@
 # MathTasks 项目启动脚本
 # =============================================================================
 # 用途：一键启动所有服务（前端、后端、数据库）
-# 使用方法：./start.sh
+# 使用方法：./scripts/start.sh
 # =============================================================================
 
 set -e
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "=========================================="
 echo "🚀 启动 MathTasks 项目"
@@ -27,7 +29,7 @@ fi
 echo "📦 步骤 1/2: 启动后端服务..."
 echo ""
 
-cd backend
+cd "$ROOT_DIR/backend"
 
 # 检查容器状态
 if docker compose ps | grep -q "Up"; then
@@ -61,7 +63,7 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
     fi
 done
 
-cd ..
+cd "$ROOT_DIR"
 
 echo ""
 
@@ -77,7 +79,7 @@ if lsof -ti:5173 > /dev/null 2>&1; then
     echo "前端可能已在运行，或需要手动停止占用进程"
 else
     echo "正在启动前端开发服务器..."
-    cd frontend
+    cd "$ROOT_DIR/frontend"
     
     # 检查 node_modules
     if [ ! -d "node_modules" ]; then
@@ -86,9 +88,10 @@ else
     fi
     
     # 后台启动前端
-    nohup npm run dev > ../logs/frontend.log 2>&1 &
+    mkdir -p "$ROOT_DIR/logs"
+    nohup npm run dev > "$ROOT_DIR/logs/frontend.log" 2>&1 &
     
-    cd ..
+    cd "$ROOT_DIR"
     
     echo "⏳ 等待前端启动..."
     sleep 5
@@ -124,9 +127,9 @@ echo "=========================================="
 echo "💡 提示"
 echo "=========================================="
 echo ""
-echo "停止服务: ./stop.sh"
-echo "查看日志: ./logs.sh"
-echo "重启服务: ./restart.sh"
+echo "停止服务: ./scripts/stop.sh"
+echo "查看日志: ./scripts/logs.sh"
+echo "重启服务: ./scripts/restart.sh"
 echo ""
 echo "=========================================="
 

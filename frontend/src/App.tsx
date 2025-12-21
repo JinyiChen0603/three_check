@@ -1,5 +1,6 @@
 /**
- * 主应用组件（完整版 - 简化页面避免API调用问题）
+ * 主应用组件
+ * 约定：路由统一指向各页面的 `index.tsx`（单一入口），避免 Simple/完整版并存导致的混乱。
  */
 
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
@@ -13,11 +14,11 @@ import MainLayout from './layouts/MainLayout';
 
 // 页面
 import Login from './pages/Login';
-import SimpleDashboard from './pages/Dashboard/Simple';
-import MaterialsSimple from './pages/Materials/Simple';
-import AdminSimple from './pages/Admin/Simple';
+import Dashboard from './pages/Dashboard';
+import Materials from './pages/Materials';
+import Admin from './pages/Admin';
 import Tasks from './pages/Tasks';  // 使用完整版任务管理页面
-import ReviewSimple from './pages/Review/Simple';
+import Review from './pages/Review';
 import Problem from './pages/Problem';
 
 // 创建 React Query 客户端
@@ -58,7 +59,7 @@ function App() {
               <Route index element={<Navigate to="/dashboard" replace />} />
               
               {/* 仪表盘 */}
-              <Route path="dashboard" element={<SimpleDashboard />} />
+              <Route path="dashboard" element={<Dashboard />} />
               
               {/* 任务管理 */}
               <Route 
@@ -71,15 +72,15 @@ function App() {
               />
               <Route 
                 path="review" 
-                element={<ReviewSimple />} 
+                element={<Review />} 
               />
               <Route 
                 path="materials" 
-                element={<MaterialsSimple />} 
+                element={<Materials />} 
               />
               <Route 
                 path="admin" 
-                element={<AdminSimple />} 
+                element={<Admin />} 
               />
             </Route>
 

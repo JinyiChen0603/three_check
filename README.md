@@ -34,16 +34,32 @@ git clone <你的仓库地址>
 cd mathtasks
 
 # 2. 一键初始化（首次运行）
-./setup.sh
+./scripts/setup.sh
 
 # 3. 启动服务
-./start.sh
+./scripts/start.sh
 
 # 4. 访问前端
 open http://localhost:5173
 ```
 
 **详细指南：** 查看 [QUICKSTART.md](./QUICKSTART.md) 获取完整说明。
+
+### 方式三：根目录一键起全栈（推荐给演示/预发/快速验收）⭐
+
+> 使用根目录 `docker-compose.yml`：前端由 Nginx 托管，并反代 `/api` 到后端（避免 CORS 麻烦）。
+
+```bash
+docker compose up -d --build
+```
+
+- （可选）创建后端环境变量：参考 `backend/env.template`，按需复制为 `backend/.env`
+
+- 前端：http://localhost:5173
+- 后端：http://localhost:8001
+- API Docs：http://localhost:8001/docs
+
+更完整的开发入口见：[`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md)
 
 ### 方式二：手动启动
 
@@ -52,11 +68,10 @@ open http://localhost:5173
 ### 常用命令
 
 ```bash
-./start.sh      # 启动所有服务
-./stop.sh       # 停止所有服务
-./restart.sh    # 重启所有服务
-./logs.sh       # 查看服务日志
-./clean.sh      # 完全清理项目
+./scripts/start.sh      # 启动所有服务
+./scripts/stop.sh       # 停止所有服务
+./scripts/restart.sh    # 重启所有服务
+./scripts/logs.sh       # 查看服务日志
 ```
 
 ### 测试账号

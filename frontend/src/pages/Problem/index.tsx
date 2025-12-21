@@ -29,28 +29,11 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons';
 import { problemApi } from '../../api';
-import type { Problem } from '../../types';
 import { BUSINESS_CONSTANTS } from '../../config/constants';
+import type { ProblemItem, VariantItem, ValidationStatus } from './types';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
-
-type ValidationStatus = 'pending' | 'queued' | 'validating' | 'passed' | 'failed';
-
-interface ProblemItem {
-  key: string;
-  id?: number;
-  content: string;
-  answer: string;
-  explanation?: string;
-  validationStatus?: ValidationStatus;
-  validationResult?: any;
-}
-
-interface VariantItem extends Problem {
-  key: string;
-  qualityCheckStatus?: 'pending' | 'checking' | 'passed' | 'failed';
-}
 
 export default function ProblemCreation() {
   const [currentStep, setCurrentStep] = useState(0);

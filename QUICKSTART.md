@@ -34,7 +34,7 @@ cd mathtasks
 ### 步骤 2：初始化配置
 
 ```bash
-./setup.sh
+./scripts/setup.sh
 ```
 
 这个脚本会自动：
@@ -57,7 +57,7 @@ DOUBAO_API_KEY=...                   # Doubao Seed Thinking (必需)
 ### 步骤 3：启动服务
 
 ```bash
-./start.sh
+./scripts/start.sh
 ```
 
 等待几秒钟，然后访问：
@@ -87,20 +87,19 @@ DOUBAO_API_KEY=...                   # Doubao Seed Thinking (必需)
 ## 🛠️ 常用命令
 
 ```bash
-./start.sh      # 启动所有服务
-./stop.sh       # 停止所有服务
-./restart.sh    # 重启所有服务
-./logs.sh       # 查看服务日志
-./clean.sh      # 完全清理项目（删除数据）
+./scripts/start.sh      # 启动所有服务
+./scripts/stop.sh       # 停止所有服务
+./scripts/restart.sh    # 重启所有服务
+./scripts/logs.sh       # 查看服务日志
 ```
 
 ### 查看日志
 
 ```bash
-./logs.sh             # 查看所有日志
-./logs.sh frontend    # 仅查看前端日志
-./logs.sh backend     # 仅查看后端日志
-./logs.sh database    # 仅查看数据库日志
+./scripts/logs.sh             # 查看所有日志
+./scripts/logs.sh frontend    # 仅查看前端日志
+./scripts/logs.sh backend     # 仅查看后端日志
+./scripts/logs.sh database    # 仅查看数据库日志
 ```
 
 ---
@@ -130,7 +129,7 @@ DOUBAO_API_KEY=...                   # Doubao Seed Thinking (必需)
 **解决方法：**
 1. 打开 Docker Desktop 应用
 2. 等待 Docker 图标变为绿色（运行中）
-3. 重新运行 `./setup.sh` 或 `./start.sh`
+3. 重新运行 `./scripts/setup.sh` 或 `./scripts/start.sh`
 
 ---
 
@@ -150,7 +149,7 @@ lsof -ti:5173
 kill $(lsof -ti:5173)
 
 # 或者直接运行停止脚本
-./stop.sh
+./scripts/stop.sh
 ```
 
 ---
@@ -188,7 +187,7 @@ docker compose up -d
 cd ..
 
 # 或者使用重启脚本
-./restart.sh
+./scripts/restart.sh
 ```
 
 ---
@@ -225,7 +224,7 @@ cd ..
 
 如果遇到问题：
 
-1. 📋 查看日志：`./logs.sh`
+1. 📋 查看日志：`./scripts/logs.sh`
 2. 🔧 检查服务状态：`docker compose ps`（在 backend 目录）
 3. 💬 联系项目管理员
 4. 🐛 提交 Issue 到 GitHub

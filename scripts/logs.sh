@@ -4,10 +4,12 @@
 # MathTasks 项目日志查看脚本
 # =============================================================================
 # 用途：查看服务日志
-# 使用方法：./logs.sh [frontend|backend|database|all]
+# 使用方法：./scripts/logs.sh [frontend|backend|database|all]
 # =============================================================================
 
 SERVICE=${1:-all}
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "=========================================="
 echo "📋 MathTasks 服务日志"
@@ -28,24 +30,24 @@ case $SERVICE in
     backend)
         echo "🔧 后端日志："
         echo "=========================================="
-        cd backend
+        cd "$ROOT_DIR/backend"
         docker compose logs api --tail 50
-        cd ..
+        cd "$ROOT_DIR"
         ;;
     
     database)
         echo "🗄️  数据库日志："
         echo "=========================================="
-        cd backend
+        cd "$ROOT_DIR/backend"
         docker compose logs postgres --tail 50
-        cd ..
+        cd "$ROOT_DIR"
         ;;
     
     all)
         echo "🌐 前端日志（最后20行）："
         echo "=========================================="
-        if [ -f "logs/frontend.log" ]; then
-            tail -20 logs/frontend.log
+        if [ -f "$ROOT_DIR/logs/frontend.log" ]; then
+            tail -20 "$ROOT_DIR/logs/frontend.log"
         else
             echo "❌ 未找到前端日志文件"
         fi
@@ -53,14 +55,14 @@ case $SERVICE in
         echo ""
         echo "🔧 后端日志（最后20行）："
         echo "=========================================="
-        cd backend
+        cd "$ROOT_DIR/backend"
         docker compose logs api --tail 20
         
         echo ""
         echo "🗄️  数据库日志（最后10行）："
         echo "=========================================="
         docker compose logs postgres --tail 10
-        cd ..
+        cd "$ROOT_DIR"
         ;;
     
     *)

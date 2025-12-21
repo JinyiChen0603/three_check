@@ -1,0 +1,107 @@
+name: mathtasks
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:16-alpine
+    container_name: mathtasks-db
+    environment:
+      POSTGRES_DB: mathtasks
+      POSTGRES_USER: mathtasks
+      POSTGRES_PASSWORD: mathtasks123
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mathtasks"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mathtasks-network
+
+  # MongoDB 数据库（用于存储题目内容）
+  mongodb:
+    image: mongo:7.0
+    container_name: mathtasks-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: mongodb123
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mathtasks-network
+
+  # FastAPI 应用
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mathtasks-api
+    environment:
+      # 必填项：至少要有 DATABASE_URL 和 SECRET_KEY
+      DATABASE_URL: postgresql+asyncpg://mathtasks:mathtasks123@postgres:5432/mathtasks
+      MONGODB_URL: mongodb://admin:mongodb123@mongodb:27017/?authSource=admin
+      SECRET_KEY: dev-secret-change-me
+      DEBUG: "true"
+    ports:
+      # 统一对外暴露 8001（与现有前端代理配置一致）
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    networks:
+      - mathtasks-network
+    restart: unless-stopped
+
+  # 前端（生产/预发风格）：Nginx 托管静态文件，并反代 /api -> api:8000
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mathtasks-frontend
+    ports:
+      # 让访问地址保持和开发端口接近：浏览器打开 http://localhost:5173
+      - "5173:80"
+    depends_on:
+      - api
+    networks:
+      - mathtasks-network
+
+  # pgAdmin (可选，用于数据库管理)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: mathtasks-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@mathtasks.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - mathtasks-network
+    profiles:
+      - dev
+
+volumes:
+  postgres_data:
+  mongodb_data:
+
+networks:
+  mathtasks-network:
+    driver: bridge
+
+

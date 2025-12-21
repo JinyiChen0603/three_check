@@ -1,0 +1,62 @@
+import { Alert, Button, Card, Radio, Space } from 'antd';
+
+import type { ReviewChoiceResponse } from '../types';
+
+export function CorrectnessStep({
+  problemData,
+  options,
+  userChoiceIndex,
+  onChangeChoice,
+  onSubmit,
+  submitting,
+}: {
+  problemData: ReviewChoiceResponse;
+  options: string[];
+  userChoiceIndex: number | null;
+  onChangeChoice: (idx: number) => void;
+  onSubmit: () => void;
+  submitting: boolean;
+}) {
+  return (
+    <Card title="步骤1：正确性验证">
+      <Space direction="vertical" style={{ width: '100%' }} size="large">
+        <Alert
+          message="请选择正确答案"
+          description={problemData.instruction || '从以下选项中选择您认为正确的答案。'}
+          type="info"
+          showIcon
+        />
+
+        <Radio.Group
+          value={userChoiceIndex}
+          onChange={(e) => onChangeChoice(e.target.value)}
+          style={{ width: '100%' }}
+        >
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {options.map((option, index) => (
+              <Radio
+                key={index}
+                value={index}
+                style={{
+                  fontSize: 16,
+                  padding: '12px',
+                  border: '1px solid #d9d9d9',
+                  borderRadius: '4px',
+                  width: '100%',
+                }}
+              >
+                选项 {String.fromCharCode(65 + index)}: {option}
+              </Radio>
+            ))}
+          </Space>
+        </Radio.Group>
+
+        <Button type="primary" onClick={onSubmit} loading={submitting}>
+          提交答案
+        </Button>
+      </Space>
+    </Card>
+  );
+}
+
+

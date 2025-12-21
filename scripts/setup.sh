@@ -4,10 +4,12 @@
 # MathTasks 项目初始化脚本
 # =============================================================================
 # 用途：首次克隆项目后，运行此脚本进行初始化配置
-# 使用方法：chmod +x setup.sh && ./setup.sh
+# 使用方法：chmod +x scripts/setup.sh && ./scripts/setup.sh
 # =============================================================================
 
 set -e  # 遇到错误立即退出
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "=========================================="
 echo "🚀 MathTasks 项目初始化"
@@ -67,12 +69,12 @@ echo "📝 步骤 2/6: 配置后端环境变量"
 echo "=========================================="
 echo ""
 
-if [ ! -f "backend/.env" ]; then
+if [ ! -f "$ROOT_DIR/backend/.env" ]; then
     echo "⚠️  未找到 backend/.env 文件"
     
-    if [ -f "backend/.env.example" ]; then
+    if [ -f "$ROOT_DIR/backend/.env.example" ]; then
         echo "📄 从 .env.example 复制..."
-        cp backend/.env.example backend/.env
+        cp "$ROOT_DIR/backend/.env.example" "$ROOT_DIR/backend/.env"
         echo "✅ 已创建 backend/.env"
         echo ""
         echo "⚠️  重要提示："
@@ -101,7 +103,7 @@ echo "📦 步骤 3/6: 安装前端依赖"
 echo "=========================================="
 echo ""
 
-cd frontend
+cd "$ROOT_DIR/frontend"
 
 if [ ! -d "node_modules" ]; then
     echo "正在安装前端依赖（可能需要几分钟）..."
@@ -112,7 +114,7 @@ else
     echo "提示：如果遇到问题，可运行 'npm install' 重新安装"
 fi
 
-cd ..
+cd "$ROOT_DIR"
 
 echo ""
 
@@ -131,7 +133,7 @@ if ! docker info &> /dev/null; then
     exit 1
 fi
 
-cd backend
+cd "$ROOT_DIR/backend"
 
 echo "正在启动数据库和后端服务..."
 docker compose up -d
@@ -145,7 +147,7 @@ echo ""
 echo "容器状态："
 docker compose ps
 
-cd ..
+cd "$ROOT_DIR"
 
 echo ""
 

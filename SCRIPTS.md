@@ -13,7 +13,6 @@
 | `stop.sh` | 停止所有服务 | 每天 |
 | `restart.sh` | 重启所有服务 | 偶尔 |
 | `logs.sh` | 查看服务日志 | 调试时 |
-| `clean.sh` | 完全清理项目 | 很少 |
 
 ---
 
@@ -31,7 +30,7 @@
 
 **使用方法：**
 ```bash
-./setup.sh
+./scripts/setup.sh
 ```
 
 **注意事项：**
@@ -54,7 +53,7 @@
 
 **使用方法：**
 ```bash
-./start.sh
+./scripts/start.sh
 ```
 
 **服务地址：**
@@ -74,12 +73,12 @@
 
 **使用方法：**
 ```bash
-./stop.sh
+./scripts/stop.sh
 ```
 
 **注意事项：**
 - ✅ 数据会保留在 Docker 数据卷中
-- ✅ 下次 `./start.sh` 时数据仍然存在
+- ✅ 下次 `./scripts/start.sh` 时数据仍然存在
 
 ---
 
@@ -88,13 +87,13 @@
 **用途：** 快速重启所有服务（常用于代码更新后）。
 
 **功能：**
-1. 调用 `./stop.sh` 停止服务
+1. 调用 `./scripts/stop.sh` 停止服务
 2. 等待 3 秒
-3. 调用 `./start.sh` 启动服务
+3. 调用 `./scripts/start.sh` 启动服务
 
 **使用方法：**
 ```bash
-./restart.sh
+./scripts/restart.sh
 ```
 
 **适用场景：**
@@ -116,16 +115,16 @@
 **使用方法：**
 ```bash
 # 查看所有日志
-./logs.sh
+./scripts/logs.sh
 
 # 仅查看前端日志
-./logs.sh frontend
+./scripts/logs.sh frontend
 
 # 仅查看后端日志
-./logs.sh backend
+./scripts/logs.sh backend
 
 # 仅查看数据库日志
-./logs.sh database
+./scripts/logs.sh database
 ```
 
 **实时查看日志：**
@@ -142,37 +141,6 @@ cd backend && docker compose logs -f postgres
 
 ---
 
-## 🧹 clean.sh - 完全清理
-
-**用途：** 完全清理项目，删除所有容器和数据。
-
-**⚠️ 警告：** 此操作会删除所有数据库数据！
-
-**功能：**
-1. 停止所有服务
-2. 删除 Docker 容器和网络
-3. 可选：删除数据库数据卷
-4. 清理日志文件
-
-**使用方法：**
-```bash
-./clean.sh
-```
-
-**使用场景：**
-- 🗑️ 需要完全重新开始
-- 🗑️ 数据库结构有重大变更
-- 🗑️ 清理磁盘空间
-
-**恢复步骤：**
-```bash
-# 清理后重新初始化
-./clean.sh
-./setup.sh
-./start.sh
-```
-
----
 
 ## 🛠️ 调试技巧
 
@@ -215,7 +183,7 @@ npm run dev    # 在前台运行，查看详细输出
 ```bash
 # 1. 启动 Docker Desktop（如果未运行）
 # 2. 启动服务
-./start.sh
+./scripts/start.sh
 
 # 3. 访问前端
 open http://localhost:5173
@@ -224,21 +192,20 @@ open http://localhost:5173
 ### 每天结束工作
 ```bash
 # 停止服务（可选，也可以保持运行）
-./stop.sh
+./scripts/stop.sh
 ```
 
 ### 遇到问题时
 ```bash
 # 1. 查看日志
-./logs.sh
+./scripts/logs.sh
 
 # 2. 重启服务
-./restart.sh
+./scripts/restart.sh
 
-# 3. 如果还有问题，完全清理后重新初始化
-./clean.sh
-./setup.sh
-./start.sh
+# 3. 如果还有问题：建议手动重置 Docker（会清数据）
+# cd backend && docker compose down -v
+# 然后再 ./scripts/setup.sh / ./scripts/start.sh
 ```
 
 ---
@@ -269,7 +236,7 @@ lsof -ti:8001   # 后端
 kill $(lsof -ti:5173)
 
 # 或使用停止脚本
-./stop.sh
+./scripts/stop.sh
 ```
 
 ### Q4: 前端依赖问题
@@ -278,7 +245,7 @@ cd frontend
 rm -rf node_modules package-lock.json
 npm install
 cd ..
-./restart.sh
+./scripts/restart.sh
 ```
 
 ---
