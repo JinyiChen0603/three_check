@@ -4,6 +4,9 @@
 
 import { UserRole, TaskType, TaskStatus } from '../config/constants';
 
+// 重新导出常量，方便统一导入
+export { UserRole, TaskType, TaskStatus };
+
 // 用户信息
 export interface User {
   id: number;

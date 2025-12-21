@@ -24,7 +24,7 @@ import {
   InfoCircleOutlined,
 } from '@ant-design/icons';
 import { materialApi } from '../../api';
-import { Material } from '../../types';
+import type { Material } from '../../types';
 
 const { Title, Text, Paragraph } = Typography;
 

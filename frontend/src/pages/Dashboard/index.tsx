@@ -23,7 +23,7 @@ import {
 } from '@ant-design/icons';
 import { useAuthStore } from '../../store/useAuthStore';
 import { userApi } from '../../api';
-import { Ranking } from '../../types';
+import type { Ranking } from '../../types';
 import { BUSINESS_CONSTANTS } from '../../config/constants';
 
 const { Title } = Typography;

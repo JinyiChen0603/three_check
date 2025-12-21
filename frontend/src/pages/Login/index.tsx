@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, Typography, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useAuthStore } from '../../store/useAuthStore';
-import axios from 'axios';
+import { authApi } from '../../api/auth';
 import './styles.css';
 
 const { Title, Text } = Typography;
@@ -20,25 +20,13 @@ export default function Login() {
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
-      // 直接调用API，不通过store的login方法
-      const formData = new URLSearchParams();
-      formData.append('username', values.username);
-      formData.append('password', values.password);
+      // 使用统一的 authApi
+      const response = await authApi.login(values.username, values.password);
       
-      const response = await axios.post(
-        'http://localhost:8001/api/auth/login',
-        formData,
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-        }
-      );
-      
-      console.log('登录响应:', response.data);
+      console.log('登录响应:', response);
       
       // 保存认证信息
-      setAuth(response.data.access_token, response.data.user_info);
+      setAuth(response.access_token, response.user_info);
       
       message.success('登录成功！');
       navigate('/dashboard');
