@@ -71,7 +71,7 @@ export interface Problem {
   id: number;
   creator_id: number;
   parent_problem_id?: number;
-  content: string;
+  content: string | { text: string };  // 支持字符串或对象格式
   explanation?: string;
   answer: string;
   difficulty_level?: number;

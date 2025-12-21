@@ -5,6 +5,8 @@ AI 服务模块
 
 from typing import Dict, Any, Optional
 import httpx
+import re
+import logging
 
 from app.config import settings
 
@@ -149,7 +151,21 @@ class DeepSeekService:
                 
                 # 解析返回结果
                 content = result["choices"][0]["message"]["content"]
+                
+                # 添加日志记录原始内容
+                logger = logging.getLogger(__name__)
+                logger.info(f"AI返回的原始内容: {content[:500]}...")  # 只记录前500字符
+                
                 parsed_result = self._parse_variant_result(content)
+                
+                # 验证解析结果
+                if not parsed_result.get("new_problem") or not parsed_result.get("new_answer"):
+                    logger.error(f"解析失败：new_problem={parsed_result.get('new_problem')}, new_answer={parsed_result.get('new_answer')}")
+                    logger.error(f"原始内容: {content}")
+                    return {
+                        "success": False,
+                        "error": f"AI返回内容格式不符合预期，无法解析。原始内容: {content[:200]}..."
+                    }
                 
                 return {
                     "success": True,
@@ -185,7 +201,11 @@ class DeepSeekService:
             "changes": ""
         }
         
-        # 解析不同部分
+        if not content or not content.strip():
+            return result
+        
+        # 尝试多种解析方式
+        # 方式1: 使用【】标记
         sections = content.split("【")
         
         for section in sections:
@@ -193,23 +213,65 @@ class DeepSeekService:
                 content_part = section.replace("新题目】", "").strip()
                 if "【" in content_part:
                     content_part = content_part.split("【")[0].strip()
-                result["new_problem"] = content_part
+                if content_part:
+                    result["new_problem"] = content_part
             
             elif section.startswith("新答案】"):
                 content_part = section.replace("新答案】", "").strip()
                 if "【" in content_part:
                     content_part = content_part.split("【")[0].strip()
-                result["new_answer"] = content_part
+                if content_part:
+                    result["new_answer"] = content_part
             
             elif section.startswith("新解析】"):
                 content_part = section.replace("新解析】", "").strip()
                 if "【" in content_part:
                     content_part = content_part.split("【")[0].strip()
-                result["new_explanation"] = content_part
+                if content_part:
+                    result["new_explanation"] = content_part
             
             elif section.startswith("变化说明】"):
                 content_part = section.replace("变化说明】", "").strip()
-                result["changes"] = content_part
+                if content_part:
+                    result["changes"] = content_part
+        
+        # 方式2: 如果方式1失败，尝试使用其他标记
+        if not result["new_problem"]:
+            # 尝试查找可能的题目部分（在第一个【新答案】或【新解析】之前）
+            problem_patterns = [
+                r"【新题目】\s*(.*?)(?=【新答案】|【新解析】|$)",
+                r"题目[：:]\s*(.*?)(?=答案|解析|$)",
+                r"问题[：:]\s*(.*?)(?=答案|解析|$)",
+            ]
+            for pattern in problem_patterns:
+                match = re.search(pattern, content, re.DOTALL)
+                if match:
+                    result["new_problem"] = match.group(1).strip()
+                    break
+        
+        if not result["new_answer"]:
+            # 尝试查找答案部分
+            answer_patterns = [
+                r"【新答案】\s*(.*?)(?=【新解析】|【变化说明】|$)",
+                r"答案[：:]\s*(.*?)(?=解析|变化|$)",
+            ]
+            for pattern in answer_patterns:
+                match = re.search(pattern, content, re.DOTALL)
+                if match:
+                    result["new_answer"] = match.group(1).strip()
+                    break
+        
+        if not result["new_explanation"]:
+            # 尝试查找解析部分
+            explanation_patterns = [
+                r"【新解析】\s*(.*?)(?=【变化说明】|$)",
+                r"解析[：:]\s*(.*?)(?=变化|$)",
+            ]
+            for pattern in explanation_patterns:
+                match = re.search(pattern, content, re.DOTALL)
+                if match:
+                    result["new_explanation"] = match.group(1).strip()
+                    break
         
         return result
     

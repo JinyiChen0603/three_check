@@ -33,7 +33,7 @@ export function ScoringStep({
 }) {
   return (
     <Card title="步骤2：质量评分">
-      <Space direction="vertical" style={{ width: '100%' }} size="large">
+      <Space orientation="vertical" style={{ width: '100%' }} size="large">
         {isCorrect === false && (
           <Alert
             message="答案不正确"

@@ -28,7 +28,7 @@ export function ClaimTaskModal({
       okText="确认领取"
       cancelText="取消"
     >
-      <Space direction="vertical" style={{ width: '100%' }} size="large">
+      <Space orientation="vertical" style={{ width: '100%' }} size="large">
         <div>
           <Text>领取数量：</Text>
           <InputNumber

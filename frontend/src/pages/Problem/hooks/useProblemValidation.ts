@@ -22,11 +22,6 @@ export function useProblemValidation({
   }, [problems]);
 
   const validateForQueue = useCallback(async (p: ProblemItem) => {
-    console.log('🔵 [API] 调用 validateSingle', {
-      key: p.key,
-      content: p.content,
-      answer: p.answer,
-    });
     return await problemApi.validateSingle(p.content, p.answer, p.explanation);
   }, []);
 
@@ -119,22 +114,12 @@ export function useProblemValidation({
 
   const handleUseSingle = useCallback(
     async (record: ProblemItem) => {
-      console.log('🔵 [DEBUG] ========== 使用按钮被点击 ==========');
-      console.log('🔵 [DEBUG] 验证状态:', record.validationStatus);
-      console.log('🔵 [DEBUG] 按钮是否禁用:', record.validationStatus !== 'passed');
-      console.log('🔵 [DEBUG] 题目记录:', record);
-
       if (record.validationStatus !== 'passed') {
-        console.warn('⚠️ [DEBUG] 按钮被禁用，无法创建母题');
         message.warning('请先验证题目并通过验证');
         return;
       }
 
       try {
-        console.log('🔵 [DEBUG] 开始创建母题到数据库...');
-        console.log('🔵 [DEBUG] API Base URL:', window.location.origin);
-        console.log('🔵 [DEBUG] Token:', localStorage.getItem('mathtasks_token') ? '存在' : '不存在');
-
         const problemData = {
           title: `母题-${Date.now()}`,
           content: { text: record.content },
@@ -143,10 +128,8 @@ export function useProblemValidation({
           category: 'high_school_comprehensive',
           source_type: 'manual',
         };
-        console.log('🔵 [DEBUG] 请求数据:', problemData);
 
         const created = await problemApi.createProblem(problemData);
-        console.log('✅ [DEBUG] 母题创建成功:', created);
 
         onParentCreated(created.id, record);
         goToTransformStep();

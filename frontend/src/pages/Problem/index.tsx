@@ -48,6 +48,7 @@ export default function ProblemCreation() {
   const [transformPrompts, setTransformPrompts] = useState<Record<number, string>>({});
   const [variantsMap, setVariantsMap] = useState<Record<number, VariantItem[]>>({});
   const [variantCountMap, setVariantCountMap] = useState<Record<number, number>>({});
+  const [generatingVariants, setGeneratingVariants] = useState<Record<number, boolean>>({});
 
   const addParentProblem = (createdId: number, source: ProblemItem) => {
     setParentProblems((prev) => [...prev, { id: createdId, source }]);
@@ -161,7 +162,6 @@ export default function ProblemCreation() {
 
         const current = problemsRef.current.find((p) => p.key === nextKey);
         if (!current) {
-          console.warn('⚠️ [QUEUE] current not found for key', nextKey, 'skip validate');
           continue;
         }
 
@@ -180,11 +180,6 @@ export default function ProblemCreation() {
         });
 
         try {
-          console.log('🔵 [API] 调用 validateSingle', {
-            key: current.key,
-            content: current.content,
-            answer: current.answer,
-          });
           const result = await problemApi.validateSingle(
             current.content,
             current.answer,
@@ -406,23 +401,13 @@ export default function ProblemCreation() {
             size="small"
             disabled={record.validationStatus !== 'passed'}
             onClick={async () => {
-              console.log('🔵 [DEBUG] ========== 使用按钮被点击 ==========');
-              console.log('🔵 [DEBUG] 验证状态:', record.validationStatus);
-              console.log('🔵 [DEBUG] 按钮是否禁用:', record.validationStatus !== 'passed');
-              console.log('🔵 [DEBUG] 题目记录:', record);
-              
               if (record.validationStatus !== 'passed') {
-                console.warn('⚠️ [DEBUG] 按钮被禁用，无法创建母题');
                 message.warning('请先验证题目并通过验证');
                 return;
               }
               
               // 先创建母题到数据库
               try {
-                console.log('🔵 [DEBUG] 开始创建母题到数据库...');
-                console.log('🔵 [DEBUG] API Base URL:', window.location.origin);
-                console.log('🔵 [DEBUG] Token:', localStorage.getItem('mathtasks_token') ? '存在' : '不存在');
-                
                 const problemData = {
                   title: `母题-${Date.now()}`,
                   content: { text: record.content },
@@ -431,22 +416,14 @@ export default function ProblemCreation() {
                   category: 'high_school_comprehensive',
                   source_type: 'manual',
                 };
-                console.log('🔵 [DEBUG] 请求数据:', problemData);
                 
                 const created = await problemApi.createProblem(problemData);
-                console.log('✅ [DEBUG] 母题创建成功:', created);
                 
                 addParentProblem(created.id, record);
                 setCurrentStep(1);
                 message.success('母题已保存到数据库，ID: ' + created.id);
               } catch (error: any) {
-                console.error('❌ [DEBUG] 保存母题失败:', error);
-                console.error('❌ [DEBUG] 错误详情:', {
-                  message: error.message,
-                  response: error.response?.data,
-                  status: error.response?.status,
-                  config: error.config,
-                });
+                console.error('保存母题失败:', error);
                 message.error('保存母题失败: ' + (error.response?.data?.detail || error.message));
               }
             }}
@@ -482,17 +459,17 @@ export default function ProblemCreation() {
       return;
     }
 
+    // 设置 loading 状态
+    setGeneratingVariants((prev) => ({ ...prev, [parentId]: true }));
+
     try {
-      console.log('🔵 [DEBUG] 开始生成变体, parentProblemId:', parentId);
       const variantResult = await problemApi.generateVariant(parentId, prompt);
-      console.log('✅ [DEBUG] 变体生成成功:', variantResult);
 
       if (!variantResult || variantResult.success === false) {
         message.error(variantResult?.error || '生成变体失败');
         return;
       }
 
-      console.log('🔵 [DEBUG] 开始创建变体题目到数据库...');
       const createdVariant = await problemApi.createProblem({
         title: `变体-${Date.now()}`,
         content: typeof variantResult.new_problem === 'string'
@@ -504,17 +481,18 @@ export default function ProblemCreation() {
         source_type: 'ai_variant',
         parent_problem_id: parentId,
       });
-      console.log('✅ [DEBUG] 变体题目创建成功:', createdVariant);
+
+      const newVariant = {
+        ...createdVariant,
+        key: `variant-${Date.now()}`,
+        qualityCheckStatus: 'pending' as const,
+      };
 
       setVariantsMap((prev) => ({
         ...prev,
         [parentId]: [
           ...(prev[parentId] || []),
-          {
-            ...createdVariant,
-            key: `variant-${Date.now()}`,
-            qualityCheckStatus: 'pending' as const,
-          },
+          newVariant,
         ],
       }));
       setVariantCountMap((prev) => ({ ...prev, [parentId]: count + 1 }));
@@ -528,6 +506,9 @@ export default function ProblemCreation() {
         status: error.response?.status,
       });
       message.error('题目变形失败: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      // 清除 loading 状态
+      setGeneratingVariants((prev) => ({ ...prev, [parentId]: false }));
     }
   };
 
@@ -545,9 +526,7 @@ export default function ProblemCreation() {
     }));
 
     try {
-      console.log('🔵 [DEBUG] 开始质检, problemId:', variant.id);
       const result = await problemApi.qualityCheck(variant.id);
-      console.log('✅ [DEBUG] 质检结果:', result);
       
       const allPassed =
         result.all_passed === true ||
@@ -626,9 +605,9 @@ export default function ProblemCreation() {
       {/* 步骤1：母题验证 */}
       {currentStep === 0 && (
         <Card title="步骤1：母题验证">
-          <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <Space orientation="vertical" style={{ width: '100%' }} size="large">
             <Alert
-              message="准备母题"
+              title="准备母题"
               description={
                 <div>
                   <p>您可以：</p>
@@ -701,7 +680,7 @@ export default function ProblemCreation() {
       {/* 步骤2：题目变形（多母题列表） */}
       {currentStep === 1 && parentProblems.length > 0 && (
         <Card title="步骤2：题目变形">
-          <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <Space orientation="vertical" style={{ width: '100%' }} size="large">
             {parentProblems.map((p, idx) => {
               const parentId = p.id;
               const promptValue = transformPrompts[parentId] || '';
@@ -713,6 +692,24 @@ export default function ProblemCreation() {
                   dataIndex: 'content',
                   key: 'content',
                   ellipsis: true,
+                  render: (_: any, record: VariantItem) => {
+                    // 处理 content 字段，可能是字符串或对象 {text: '...'}
+                    const content = record.content;
+                    
+                    if (typeof content === 'string') {
+                      return content;
+                    }
+                    
+                    if (content && typeof content === 'object') {
+                      const textValue = (content as any).text;
+                      if (typeof textValue === 'string' && textValue.trim()) {
+                        return textValue;
+                      }
+                      return JSON.stringify(content);
+                    }
+                    
+                    return '';
+                  },
                 },
                 {
                   title: '质量检查',
@@ -723,7 +720,7 @@ export default function ProblemCreation() {
                     }
                     if (record.qualityCheckStatus === 'passed') {
                       return (
-                        <Space direction="vertical" size="small">
+                        <Space orientation="vertical" size="small">
                           <Tag color="success">全部通过</Tag>
                           {record.quality_check && (
                             <Space size="small">
@@ -771,7 +768,12 @@ export default function ProblemCreation() {
                             width: 800,
                             content: (
                               <div>
-                                <p><strong>内容：</strong>{record.content}</p>
+                                <p>
+                                  <strong>内容：</strong>
+                                  {typeof record.content === 'string'
+                                    ? record.content
+                                    : (record.content as any)?.text ?? String(record.content ?? '')}
+                                </p>
                                 <p><strong>答案：</strong>{record.answer}</p>
                                 {record.explanation && (
                                   <p><strong>解析：</strong>{record.explanation}</p>
@@ -808,7 +810,7 @@ export default function ProblemCreation() {
                   title={`母题 ${idx + 1}（ID: ${parentId}）`}
                   style={{ borderColor: '#f0f0f0' }}
                 >
-                  <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                  <Space orientation="vertical" style={{ width: '100%' }} size="middle">
                     <Alert
                       message="母题信息"
                       description={
@@ -822,7 +824,7 @@ export default function ProblemCreation() {
                     />
 
                     <Card size="small">
-                      <Space direction="vertical" style={{ width: '100%' }}>
+                      <Space orientation="vertical" style={{ width: '100%' }}>
                         <Text strong>变形提示词：</Text>
                         <TextArea
                           value={promptValue}
@@ -836,7 +838,12 @@ export default function ProblemCreation() {
                           <Button
                             type="primary"
                             onClick={() => handleGenerateVariant(parentId)}
-                            disabled={!promptValue || variantCount >= BUSINESS_CONSTANTS.MAX_VARIANTS_PER_PROBLEM}
+                            loading={generatingVariants[parentId] || false}
+                            disabled={
+                              generatingVariants[parentId] ||
+                              !promptValue ||
+                              variantCount >= BUSINESS_CONSTANTS.MAX_VARIANTS_PER_PROBLEM
+                            }
                           >
                             生成变体
                           </Button>
@@ -884,7 +891,7 @@ export default function ProblemCreation() {
       {/* 步骤3：完成 */}
       {currentStep === 2 && (
         <Card title="步骤3：提交题目">
-          <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <Space orientation="vertical" style={{ width: '100%' }} size="large">
             {(() => {
               const allVariants = Object.values(variantsMap).flat();
               const passedVariants = allVariants.filter((v) => v.qualityCheckStatus === 'passed');

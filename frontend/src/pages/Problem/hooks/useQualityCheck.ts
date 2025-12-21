@@ -32,9 +32,7 @@ export function useQualityCheck({
     }));
 
     try {
-      console.log('🔵 [DEBUG] 开始质检, problemId:', variant.id);
       const result = await problemApi.qualityCheck(variant.id);
-      console.log('✅ [DEBUG] 质检结果:', result);
 
       const allPassed =
         result.all_passed === true ||

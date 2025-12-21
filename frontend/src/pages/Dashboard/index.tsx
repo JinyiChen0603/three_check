@@ -162,7 +162,7 @@ export default function Dashboard() {
           <Card>
             <Statistic
               title="我的排名"
-              value={stats.my_rank || '-'}
+              value={stats.rank || '-'}
               prefix={<TrophyOutlined />}
               suffix={
                 <span style={{ fontSize: 14, color: '#999' }}>

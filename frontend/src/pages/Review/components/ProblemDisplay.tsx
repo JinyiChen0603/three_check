@@ -13,7 +13,7 @@ export function ProblemDisplay({
 }) {
   return (
     <Card title={problemData.problem_title || '题目信息'} style={{ marginBottom: 24 }}>
-      <Space direction="vertical" style={{ width: '100%' }} size="large">
+      <Space orientation="vertical" style={{ width: '100%' }} size="large">
         <div>
           <Text strong>题目内容：</Text>
           <Paragraph style={{ marginTop: 8, fontSize: 16 }}>

@@ -36,7 +36,7 @@ export function ProblemTransformStep({
   canNext: boolean;
 }) {
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <Space orientation="vertical" style={{ width: '100%' }} size="large">
       {parentProblems.map((p, idx) => {
         const parentId = p.id;
         const promptValue = transformPrompts[parentId] || '';
@@ -50,7 +50,7 @@ export function ProblemTransformStep({
             title={`母题 ${idx + 1}（ID: ${parentId}）`}
             style={{ borderColor: '#f0f0f0' }}
           >
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <Space orientation="vertical" style={{ width: '100%' }} size="middle">
               <Alert
                 message="母题信息"
                 description={
@@ -70,7 +70,7 @@ export function ProblemTransformStep({
               />
 
               <Card size="small">
-                <Space direction="vertical" style={{ width: '100%' }}>
+                <Space orientation="vertical" style={{ width: '100%' }}>
                   <Text strong>变形提示词：</Text>
                   <TextArea
                     value={promptValue}

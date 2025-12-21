@@ -45,15 +45,12 @@ export function useProblemTransform() {
       throw new Error('MAX_VARIANTS_REACHED');
     }
 
-    console.log('🔵 [DEBUG] 开始生成变体, parentProblemId:', parentId);
     const variantResult = await problemApi.generateVariant(parentId, prompt);
-    console.log('✅ [DEBUG] 变体生成成功:', variantResult);
 
     if (!variantResult || variantResult.success === false) {
       throw new Error(variantResult?.error || '生成变体失败');
     }
 
-    console.log('🔵 [DEBUG] 开始创建变体题目到数据库...');
     const createdVariant = await problemApi.createProblem({
       title: `变体-${Date.now()}`,
       content:
@@ -66,19 +63,22 @@ export function useProblemTransform() {
       source_type: 'ai_variant',
       parent_problem_id: parentId,
     });
-    console.log('✅ [DEBUG] 变体题目创建成功:', createdVariant);
 
-    setVariantsMap((prev) => ({
-      ...prev,
-      [parentId]: [
-        ...(prev[parentId] || []),
-        {
-          ...createdVariant,
-          key: `variant-${Date.now()}`,
-          qualityCheckStatus: 'pending' as const,
-        },
-      ],
-    }));
+    setVariantsMap((prev) => {
+      const newVariant = {
+        ...createdVariant,
+        key: `variant-${Date.now()}`,
+        qualityCheckStatus: 'pending' as const,
+      };
+      
+      return {
+        ...prev,
+        [parentId]: [
+          ...(prev[parentId] || []),
+          newVariant,
+        ],
+      };
+    });
     setVariantCountMap((prev) => ({ ...prev, [parentId]: count + 1 }));
     setTransformPrompts((prev) => ({ ...prev, [parentId]: '' }));
   }, [transformPrompts, variantCountMap]);

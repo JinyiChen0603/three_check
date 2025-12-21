@@ -29,7 +29,7 @@ export function ProblemValidationStep({
   onRemove: (key: string) => void;
 }) {
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <Space orientation="vertical" style={{ width: '100%' }} size="large">
       <Alert
         message="准备母题"
         description={

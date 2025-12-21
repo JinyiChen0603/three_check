@@ -36,6 +36,7 @@ class UserStatsResponse(BaseModel):
 class LeaderboardResponse(BaseModel):
     """排行榜响应"""
     rank: int
+    user_id: int
     username: str
     balance: float
     problems_created: int
@@ -120,6 +121,7 @@ async def get_leaderboard(
     for idx, user in enumerate(users, start=1):
         leaderboard.append({
             "rank": idx,
+            "user_id": user.id,
             "username": user.username,
             "balance": user.balance,
             "problems_created": user.problems_created_count,

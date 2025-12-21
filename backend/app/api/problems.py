@@ -443,7 +443,11 @@ async def generate_variant(
         problem_content = full_problem.get("content", {})
         problem_answer = full_problem.get("answer", "") or ""
         problem_explanation = full_problem.get("explanation", "") or ""
-    except RuntimeError:
+    except (RuntimeError, ValueError, Exception) as e:
+        # MongoDB未配置或获取失败，使用Postgres字段作为后备
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"无法从MongoDB获取题目内容，使用Postgres后备: {str(e)}")
         problem_content = parent_problem.content if parent_problem.content else {}
         problem_answer = parent_problem.answer or ""
         problem_explanation = parent_problem.explanation or ""
@@ -454,25 +458,55 @@ async def generate_variant(
     else:
         problem_text = problem_content or ""
 
-    variant_result = await deepseek_service.generate_variant(
-        original_problem=problem_text,
-        original_answer=problem_answer,
-        original_explanation=problem_explanation,
-        custom_prompt=request.custom_prompt
-    )
-    
-    if not variant_result["success"]:
+    try:
+        variant_result = await deepseek_service.generate_variant(
+            original_problem=problem_text,
+            original_answer=problem_answer,
+            original_explanation=problem_explanation,
+            custom_prompt=request.custom_prompt
+        )
+        
+        if not variant_result.get("success", False):
+            error_msg = variant_result.get('error', '未知错误')
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"生成变体失败: {error_msg}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"生成变体失败: {error_msg}"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception(f"生成变体时发生异常: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"生成变体失败: {variant_result.get('error', '未知错误')}"
+            detail=f"生成变体失败: {str(e)}"
         )
 
+    # 验证返回的数据
+    new_problem = variant_result.get("new_problem", "").strip()
+    new_answer = variant_result.get("new_answer", "").strip()
+    new_explanation = variant_result.get("new_explanation", "").strip()
+    
+    if not new_problem or not new_answer:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"生成变体失败：内容为空。new_problem={new_problem[:100]}, new_answer={new_answer[:100]}")
+        logger.error(f"原始返回结果: {variant_result.get('raw_content', '')[:500]}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="生成变体失败：AI返回的内容为空或格式不正确。请检查后端日志获取详细信息。"
+        )
+    
     # 返回生成的变体内容给前端，用于创建题目
     return {
         "success": True,
-        "new_problem": variant_result.get("new_problem"),
-        "new_answer": variant_result.get("new_answer"),
-        "new_explanation": variant_result.get("new_explanation"),
+        "new_problem": new_problem,
+        "new_answer": new_answer,
+        "new_explanation": new_explanation,
         "model": variant_result.get("model"),
         "tokens": variant_result.get("tokens"),
     }

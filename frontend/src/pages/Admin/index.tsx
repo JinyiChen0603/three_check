@@ -32,7 +32,7 @@ export default function Admin() {
 
       {/* 用户列表 */}
       <Card>
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
+        <Space orientation="vertical" style={{ width: '100%' }} size="large">
           <Search
             placeholder="搜索用户名或邮箱"
             allowClear

@@ -58,7 +58,7 @@ export default function Review() {
       <Title level={2}>评分流程</Title>
 
       <Card style={{ marginBottom: 24 }}>
-        <Space direction="vertical" style={{ width: '100%' }}>
+        <Space orientation="vertical" style={{ width: '100%' }}>
           <Steps
             current={flow.currentStep}
             items={[

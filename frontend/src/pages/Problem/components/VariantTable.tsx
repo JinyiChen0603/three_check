@@ -23,11 +23,28 @@ export function VariantTable({
       dataIndex: 'content',
       key: 'content',
       ellipsis: true,
-      render: (content: any) => {
-        // 后端可能返回 {text: "..."} 或 string，这里做最小兼容
-        if (typeof content === 'string') return content;
-        if (content && typeof content === 'object' && typeof content.text === 'string') return content.text;
-        return String(content ?? '');
+      render: (_: any, record: VariantItem) => {
+        // 直接从 record.content 获取，因为 dataIndex 已经指定了 'content'
+        // 但为了保险，我们也直接从 record 获取
+        const content = record.content;
+        
+        // 处理字符串格式
+        if (typeof content === 'string') {
+          return content;
+        }
+        
+        // 处理对象格式 { text: "..." }
+        if (content && typeof content === 'object') {
+          const textValue = (content as any).text;
+          if (typeof textValue === 'string' && textValue.trim()) {
+            return textValue;
+          }
+          // 如果是其他对象格式，尝试 JSON 序列化
+          return JSON.stringify(content);
+        }
+        
+        // 如果 content 为空，返回空字符串
+        return '';
       },
     },
     {
@@ -43,7 +60,7 @@ export function VariantTable({
         }
         if (record.qualityCheckStatus === 'passed') {
           return (
-            <Space direction="vertical" size="small">
+            <Space orientation="vertical" size="small">
               <Tag color="success">全部通过</Tag>
               {record.quality_check && (
                 <Space size="small">

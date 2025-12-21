@@ -115,7 +115,7 @@ export default function Materials() {
       <Alert
         message="使用说明"
         description={
-          <Space direction="vertical" size="small">
+          <Space orientation="vertical" size="small">
             <Text>1. 点击"下载"按钮，系统会自动复制百度网盘链接和提取码到剪贴板</Text>
             <Text>2. 浏览器会自动打开百度网盘链接，粘贴提取码即可下载</Text>
             <Text>3. 建议下载后先浏览资料，选择适合的题目作为母题</Text>
@@ -177,7 +177,7 @@ export default function Materials() {
               <Card.Meta
                 avatar={<BookOutlined style={{ fontSize: 32, color: '#1890ff' }} />}
                 title={
-                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <Space orientation="vertical" size={4} style={{ width: '100%' }}>
                     <Text strong>{material.title}</Text>
                     <Tag color={getCategoryColor(material.category)}>
                       {getCategoryLabel(material.category)}
@@ -185,7 +185,7 @@ export default function Materials() {
                   </Space>
                 }
                 description={
-                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
                     <Paragraph
                       ellipsis={{ rows: 2, expandable: true }}
                       style={{ marginBottom: 0 }}

@@ -19,7 +19,7 @@ export function CorrectnessStep({
 }) {
   return (
     <Card title="步骤1：正确性验证">
-      <Space direction="vertical" style={{ width: '100%' }} size="large">
+      <Space orientation="vertical" style={{ width: '100%' }} size="large">
         <Alert
           message="请选择正确答案"
           description={problemData.instruction || '从以下选项中选择您认为正确的答案。'}
@@ -32,7 +32,7 @@ export function CorrectnessStep({
           onChange={(e) => onChangeChoice(e.target.value)}
           style={{ width: '100%' }}
         >
-          <Space direction="vertical" style={{ width: '100%' }}>
+          <Space orientation="vertical" style={{ width: '100%' }}>
             {options.map((option, index) => (
               <Radio
                 key={index}

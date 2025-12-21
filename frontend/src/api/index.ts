@@ -234,19 +234,19 @@ export const userApi = {
 
   // 获取排名
   getRankings: async () => {
-    const response = await apiClient.get<Ranking[]>('/users/rankings');
+    const response = await apiClient.get<Ranking[]>('/users/leaderboard');
     return response.data;
   },
 
   // 获取交易记录
   getTransactions: async () => {
-    const response = await apiClient.get<Transaction[]>('/users/transactions');
+    const response = await apiClient.get<Transaction[]>('/users/me/transactions');
     return response.data;
   },
 
   // 获取统计信息
   getStats: async () => {
-    const response = await apiClient.get('/users/stats');
+    const response = await apiClient.get('/users/me/stats');
     return response.data;
   },
 };
