@@ -80,14 +80,11 @@ class ValidationService:
 
 答案："""
             
-            # 顺序进行多次验证，避免上游连接过载
-            attempt_results = []
-            for i in range(attempts):
-                try:
-                    attempt_results.append(await self._single_attempt(prompt, answer, i + 1))
-                except Exception as exc:
-                    attempt_results.append(exc)
-                await asyncio.sleep(0.1)  # 小间隔，降低对上游的压力
+            # 并发进行多次验证，提高速度
+            # 创建所有验证任务
+            tasks = [self._single_attempt(prompt, answer, i + 1) for i in range(attempts)]
+            # 并发执行所有验证
+            attempt_results = await asyncio.gather(*tasks, return_exceptions=True)
             
             # 统计结果
             correct_count = 0
@@ -169,7 +166,7 @@ class ValidationService:
         """
         try:
             # 调用Doubao API（流式响应）
-            async with httpx.AsyncClient(timeout=600.0) as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:  # 减少超时时间到30秒
                 # 流式请求
                 async with client.stream(
                     "POST",
