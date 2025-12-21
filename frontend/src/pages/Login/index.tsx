@@ -40,7 +40,7 @@ export default function Login() {
 
   return (
     <div className="login-container">
-      <Card className="login-card" bordered={false}>
+      <Card className="login-card" variant="borderless">
         <div className="login-header">
           <Title level={2}>MathTasks 出题平台</Title>
           <Text type="secondary">欢迎登录</Text>

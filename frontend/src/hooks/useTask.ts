@@ -80,7 +80,11 @@ export function useTask(): UseTaskReturn {
       console.log('开始领取任务:', { taskTypeStr, count });
       const response = await taskApi.claimTasks(taskTypeStr, count);
       console.log('领取任务响应:', response);
-      message.success(`成功领取 ${count} 个任务！`);
+      
+      // 使用 setTimeout 确保在 effect 中调用，避免 React 18 并发模式警告
+      setTimeout(() => {
+        message.success(`成功领取 ${count} 个任务！`);
+      }, 0);
       
       // 领取成功后刷新列表（等待一小段时间确保数据库已更新）
       await new Promise(resolve => setTimeout(resolve, 500));

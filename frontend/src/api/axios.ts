@@ -71,7 +71,31 @@ apiClient.interceptors.response.use(
           break;
         default:
           // 显示后端返回的错误信息
-          const errorMsg = data?.detail || data?.message || '请求失败';
+          // 处理验证错误（422）和其他错误格式
+          let errorMsg = '请求失败';
+          
+          if (data?.detail) {
+            // 如果是数组（FastAPI验证错误格式）
+            if (Array.isArray(data.detail)) {
+              errorMsg = data.detail.map((err: any) => {
+                if (typeof err === 'string') return err;
+                if (err.msg) return err.msg;
+                if (err.message) return err.message;
+                return JSON.stringify(err);
+              }).join(', ');
+            } 
+            // 如果是字符串
+            else if (typeof data.detail === 'string') {
+              errorMsg = data.detail;
+            }
+            // 如果是对象，尝试提取消息
+            else if (typeof data.detail === 'object') {
+              errorMsg = data.detail.msg || data.detail.message || JSON.stringify(data.detail);
+            }
+          } else if (data?.message) {
+            errorMsg = data.message;
+          }
+          
           message.error(errorMsg);
       }
     } else if (error.request) {

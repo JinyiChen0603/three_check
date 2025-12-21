@@ -22,7 +22,6 @@ import { TaskList } from './components/TaskList';
 import { ClaimTaskModal } from './components/ClaimTaskModal';
 
 const { Title, Text } = Typography;
-const { TabPane } = Tabs;
 
 export default function Tasks() {
   // 使用自定义Hook管理任务状态
@@ -71,83 +70,91 @@ export default function Tasks() {
 
       {/* 任务列表 */}
       <Card>
-        <Tabs defaultActiveKey="problem_creation">
-          <TabPane
-            tab={
-              <span>
-                <FileTextOutlined />
-                出题任务 ({problemCreationTotal})
-              </span>
-            }
-            key="problem_creation"
-          >
-            <Space style={{ marginBottom: 16 }}>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => {
-                  setCurrentTaskType(TaskType.PROBLEM_CREATION);
-                  setClaimModalVisible(true);
-                }}
-              >
-                领取出题任务
-              </Button>
-              <Text type="secondary">
-                每个任务需在 {BUSINESS_CONSTANTS.TASK_TIMEOUT_HOURS} 小时内完成
-              </Text>
-            </Space>
-            
-            <TaskList
-              tasks={problemCreationTasks}
-              loading={loading}
-              onAbandon={async (taskId) => {
-                try {
-                  await abandonTask(taskId);
-                } catch (error) {
-                  // 错误已在Hook中处理
-                }
-              }}
-            />
-          </TabPane>
-
-          <TabPane
-            tab={
-              <span>
-                <CheckCircleOutlined />
-                评分任务 ({problemReviewTotal})
-              </span>
-            }
-            key="problem_review"
-          >
-            <Space style={{ marginBottom: 16 }}>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => {
-                  setCurrentTaskType(TaskType.PROBLEM_REVIEW);
-                  setClaimModalVisible(true);
-                }}
-              >
-                领取评分任务
-              </Button>
-              <Text type="secondary">
-                每个任务需在 {BUSINESS_CONSTANTS.TASK_TIMEOUT_HOURS} 小时内完成
-              </Text>
-            </Space>
-            
-            <TaskList
-              tasks={problemReviewTasks}
-              loading={loading}
-              onAbandon={async (taskId) => {
-                try {
-                  await abandonTask(taskId);
-                } catch (error) {
-                  // 错误已在Hook中处理
-                }
-              }}
-            />
-          </TabPane>
-        </Tabs>
+        <Tabs 
+          defaultActiveKey="problem_creation"
+          items={[
+            {
+              key: 'problem_creation',
+              label: (
+                <span>
+                  <FileTextOutlined />
+                  出题任务 ({problemCreationTotal})
+                </span>
+              ),
+              children: (
+                <>
+                  <Space style={{ marginBottom: 16 }}>
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      onClick={() => {
+                        setCurrentTaskType(TaskType.PROBLEM_CREATION);
+                        setClaimModalVisible(true);
+                      }}
+                    >
+                      领取出题任务
+                    </Button>
+                    <Text type="secondary">
+                      每个任务需在 {BUSINESS_CONSTANTS.TASK_TIMEOUT_HOURS} 小时内完成
+                    </Text>
+                  </Space>
+                  
+                  <TaskList
+                    tasks={problemCreationTasks}
+                    loading={loading}
+                    onAbandon={async (taskId) => {
+                      try {
+                        await abandonTask(taskId);
+                      } catch (error) {
+                        // 错误已在Hook中处理
+                      }
+                    }}
+                  />
+                </>
+              ),
+            },
+            {
+              key: 'problem_review',
+              label: (
+                <span>
+                  <CheckCircleOutlined />
+                  评分任务 ({problemReviewTotal})
+                </span>
+              ),
+              children: (
+                <>
+                  <Space style={{ marginBottom: 16 }}>
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      onClick={() => {
+                        setCurrentTaskType(TaskType.PROBLEM_REVIEW);
+                        setClaimModalVisible(true);
+                      }}
+                    >
+                      领取评分任务
+                    </Button>
+                    <Text type="secondary">
+                      每个任务需在 {BUSINESS_CONSTANTS.TASK_TIMEOUT_HOURS} 小时内完成
+                    </Text>
+                  </Space>
+                  
+                  <TaskList
+                    tasks={problemReviewTasks}
+                    loading={loading}
+                    onAbandon={async (taskId) => {
+                      try {
+                        await abandonTask(taskId);
+                      } catch (error) {
+                        // 错误已在Hook中处理
+                      }
+                    }}
+                  />
+                </>
+              ),
+            },
+          ]}
+        />
       </Card>
 
       {/* 领取任务对话框 */}

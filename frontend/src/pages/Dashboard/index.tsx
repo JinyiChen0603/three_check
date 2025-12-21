@@ -118,7 +118,7 @@ export default function Dashboard() {
               value={user?.balance || 0}
               precision={2}
               prefix="¥"
-              valueStyle={{ color: '#3f8600' }}
+              styles={{ content: { color: '#3f8600' } }}
               suffix={
                 <span style={{ fontSize: 14, color: '#999' }}>
                   元
@@ -176,7 +176,7 @@ export default function Dashboard() {
 
       {/* 收入说明 */}
       <Card title="收入说明" style={{ marginTop: 24 }}>
-        <Space direction="vertical" size="middle">
+        <Space orientation="vertical" size="middle">
           <div>
             <Tag color="green">出题奖励</Tag>
             每个合格题目奖励 <strong>¥{BUSINESS_CONSTANTS.REWARD_PER_PROBLEM}</strong> 元

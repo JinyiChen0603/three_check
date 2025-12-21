@@ -190,7 +190,8 @@ export default function ProblemCreation() {
             current.answer,
             current.explanation
           );
-          const passed = result.correct_count <= BUSINESS_CONSTANTS.VALIDATION_THRESHOLD;
+          // 直接使用后端返回的 is_passed 结果，而不是前端重新计算
+          const passed = result.is_passed ?? false;
           setProblems((prev) =>
             prev.map((p) =>
               p.key === current!.key
