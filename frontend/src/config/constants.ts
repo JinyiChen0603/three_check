@@ -43,8 +43,8 @@ export const BUSINESS_CONSTANTS = {
   REWARD_PER_REVIEW: 10,             // 每个评分任务奖励（元）
   MAX_VARIANTS_PER_PROBLEM: 10,     // 每个母题最多变形次数
   MAX_BATCH_VALIDATION: 10,          // 批量验证最多题目数
-  VALIDATION_ATTEMPTS: 8,            // AI验证尝试次数
-  VALIDATION_THRESHOLD: 4,           // 验证通过阈值
+  VALIDATION_ATTEMPTS: 16,           // 每个模型AI验证尝试次数（双模型各16次）
+  VALIDATION_THRESHOLD: 8,           // 每个模型验证通过阈值（正确次数<=8）
 };
 
 // 资料库类别（与后端 MaterialCategory 枚举保持一致）

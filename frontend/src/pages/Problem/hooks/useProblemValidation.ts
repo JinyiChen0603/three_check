@@ -2,9 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { message } from 'antd';
 
 import { problemApi } from '../../../api';
-import { BUSINESS_CONSTANTS } from '../../../config/constants';
-import type { ProblemItem } from '../types';
-import { useValidationQueue } from '../utils/validationQueue';
+import type { ProblemItem, ValidationStatus } from '../types';
 
 export function useProblemValidation({
   onParentCreated,
@@ -21,16 +19,29 @@ export function useProblemValidation({
     problemsRef.current = problems;
   }, [problems]);
 
-  const validateForQueue = useCallback(async (p: ProblemItem) => {
-    return await problemApi.validateSingle(p.content, p.answer, p.explanation);
+  // 简化的验证队列逻辑
+  const validationQueueRef = useRef<string[]>([]);
+
+  const removeFromQueue = useCallback((key: string) => {
+    validationQueueRef.current = validationQueueRef.current.filter((k) => k !== key);
   }, []);
 
-  const { enqueueProblems, removeFromQueue } = useValidationQueue({
-    problemsRef,
-    setProblems,
-    validate: validateForQueue,
-    validationThreshold: BUSINESS_CONSTANTS.VALIDATION_THRESHOLD,
-  });
+  const enqueueProblems = useCallback((keys: string[]) => {
+    setProblems((prev) =>
+      prev.map((p) =>
+        keys.includes(p.key) && p.validationStatus !== 'validating' && p.validationStatus !== 'queued'
+          ? { ...p, validationStatus: 'queued' as ValidationStatus }
+          : p
+      )
+    );
+    const existing = new Set(validationQueueRef.current);
+    keys.forEach((k) => {
+      if (!existing.has(k)) {
+        validationQueueRef.current.push(k);
+        existing.add(k);
+      }
+    });
+  }, []);
 
   const handleAddProblem = useCallback(() => {
     setProblems((prev) => [
@@ -105,7 +116,7 @@ export function useProblemValidation({
 
       const validKeys = validProblems.map((p) => p.key);
       // 标记排队
-      const next = prev.map((p) => (validKeys.includes(p.key) ? { ...p, validationStatus: 'queued' } : p));
+      const next = prev.map((p) => (validKeys.includes(p.key) ? { ...p, validationStatus: 'queued' as ValidationStatus } : p));
       enqueueProblems(validKeys);
       message.success('已加入验证队列');
       return next;
