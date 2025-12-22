@@ -55,7 +55,12 @@ apiClient.interceptors.response.use(
       
       switch (status) {
         case 401:
-          // 未授权，清除token并跳转登录
+          // 登录接口的 401 表示用户名密码错误，不跳转
+          if (error.config?.url?.includes('/auth/login')) {
+            // 不做处理，让调用方捕获错误并显示提示
+            break;
+          }
+          // 其他接口的 401 表示 token 过期
           localStorage.removeItem(TOKEN_KEY);
           message.error('登录已过期，请重新登录');
           window.location.href = '/login';
