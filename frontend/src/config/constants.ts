@@ -47,19 +47,19 @@ export const BUSINESS_CONSTANTS = {
   VALIDATION_THRESHOLD: 4,           // 验证通过阈值
 };
 
-// 资料库类别
+// 资料库类别（与后端 MaterialCategory 枚举保持一致）
 export const MATERIAL_CATEGORIES = [
   { key: 'high_school_comprehensive', label: '高中数学联赛综合' },
-  { key: 'university_comprehensive', label: '大学数学竞赛综合' },
-  { key: 'high_school_algebra', label: '高中数学联赛-代数' },
-  { key: 'high_school_geometry', label: '高中数学联赛-几何' },
-  { key: 'high_school_number_theory', label: '高中数学联赛-数论' },
-  { key: 'high_school_combinatorics', label: '高中数学联赛-组合' },
-  { key: 'university_algebra', label: '大学数学竞赛-代数' },
-  { key: 'university_number_theory', label: '大学数学竞赛-数论' },
-  { key: 'university_analysis', label: '大学数学竞赛-分析和方程' },
-  { key: 'university_combinatorics', label: '大学数学竞赛-组合和概率' },
-  { key: 'university_geometry', label: '大学数学竞赛-几何和拓扑' },
-  { key: 'university_optimization', label: '大学数学竞赛-最优化方法' },
+  { key: 'college_comprehensive', label: '大学数学竞赛综合' },
+  { key: 'high_school_algebra', label: '高中数学联赛 - 代数' },
+  { key: 'high_school_geometry', label: '高中数学联赛 - 几何' },
+  { key: 'high_school_number_theory', label: '高中数学联赛 - 数论' },
+  { key: 'high_school_combinatorics', label: '高中数学联赛 - 组合' },
+  { key: 'college_algebra', label: '大学数学竞赛 - 代数' },
+  { key: 'college_number_theory', label: '大学数学竞赛 - 数论' },
+  { key: 'college_analysis', label: '大学数学竞赛 - 分析和方程' },
+  { key: 'college_combinatorics', label: '大学数学竞赛 - 组合和概率' },
+  { key: 'college_geometry', label: '大学数学竞赛 - 几何和拓扑' },
+  { key: 'college_optimization', label: '大学数学竞赛 - 最优化方法' },
 ];
 

@@ -124,11 +124,13 @@ export interface Review {
 export interface Material {
   id: number;
   category: string;
+  category_display?: string; // 类别显示名称
   title: string;
-  description: string;
+  description: string | null;
   baidu_link: string;
-  extract_code: string;
+  extract_code: string | null;
   download_count: number;
+  problem_count?: number; // 题目数量
 }
 
 // 交易记录

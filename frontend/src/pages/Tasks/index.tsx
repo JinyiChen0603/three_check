@@ -17,6 +17,7 @@ import {
 } from '@ant-design/icons';
 import { useTask } from '../../hooks/useTask';
 import { BUSINESS_CONSTANTS, TaskType } from '../../config/constants';
+import { getUniqueBatchTasks } from '../../services/taskService';
 import { TaskStats } from './components/TaskStats';
 import { TaskList } from './components/TaskList';
 import { ClaimTaskModal } from './components/ClaimTaskModal';
@@ -29,7 +30,9 @@ export default function Tasks() {
     tasks,
     loading,
     problemCreationTotal,
+    problemCreationCompleted,
     problemReviewTotal,
+    problemReviewCompleted,
     claimTasks,
     abandonTask,
   } = useTask();
@@ -54,10 +57,13 @@ export default function Tasks() {
     }
   };
 
-  const problemCreationTasks = tasks.filter(
+  // 按批次去重后的任务列表（避免评分任务显示多条重复记录）
+  const uniqueTasks = getUniqueBatchTasks(tasks);
+  
+  const problemCreationTasks = uniqueTasks.filter(
     (t) => t.task_type === TaskType.PROBLEM_CREATION
   );
-  const problemReviewTasks = tasks.filter(
+  const problemReviewTasks = uniqueTasks.filter(
     (t) => t.task_type === TaskType.PROBLEM_REVIEW
   );
 
@@ -66,7 +72,12 @@ export default function Tasks() {
       <Title level={2}>任务管理</Title>
 
       {/* 统计卡片 */}
-      <TaskStats problemCreationTotal={problemCreationTotal} problemReviewTotal={problemReviewTotal} />
+      <TaskStats 
+        problemCreationTotal={problemCreationTotal} 
+        problemCreationCompleted={problemCreationCompleted}
+        problemReviewTotal={problemReviewTotal} 
+        problemReviewCompleted={problemReviewCompleted}
+      />
 
       {/* 任务列表 */}
       <Card>

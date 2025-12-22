@@ -2,7 +2,7 @@
  * 资料库页面
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   Card,
   List,
@@ -16,50 +16,80 @@ import {
   Divider,
   Row,
   Col,
+  Checkbox,
+  Empty,
 } from 'antd';
 import {
   DownloadOutlined,
   BookOutlined,
-  FileTextOutlined,
   InfoCircleOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
-import { materialApi } from '../../api';
-import type { Material } from '../../types';
+import { materialApi, type CategorySummary, type MaterialResponse } from '../../api';
 
 const { Title, Text, Paragraph } = Typography;
 
+// 大类别定义
+const MAIN_CATEGORIES = [
+  { key: 'high_school', label: '高中数学联赛', prefix: 'high_school' },
+  { key: 'college', label: '大学数学竞赛', prefix: 'college' },
+];
+
 export default function Materials() {
   const [loading, setLoading] = useState(false);
-  const [materials, setMaterials] = useState<Material[]>([]);
+  const [categories, setCategories] = useState<CategorySummary[]>([]);
+  const [allMaterials, setAllMaterials] = useState<MaterialResponse[]>([]);
+  // 选中的大类别
+  const [selectedMainCategories, setSelectedMainCategories] = useState<string[]>([]);
 
   useEffect(() => {
-    fetchMaterials();
+    fetchData();
   }, []);
 
-  const fetchMaterials = async () => {
+  const fetchData = async () => {
     setLoading(true);
     try {
-      const categories = await materialApi.getCategories();
-      // 获取所有类别的资料
-      const allMaterials: Material[] = [];
-      for (const category of categories) {
-        const categoryMaterials = await materialApi.getMaterialsByCategory(category);
-        allMaterials.push(...categoryMaterials);
-      }
-      setMaterials(allMaterials);
+      // 获取类别汇总
+      const categoriesData = await materialApi.getCategories();
+      setCategories(categoriesData);
+      // 获取所有资料
+      const materialsData = await materialApi.getMaterials();
+      setAllMaterials(materialsData);
     } catch (error) {
+      console.error('加载数据失败:', error);
       message.error('加载资料失败');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDownload = async (material: Material) => {
+  // 根据选中的大类别筛选资料
+  const materials = useMemo(() => {
+    if (selectedMainCategories.length === 0) {
+      return allMaterials;
+    }
+    return allMaterials.filter((m) => 
+      selectedMainCategories.some((prefix) => m.category.startsWith(prefix))
+    );
+  }, [allMaterials, selectedMainCategories]);
+
+  // 切换大类别选中状态
+  const toggleMainCategory = (prefix: string) => {
+    setSelectedMainCategories((prev) => {
+      if (prev.includes(prefix)) {
+        return prev.filter((p) => p !== prefix);
+      }
+      return [...prev, prefix];
+    });
+  };
+
+  const handleDownload = async (material: MaterialResponse) => {
     try {
       await materialApi.recordDownload(material.id);
       // 复制百度网盘链接到剪贴板
+      const extractCodeText = material.extract_code ? `\n提取码：${material.extract_code}` : '';
       navigator.clipboard.writeText(
-        `链接：${material.baidu_link}\n提取码：${material.extract_code}`
+        `链接：${material.baidu_link}${extractCodeText}`
       );
       message.success('链接和提取码已复制到剪贴板！');
       
@@ -67,7 +97,7 @@ export default function Materials() {
       window.open(material.baidu_link, '_blank');
       
       // 刷新数据以更新下载次数
-      fetchMaterials();
+      fetchData();
     } catch (error) {
       message.error('记录下载失败');
     }
@@ -75,29 +105,15 @@ export default function Materials() {
 
   const getCategoryColor = (category: string) => {
     if (category.includes('high_school')) return 'blue';
-    if (category.includes('university')) return 'green';
+    if (category.includes('college')) return 'green';
     return 'default';
   };
 
-  const getCategoryLabel = (category: string) => {
-    const labels: Record<string, string> = {
-      high_school_comprehensive: '高中数学联赛综合',
-      university_comprehensive: '大学数学竞赛综合',
-      high_school_algebra: '高中-代数',
-      high_school_geometry: '高中-几何',
-      high_school_number_theory: '高中-数论',
-      high_school_combinatorics: '高中-组合',
-      university_algebra: '大学-代数',
-      university_number_theory: '大学-数论',
-      university_analysis: '大学-分析和方程',
-      university_combinatorics: '大学-组合和概率',
-      university_geometry: '大学-几何和拓扑',
-      university_optimization: '大学-最优化方法',
-    };
-    return labels[category] || category;
-  };
+  // 计算统计数据
+  const totalMaterials = categories.reduce((sum, c) => sum + c.material_count, 0);
+  const totalDownloads = categories.reduce((sum, c) => sum + c.total_downloads, 0);
 
-  if (loading) {
+  if (loading && materials.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '100px 0' }}>
         <Spin size="large" />
@@ -115,14 +131,14 @@ export default function Materials() {
       <Alert
         message="使用说明"
         description={
-          <Space orientation="vertical" size="small">
-            <Text>1. 点击"下载"按钮，系统会自动复制百度网盘链接和提取码到剪贴板</Text>
-            <Text>2. 浏览器会自动打开百度网盘链接，粘贴提取码即可下载</Text>
-            <Text>3. 建议下载后先浏览资料，选择适合的题目作为母题</Text>
-            <Text strong type="warning">
+          <div>
+            <p>1. 点击"下载"按钮，系统会自动复制百度网盘链接和提取码到剪贴板</p>
+            <p>2. 浏览器会自动打开百度网盘链接，粘贴提取码即可下载</p>
+            <p>3. 建议下载后先浏览资料，选择适合的题目作为母题</p>
+            <p style={{ color: '#ff4d4f', fontWeight: 'bold' }}>
               ⚠️ 注意：只需要有明确答案的解答题，不要证明题、判断题或选择题
-            </Text>
-          </Space>
+            </p>
+          </div>
         }
         type="info"
         icon={<InfoCircleOutlined />}
@@ -132,23 +148,34 @@ export default function Materials() {
 
       {/* 统计信息 */}
       <Row gutter={16} style={{ marginBottom: 24 }}>
-        <Col span={12}>
+        <Col xs={12} sm={8}>
           <Card>
             <div style={{ textAlign: 'center' }}>
               <Text type="secondary">资料类别</Text>
               <Title level={3} style={{ margin: '8px 0' }}>
-                {materials.length}
+                {categories.length}
               </Title>
               <Text type="secondary">个</Text>
             </div>
           </Card>
         </Col>
-        <Col span={12}>
+        <Col xs={12} sm={8}>
+          <Card>
+            <div style={{ textAlign: 'center' }}>
+              <Text type="secondary">资料总数</Text>
+              <Title level={3} style={{ margin: '8px 0' }}>
+                {totalMaterials}
+              </Title>
+              <Text type="secondary">个</Text>
+            </div>
+          </Card>
+        </Col>
+        <Col xs={24} sm={8}>
           <Card>
             <div style={{ textAlign: 'center' }}>
               <Text type="secondary">总下载次数</Text>
               <Title level={3} style={{ margin: '8px 0' }}>
-                {materials.reduce((sum, m) => sum + m.download_count, 0)}
+                {totalDownloads}
               </Title>
               <Text type="secondary">次</Text>
             </div>
@@ -156,53 +183,90 @@ export default function Materials() {
         </Col>
       </Row>
 
+      {/* 筛选器 */}
+      <Card style={{ marginBottom: 24 }}>
+        <Space size="large" wrap>
+          <Text strong>筛选类别：</Text>
+          {MAIN_CATEGORIES.map((cat) => {
+            // 计算该大类别下的资料数量
+            const count = allMaterials.filter((m) => m.category.startsWith(cat.prefix)).length;
+            return (
+              <Checkbox
+                key={cat.key}
+                checked={selectedMainCategories.includes(cat.prefix)}
+                onChange={() => toggleMainCategory(cat.prefix)}
+              >
+                {cat.label} ({count})
+              </Checkbox>
+            );
+          })}
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={fetchData}
+            loading={loading}
+            size="small"
+          >
+            刷新
+          </Button>
+        </Space>
+      </Card>
+
       {/* 资料列表 */}
-      <List
-        grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 3, xxl: 3 }}
-        dataSource={materials}
-        renderItem={(material) => (
-          <List.Item>
-            <Card
-              hoverable
-              actions={[
-                <Button
-                  type="primary"
-                  icon={<DownloadOutlined />}
-                  onClick={() => handleDownload(material)}
-                >
-                  下载资料
-                </Button>,
-              ]}
-            >
-              <Card.Meta
-                avatar={<BookOutlined style={{ fontSize: 32, color: '#1890ff' }} />}
-                title={
-                  <Space orientation="vertical" size={4} style={{ width: '100%' }}>
-                    <Text strong>{material.title}</Text>
-                    <Tag color={getCategoryColor(material.category)}>
-                      {getCategoryLabel(material.category)}
-                    </Tag>
-                  </Space>
-                }
-                description={
-                  <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-                    <Paragraph
-                      ellipsis={{ rows: 2, expandable: true }}
-                      style={{ marginBottom: 0 }}
-                    >
-                      {material.description}
-                    </Paragraph>
-                    <Divider style={{ margin: '8px 0' }} />
-                    <Text type="secondary">
-                      <DownloadOutlined /> {material.download_count} 次下载
-                    </Text>
-                  </Space>
-                }
-              />
-            </Card>
-          </List.Item>
-        )}
-      />
+      {materials.length === 0 ? (
+        <Card>
+          <Empty description="暂无资料" />
+        </Card>
+      ) : (
+        <List
+          grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 3, xxl: 3 }}
+          dataSource={materials}
+          loading={loading}
+          renderItem={(material) => (
+            <List.Item>
+              <Card
+                hoverable
+                actions={[
+                  <Button
+                    type="primary"
+                    icon={<DownloadOutlined />}
+                    onClick={() => handleDownload(material)}
+                  >
+                    下载资料
+                  </Button>,
+                ]}
+              >
+                <Card.Meta
+                  avatar={<BookOutlined style={{ fontSize: 32, color: '#1890ff' }} />}
+                  title={
+                    <div>
+                      <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                        {material.title}
+                      </Text>
+                      <Tag color={getCategoryColor(material.category)}>
+                        {material.category_display}
+                      </Tag>
+                    </div>
+                  }
+                  description={
+                    <div>
+                      <Paragraph
+                        ellipsis={{ rows: 2, expandable: true }}
+                        style={{ marginBottom: 8 }}
+                      >
+                        {material.description || '暂无描述'}
+                      </Paragraph>
+                      <Divider style={{ margin: '8px 0' }} />
+                      <Text type="secondary">
+                        <DownloadOutlined /> {material.download_count} 次下载
+                      </Text>
+                    </div>
+                  }
+                />
+              </Card>
+            </List.Item>
+          )}
+        />
+      )}
     </div>
   );
 }

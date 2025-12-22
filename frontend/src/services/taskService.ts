@@ -149,3 +149,20 @@ export function groupTasksByBatch(tasks: Task[]): Map<string, Task[]> {
   return grouped;
 }
 
+/**
+ * 获取按批次合并的任务列表（用于任务管理表格显示）
+ * 每个批次只显示一条记录，避免评分任务显示多条重复记录
+ */
+export function getUniqueBatchTasks(tasks: Task[]): Task[] {
+  const batchMap = new Map<string, Task>();
+  
+  tasks.forEach((task) => {
+    const key = task.batch_id || `single-${task.id}`;
+    if (!batchMap.has(key)) {
+      batchMap.set(key, task);
+    }
+  });
+  
+  return Array.from(batchMap.values());
+}
+
