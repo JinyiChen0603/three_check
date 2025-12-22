@@ -880,7 +880,9 @@ export default function ProblemCreation() {
             })}
 
             <Space>
+              {/* 暂时隐藏返回上一步按钮，后期可能恢复使用
               <Button onClick={() => setCurrentStep(0)}>返回上一步</Button>
+              */}
               <Button
                 type="primary"
                 onClick={() => setCurrentStep(2)}
