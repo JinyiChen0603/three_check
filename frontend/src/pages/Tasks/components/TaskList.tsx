@@ -1,9 +1,7 @@
 import { Button, Modal, Space, Table, Tag, Typography, Progress } from 'antd';
 import {
-  CheckCircleOutlined,
   ClockCircleOutlined,
   DeleteOutlined,
-  FileTextOutlined,
   EditOutlined,
   StarOutlined,
 } from '@ant-design/icons';

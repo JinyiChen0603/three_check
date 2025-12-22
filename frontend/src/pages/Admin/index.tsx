@@ -10,7 +10,7 @@ import { UserStats } from './components/UserStats';
 import { UserTable } from './components/UserTable';
 import { ImpersonateModal } from './components/ImpersonateModal';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 const { Search } = Input;
 
 export default function Admin() {

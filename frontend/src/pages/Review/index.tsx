@@ -5,7 +5,7 @@
  */
 
 import { useEffect } from 'react';
-import { Button, Card, Space, Steps, Tag, Typography } from 'antd';
+import { Card, Space, Steps, Tag, Typography } from 'antd';
 import { CheckCircleOutlined, StarOutlined } from '@ant-design/icons';
 
 import { useReviewTask } from './hooks/useReviewTask';
