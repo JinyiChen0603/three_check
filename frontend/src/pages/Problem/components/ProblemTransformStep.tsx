@@ -1,7 +1,7 @@
 import { Alert, Button, Card, Divider, Input, Space, Typography, message } from 'antd';
 
 import { BUSINESS_CONSTANTS } from '../../../config/constants';
-import type { ProblemItem, VariantItem } from '../types';
+import type { VariantItem } from '../types';
 import type { ParentProblem } from '../hooks/useProblemTransform';
 import { VariantTable } from './VariantTable';
 

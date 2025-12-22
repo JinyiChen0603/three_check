@@ -16,7 +16,6 @@ import {
   message,
 } from 'antd';
 import {
-  WalletOutlined,
   FileTextOutlined,
   CheckCircleOutlined,
   TrophyOutlined,

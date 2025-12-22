@@ -47,12 +47,15 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: mathtasks-api
+    env_file:
+      - ./backend/.env
     environment:
-      # 必填项：至少要有 DATABASE_URL 和 SECRET_KEY
+      # 数据库连接（覆盖 .env 中的配置）
       DATABASE_URL: postgresql+asyncpg://mathtasks:mathtasks123@postgres:5432/mathtasks
       MONGODB_URL: mongodb://admin:mongodb123@mongodb:27017/?authSource=admin
-      SECRET_KEY: dev-secret-change-me
-      DEBUG: "true"
+      # 如果没有 .env 文件，使用默认值
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
+      DEBUG: ${DEBUG:-true}
     ports:
       # 统一对外暴露 8001（与现有前端代理配置一致）
       - "8001:8000"
@@ -64,6 +67,10 @@ services:
     networks:
       - mathtasks-network
     restart: unless-stopped
+    volumes:
+      # 挂载代码目录以便热重载（开发模式）
+      - ./backend:/app
+      - /app/__pycache__
 
   # 前端（生产/预发风格）：Nginx 托管静态文件，并反代 /api -> api:8000
   frontend:

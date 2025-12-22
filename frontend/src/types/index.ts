@@ -86,21 +86,51 @@ export interface Problem {
 
 // 质量检查
 export interface QualityCheck {
+  all_passed?: boolean;
   difficulty: {
-    status: 'passed' | 'failed';
-    correct_count: number;
-    total_attempts: number;
+    status?: 'passed' | 'failed';
+    correct_count?: number;
+    total_attempts?: number;
+    attempts?: number;
+    is_passed?: boolean;
+    ai_model?: string;
+    evaluation?: string;
+    chatgpt_result?: {
+      correct_count: number;
+      attempts: number;
+      is_passed: boolean;
+      evaluation?: string;
+      [key: string]: any;
+    };
+    zhipu_result?: {
+      correct_count: number;
+      attempts: number;
+      is_passed: boolean;
+      evaluation?: string;
+      [key: string]: any;
+    };
+    verdict?: string;
+    [key: string]: any;
   };
   originality: {
-    status: 'passed' | 'failed';
-    is_original: boolean;
+    status?: 'passed' | 'failed';
+    is_original?: boolean;
     reason?: string;
+    verdict?: string;
+    details?: string;
+    [key: string]: any;
   };
   rigor: {
-    status: 'passed' | 'failed';
-    is_rigorous: boolean;
+    status?: 'passed' | 'failed';
+    is_rigorous?: boolean;
     reason?: string;
+    verdict?: string;
+    details?: string;
+    [key: string]: any;
   };
+  early_stop?: boolean;
+  early_stop_reason?: string;
+  [key: string]: any;
 }
 
 // 评分

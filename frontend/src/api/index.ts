@@ -3,7 +3,7 @@
  */
 
 import apiClient from './axios';
-import type { Problem, Task, Review, Material, Ranking, Transaction } from '../types';
+import type { Problem, Task, Review, Ranking, Transaction } from '../types';
 
 export { authApi } from './auth';
 export { apiClient };

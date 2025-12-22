@@ -31,7 +31,7 @@ const queryClient = new QueryClient({
 });
 
 // 路由守卫组件
-function PrivateRoute({ children }: { children: JSX.Element }) {
+function PrivateRoute({ children }: { children: React.ReactElement }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   return isAuthenticated ? children : <Navigate to="/login" replace />;
 }

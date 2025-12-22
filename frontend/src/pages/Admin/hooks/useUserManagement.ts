@@ -113,7 +113,7 @@ export function useUserManagement() {
     }
   }, [closeImpersonate, impersonateTarget, navigate, setAuth]);
 
-  const handleToggleActive = useCallback(async (user: User) => {
+  const handleToggleActive = useCallback(async (_user: User) => {
     message.info('此功能需要后端 API 支持');
     // TODO: await userApi.toggleUserStatus(user.id, !user.is_active);
     // await fetchUsers();
