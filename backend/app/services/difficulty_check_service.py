@@ -26,11 +26,10 @@ class DifficultyCheckService:
         # ==================== ChatGPT 配置（新增） ====================
         self.chatgpt_api_key = settings.OPENAI_API_KEY
         self.chatgpt_model = settings.CHATGPT_VALIDATION_MODEL  # 配置中的模型名：gpt-5.2-pro
-        # gpt-5.2-pro 需要使用 Responses API 端点
-        if "gpt-5.2-pro" in settings.CHATGPT_VALIDATION_MODEL.lower():
-            self.chatgpt_base_url = "https://api.openai.com/v1/responses"
-        else:
-            self.chatgpt_base_url = "https://api.openai.com/v1/chat/completions"
+        # 使用 OpenRouter 代理访问 gpt-5.2-pro
+        self.chatgpt_api_key = settings.OPENROUTER_API_KEY
+        self.chatgpt_model = "openai/gpt-5.2-pro"  # OpenRouter 格式
+        self.chatgpt_base_url = "https://openrouter.ai/api/v1/chat/completions"
         
         # ==================== 智谱 GLM 配置（新增） ====================
         self.zhipu_api_key = settings.ZHIPU_API_KEY
@@ -375,7 +374,8 @@ class DifficultyCheckService:
     ) -> Dict[str, Any]:
         """ChatGPT 单次验证"""
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            # 使用香港代理时跳过 SSL 验证
+            async with httpx.AsyncClient(timeout=120.0, verify=False) as client:
                 # 根据 API 端点构建不同的请求体
                 if "responses" in self.chatgpt_base_url:
                     # Responses API 格式：使用 "input" 而不是 "messages"
@@ -637,7 +637,8 @@ class DifficultyCheckService:
 
 请给出详细的评价（200-300字），客观分析题目的特点。"""
             
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            # 使用香港代理时跳过 SSL 验证
+            async with httpx.AsyncClient(timeout=60.0, verify=False) as client:
                 headers = {
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json"
@@ -709,7 +710,8 @@ AI模型给出的答案：
 
 请只回答 "YES" 或 "NO"，不要解释。"""
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            # 使用香港代理时跳过 SSL 验证
+            async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
                 # 使用 Responses API（gpt-5.2-pro）
                 if "responses" in self.chatgpt_base_url:
                     request_body = {
@@ -745,11 +747,11 @@ AI模型给出的答案：
                     json=request_body
                 )
                 
-                # 如果 Responses API 失败，回退到 chat/completions
-                if response.status_code == 400 and "responses" in self.chatgpt_base_url:
-                    fallback_url = "https://api.openai.com/v1/chat/completions"
+                # 如果请求失败，回退到 OpenRouter gpt-4o
+                if response.status_code == 400:
+                    fallback_url = "https://openrouter.ai/api/v1/chat/completions"
                     request_body = {
-                        "model": "gpt-4o",
+                        "model": "openai/gpt-4o",
                         "messages": [
                             {
                                 "role": "system",
