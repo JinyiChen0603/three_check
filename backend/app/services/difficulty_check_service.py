@@ -25,7 +25,7 @@ class DifficultyCheckService:
         
         # ==================== ChatGPT 配置（新增） ====================
         self.chatgpt_api_key = settings.OPENAI_API_KEY
-        self.chatgpt_model = settings.CHATGPT_VALIDATION_MODEL
+        self.chatgpt_model = settings.CHATGPT_VALIDATION_MODEL  # 配置中的模型名：gpt-5.2-pro
         # gpt-5.2-pro 需要使用 Responses API 端点
         if "gpt-5.2-pro" in settings.CHATGPT_VALIDATION_MODEL.lower():
             self.chatgpt_base_url = "https://api.openai.com/v1/responses"
@@ -375,70 +375,81 @@ class DifficultyCheckService:
     ) -> Dict[str, Any]:
         """ChatGPT 单次验证"""
         try:
-            # 构建请求体（标准 Chat Completions 格式）
-            request_body = {
-                "model": self.chatgpt_model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are a math expert. Give direct answer only. Put your final answer within \\boxed{}."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                "temperature": 0.7,
-                "max_tokens": 2048
-            }
-            
-            # 如果是 Responses API，可能需要不同的请求格式
-            # 先尝试标准格式，如果失败再调整
             async with httpx.AsyncClient(timeout=120.0) as client:
-                try:
-                    response = await client.post(
-                        self.chatgpt_base_url,
-                        headers={
-                            "Authorization": f"Bearer {self.chatgpt_api_key}",
-                            "Content-Type": "application/json"
-                        },
-                        json=request_body
-                    )
-                except httpx.HTTPStatusError as e:
-                    # 如果是 400 错误且使用的是 responses 端点，尝试使用 chat/completions
-                    if e.response.status_code == 400 and "responses" in self.chatgpt_base_url:
-                        # 回退到标准 chat/completions 端点
-                        fallback_url = "https://api.openai.com/v1/chat/completions"
-                        # 尝试使用 gpt-4o 模型（如果 gpt-5.2-pro 不可用）
-                        fallback_model = "gpt-4o" if "5.2" in self.chatgpt_model else self.chatgpt_model
-                        request_body["model"] = fallback_model
-                        response = await client.post(
-                            fallback_url,
-                            headers={
-                                "Authorization": f"Bearer {self.chatgpt_api_key}",
-                                "Content-Type": "application/json"
+                # 根据 API 端点构建不同的请求体
+                if "responses" in self.chatgpt_base_url:
+                    # Responses API 格式：使用 "input" 而不是 "messages"
+                    # 合并 system 和 user 消息为一个 input
+                    full_prompt = f"You are a math expert. Give direct answer only. Put your final answer within \\boxed{{}}.\n\n{prompt}"
+                    request_body = {
+                        "model": self.chatgpt_model,  # 使用配置中的模型名：gpt-5.2-pro
+                        "input": full_prompt,
+                        "reasoning": {
+                            "effort": "medium"  # gpt-5.2-pro 支持: "medium", "high", "xhigh" (不支持 "none")
+                        }
+                    }
+                else:
+                    # Chat Completions API 格式
+                    request_body = {
+                        "model": self.chatgpt_model,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You are a math expert. Give direct answer only. Put your final answer within \\boxed{}."
                             },
-                            json=request_body
-                        )
-                    else:
-                        raise
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ],
+                        "temperature": 0.7,
+                        "max_tokens": 2048
+                    }
+                
+                response = await client.post(
+                    self.chatgpt_base_url,
+                    headers={
+                        "Authorization": f"Bearer {self.chatgpt_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json=request_body
+                )
+                
+                # 如果返回错误，打印详细信息
+                if response.status_code != 200:
+                    error_detail = response.text
+                    print(f"❌ ChatGPT API 错误 (状态码: {response.status_code}):")
+                    print(f"   请求 URL: {self.chatgpt_base_url}")
+                    print(f"   模型: {self.chatgpt_model}")
+                    print(f"   请求体: {request_body}")
+                    print(f"   错误详情: {error_detail}")
+                
                 response.raise_for_status()
                 data = response.json()
                 
-                # Responses API 和 Chat Completions API 的响应格式可能不同
-                # 尝试兼容两种格式
-                if "choices" in data and len(data["choices"]) > 0:
-                    # Chat Completions 格式
-                    content = data["choices"][0]["message"]["content"]
-                elif "response" in data:
-                    # Responses API 格式（可能）
-                    content = data["response"].get("content", "") if isinstance(data["response"], dict) else str(data["response"])
-                elif "content" in data:
-                    # 直接包含 content
-                    content = data["content"]
+                # Responses API 和 Chat Completions API 的响应格式不同
+                if "responses" in self.chatgpt_base_url:
+                    # Responses API 格式：output 是数组，内容在 output[0].content[0].text
+                    if "output" in data and isinstance(data["output"], list) and len(data["output"]) > 0:
+                        output_item = data["output"][0]
+                        if "content" in output_item and isinstance(output_item["content"], list) and len(output_item["content"]) > 0:
+                            content_item = output_item["content"][0]
+                            if "text" in content_item:
+                                content = content_item["text"]
+                            else:
+                                content = str(content_item)
+                        else:
+                            content = str(output_item)
+                    elif "output" in data:
+                        content = str(data["output"])
+                    else:
+                        content = str(data)
                 else:
-                    # 尝试其他可能的格式
-                    content = str(data)
+                    # Chat Completions API 格式
+                    if "choices" in data and len(data["choices"]) > 0:
+                        content = data["choices"][0]["message"]["content"]
+                    else:
+                        content = str(data)
                 
                 is_correct = self._check_answer(content, standard_answer)
                 
