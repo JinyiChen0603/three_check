@@ -451,7 +451,8 @@ class DifficultyCheckService:
                     else:
                         content = str(data)
                 
-                is_correct = self._check_answer(content, standard_answer)
+                # 使用 GPT-5.2-pro 进行答案对比
+                is_correct = await self._check_answer_with_ai(content, standard_answer)
                 
                 return {
                     "success": True,
@@ -497,7 +498,8 @@ class DifficultyCheckService:
                 data = response.json()
                 
                 content = data["choices"][0]["message"]["content"]
-                is_correct = self._check_answer(content, standard_answer)
+                # 使用 GPT-5.2-pro 进行答案对比
+                is_correct = await self._check_answer_with_ai(content, standard_answer)
                 
                 return {
                     "success": True,
@@ -568,7 +570,8 @@ class DifficultyCheckService:
                     if not full_content:
                         raise Exception("Empty response received")
                     
-                    is_correct = self._check_answer(full_content, standard_answer)
+                    # 使用 GPT-5.2-pro 进行答案对比
+                    is_correct = await self._check_answer_with_ai(full_content, standard_answer)
                     
                     return {
                         "success": True,
@@ -668,8 +671,196 @@ class DifficultyCheckService:
             print(f"生成{model_type}评价失败: {str(e)}")
             return None
     
-    def _check_answer(self, ai_answer: str, standard_answer: str) -> bool:
-        """检查答案是否正确（支持 \\boxed{} 格式）"""
+    async def _check_answer_with_ai(self, ai_answer: str, standard_answer: str) -> bool:
+        """
+        使用 GPT-5.2-pro 判断答案是否正确
+        
+        对于复杂的数学答案（如表达式、集合、多解等），正则无法准确判断，
+        因此使用 GPT-5.2-pro 进行智能对比。
+        
+        Args:
+            ai_answer: AI模型给出的答案
+            standard_answer: 用户输入的标准答案
+            
+        Returns:
+            bool: 答案是否等价
+        """
+        # 先用简单规则快速判断（提高效率）
+        quick_result = self._quick_check_answer(ai_answer, standard_answer)
+        if quick_result is not None:
+            return quick_result
+        
+        # 复杂情况使用 GPT-5.2-pro 判断
+        try:
+            comparison_prompt = f"""请判断以下两个数学答案是否等价。
+
+AI模型给出的答案：
+{ai_answer}
+
+标准答案：
+{standard_answer}
+
+判断规则：
+1. 数学表达式等价即可（如 2x+1 和 1+2x 是等价的）
+2. 数值答案允许不同的表示形式（如 0.5 和 1/2 是等价的）
+3. 集合答案元素相同即可，顺序无关
+4. LaTeX 格式差异忽略
+5. 只关注最终答案，忽略解题过程
+
+请只回答 "YES" 或 "NO"，不要解释。"""
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # 使用 Responses API（gpt-5.2-pro）
+                if "responses" in self.chatgpt_base_url:
+                    request_body = {
+                        "model": self.chatgpt_model,
+                        "input": comparison_prompt,
+                        "reasoning": {
+                            "effort": "medium"
+                        }
+                    }
+                else:
+                    request_body = {
+                        "model": self.chatgpt_model,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You are a math answer comparison expert. Only answer YES or NO."
+                            },
+                            {
+                                "role": "user",
+                                "content": comparison_prompt
+                            }
+                        ],
+                        "temperature": 0,
+                        "max_tokens": 10
+                    }
+                
+                response = await client.post(
+                    self.chatgpt_base_url,
+                    headers={
+                        "Authorization": f"Bearer {self.chatgpt_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json=request_body
+                )
+                
+                # 如果 Responses API 失败，回退到 chat/completions
+                if response.status_code == 400 and "responses" in self.chatgpt_base_url:
+                    fallback_url = "https://api.openai.com/v1/chat/completions"
+                    request_body = {
+                        "model": "gpt-4o",
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You are a math answer comparison expert. Only answer YES or NO."
+                            },
+                            {
+                                "role": "user",
+                                "content": comparison_prompt
+                            }
+                        ],
+                        "temperature": 0,
+                        "max_tokens": 10
+                    }
+                    response = await client.post(
+                        fallback_url,
+                        headers={
+                            "Authorization": f"Bearer {self.chatgpt_api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json=request_body
+                    )
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                # 解析响应
+                content = ""
+                if "output" in data and isinstance(data["output"], list) and len(data["output"]) > 0:
+                    # Responses API 格式
+                    first_output = data["output"][0]
+                    if "content" in first_output and isinstance(first_output["content"], list) and len(first_output["content"]) > 0:
+                        content = first_output["content"][0].get("text", "")
+                    elif "text" in first_output:
+                        content = first_output["text"]
+                elif "choices" in data and len(data["choices"]) > 0:
+                    # Chat Completions 格式
+                    content = data["choices"][0]["message"]["content"]
+                elif "response" in data:
+                    content = str(data["response"])
+                else:
+                    content = str(data)
+                
+                # 判断结果
+                content_upper = content.strip().upper()
+                if "YES" in content_upper:
+                    return True
+                elif "NO" in content_upper:
+                    return False
+                else:
+                    # 无法确定，使用保守策略（回退到快速检查的严格模式）
+                    print(f"GPT答案对比返回不明确结果: {content}")
+                    return self._strict_check_answer(ai_answer, standard_answer)
+        
+        except Exception as e:
+            print(f"GPT答案对比失败，回退到正则检查: {str(e)}")
+            # 回退到传统方法
+            return self._strict_check_answer(ai_answer, standard_answer)
+    
+    def _quick_check_answer(self, ai_answer: str, standard_answer: str) -> Optional[bool]:
+        """
+        快速答案检查（简单情况，无需调用AI）
+        
+        Returns:
+            bool: 如果能快速判断则返回结果
+            None: 如果需要AI判断则返回None
+        """
+        def normalize_answer(text):
+            if not text:
+                return ""
+            text = str(text)
+            
+            # 提取 \boxed{} 中的内容（取最后一个）
+            boxed_matches = re.findall(r'\\boxed\s*\{(.*?)\}', text)
+            if boxed_matches:
+                text = boxed_matches[-1]
+            
+            # 移除各种 LaTeX 数学模式标记
+            text = text.replace('\\[', '').replace('\\]', '')
+            text = text.replace('\\(', '').replace('\\)', '')
+            text = text.replace('$', '').replace(' ', '').strip()
+            
+            return text
+        
+        extracted_model = normalize_answer(ai_answer)
+        clean_truth = normalize_answer(standard_answer)
+        
+        # 直接字符串匹配（完全相同）
+        if extracted_model and extracted_model == clean_truth:
+            return True
+        
+        # 如果两个答案都是简单数字，直接比较
+        try:
+            num_model = float(extracted_model.replace(',', ''))
+            num_truth = float(clean_truth.replace(',', ''))
+            return abs(num_model - num_truth) < 1e-9
+        except (ValueError, AttributeError):
+            pass
+        
+        # 如果两个答案都很短且完全不同，可能需要AI判断
+        if len(extracted_model) < 50 and len(clean_truth) < 50:
+            # 简单情况，如果完全不相关则返回False
+            if not extracted_model or not clean_truth:
+                return False
+            # 需要AI进一步判断
+            return None
+        
+        # 复杂情况，需要AI判断
+        return None
+    
+    def _strict_check_answer(self, ai_answer: str, standard_answer: str) -> bool:
+        """严格的答案检查（作为AI检查的回退方案）"""
         def normalize_answer(text):
             if not text:
                 return ""
