@@ -29,7 +29,6 @@ class MaterialResponse(BaseModel):
     baidu_link: str
     extract_code: Optional[str]
     download_count: int
-    problem_count: int
     
     class Config:
         from_attributes = True
@@ -139,8 +138,7 @@ async def list_materials(
             "description": m.description,
             "baidu_link": m.baidu_link,
             "extract_code": m.extract_code,
-            "download_count": m.download_count,
-            "problem_count": m.problem_count
+            "download_count": m.download_count
         }
         for m in materials
     ]
@@ -179,8 +177,7 @@ async def get_material(
         "description": material.description,
         "baidu_link": material.baidu_link,
         "extract_code": material.extract_code,
-        "download_count": material.download_count,
-        "problem_count": material.problem_count
+        "download_count": material.download_count
     }
 
 

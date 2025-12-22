@@ -218,17 +218,47 @@ export const reviewApi = {
   },
 };
 
+// 资料库类别汇总（后端返回的格式）
+export interface CategorySummary {
+  category: string;
+  category_display: string;
+  material_count: number;
+  total_downloads: number;
+}
+
+// 资料详情（后端返回的格式）
+export interface MaterialResponse {
+  id: number;
+  category: string;
+  category_display: string;
+  title: string;
+  description: string | null;
+  baidu_link: string;
+  extract_code: string | null;
+  download_count: number;
+}
+
 // 资料库相关 API
 export const materialApi = {
-  // 获取所有类别
-  getCategories: async () => {
-    const response = await apiClient.get<string[]>('/materials/categories');
+  // 获取所有类别汇总
+  getCategories: async (): Promise<CategorySummary[]> => {
+    const response = await apiClient.get<CategorySummary[]>('/materials/categories');
     return response.data;
   },
 
-  // 获取指定类别的资料
-  getMaterialsByCategory: async (category: string) => {
-    const response = await apiClient.get<Material[]>(`/materials/${category}`);
+  // 获取资料列表（可按类别筛选）
+  getMaterials: async (category?: string, skip = 0, limit = 100): Promise<MaterialResponse[]> => {
+    const params: Record<string, any> = { skip, limit };
+    if (category) {
+      params.category = category;
+    }
+    const response = await apiClient.get<MaterialResponse[]>('/materials/list', { params });
+    return response.data;
+  },
+
+  // 获取资料详情
+  getMaterial: async (materialId: number): Promise<MaterialResponse> => {
+    const response = await apiClient.get<MaterialResponse>(`/materials/${materialId}`);
     return response.data;
   },
 
