@@ -583,7 +583,7 @@ export default function ProblemCreation() {
       setVariantsMap((prev) => ({
         ...prev,
         [parentId]: (prev[parentId] || []).map((v) =>
-          v.key === variant.key ? { ...v, status: 'pending_review' } : v
+          v.key === variant.key ? { ...v, human_review_status: 'pending_review' } : v
         ),
       }));
     } catch (error: any) {
@@ -887,7 +887,7 @@ export default function ProblemCreation() {
                 disabled={
                   Object.values(variantsMap)
                     .flat()
-                    .filter((v) => v.qualityCheckStatus === 'passed').length === 0
+                    .filter((v) => v.qualityCheckStatus === 'passed' && v.human_review_status === 'pending_review').length === 0
                 }
               >
                 下一步：提交合格题目
@@ -903,7 +903,7 @@ export default function ProblemCreation() {
           <Space orientation="vertical" style={{ width: '100%' }} size="large">
             {(() => {
               const allVariants = Object.values(variantsMap).flat();
-              const passedVariants = allVariants.filter((v) => v.qualityCheckStatus === 'passed');
+              const passedVariants = allVariants.filter((v) => v.qualityCheckStatus === 'passed' && v.human_review_status === 'pending_review');
               return (
                 <>
                   <Alert
