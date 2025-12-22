@@ -276,10 +276,17 @@ export default function ProblemCreation() {
     message.success('已加入验证队列');
   };
 
+  // 检查题目是否完整（题目、答案、解析都非空）且验证通过
+  const isProblemComplete = (p: ProblemItem) =>
+    p.validationStatus === 'passed' &&
+    !!p.content?.trim() &&
+    !!p.answer?.trim() &&
+    !!p.explanation?.trim();
+
   const handleBatchUse = async () => {
-    const passed = problems.filter((p) => p.validationStatus === 'passed');
+    const passed = problems.filter(isProblemComplete);
     if (passed.length === 0) {
-      message.warning('请先完成验证并选择通过的题目');
+      message.warning('请先完成验证并确保题目、答案、解析都填写完整');
       return;
     }
     try {
@@ -462,10 +469,19 @@ export default function ProblemCreation() {
           <Button
             type="link"
             size="small"
-            disabled={record.validationStatus !== 'passed'}
+            disabled={
+              record.validationStatus !== 'passed' ||
+              !record.content?.trim() ||
+              !record.answer?.trim() ||
+              !record.explanation?.trim()
+            }
             onClick={async () => {
               if (record.validationStatus !== 'passed') {
                 message.warning('请先验证题目并通过验证');
+                return;
+              }
+              if (!record.content?.trim() || !record.answer?.trim() || !record.explanation?.trim()) {
+                message.warning('题目、答案、解析都不能为空');
                 return;
               }
               
@@ -728,7 +744,7 @@ export default function ProblemCreation() {
               </Button>
               <Button
                 onClick={handleBatchUse}
-                disabled={problems.filter((p) => p.validationStatus === 'passed').length === 0}
+                disabled={problems.filter(isProblemComplete).length === 0}
               >
                 批量使用
               </Button>
