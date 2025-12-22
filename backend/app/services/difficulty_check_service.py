@@ -24,12 +24,11 @@ class DifficultyCheckService:
         self.doubao_base_url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
         
         # ==================== ChatGPT 配置（新增） ====================
-        self.chatgpt_api_key = settings.OPENAI_API_KEY
-        self.chatgpt_model = settings.CHATGPT_VALIDATION_MODEL  # 配置中的模型名：gpt-5.2-pro
-        # 使用 OpenRouter 代理访问 gpt-5.2-pro
+        # 通过香港代理访问 OpenRouter（绕过地区限制）
         self.chatgpt_api_key = settings.OPENROUTER_API_KEY
-        self.chatgpt_model = "openai/gpt-5.2-pro"  # OpenRouter 格式
-        self.chatgpt_base_url = "https://openrouter.ai/api/v1/chat/completions"
+        # self.chatgpt_model = "openai/gpt-5.2-pro"  # gpt-5.2-pro 暂时注释，待代理配置完善后启用
+        self.chatgpt_model = "openai/gpt-4o"  # 暂时使用 gpt-4o
+        self.chatgpt_base_url = "https://www.stem-align.com/v2/openrouter/api/v1/chat/completions"
         
         # ==================== 智谱 GLM 配置（新增） ====================
         self.zhipu_api_key = settings.ZHIPU_API_KEY
@@ -374,8 +373,8 @@ class DifficultyCheckService:
     ) -> Dict[str, Any]:
         """ChatGPT 单次验证"""
         try:
-            # 使用香港代理时跳过 SSL 验证
-            async with httpx.AsyncClient(timeout=120.0, verify=False) as client:
+            # gpt-5.2-pro 是推理模型，不限制响应时间
+            async with httpx.AsyncClient(timeout=None, verify=False) as client:
                 # 根据 API 端点构建不同的请求体
                 if "responses" in self.chatgpt_base_url:
                     # Responses API 格式：使用 "input" 而不是 "messages"
@@ -410,7 +409,9 @@ class DifficultyCheckService:
                     self.chatgpt_base_url,
                     headers={
                         "Authorization": f"Bearer {self.chatgpt_api_key}",
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://mathtasks.app",  # OpenRouter 要求
+                        "X-Title": "MathTasks Validation"  # OpenRouter 要求
                     },
                     json=request_body
                 )
@@ -710,8 +711,8 @@ AI模型给出的答案：
 
 请只回答 "YES" 或 "NO"，不要解释。"""
 
-            # 使用香港代理时跳过 SSL 验证
-            async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+            # gpt-5.2-pro 是推理模型，不限制响应时间
+            async with httpx.AsyncClient(timeout=None, verify=False) as client:
                 # 使用 Responses API（gpt-5.2-pro）
                 if "responses" in self.chatgpt_base_url:
                     request_body = {
@@ -742,14 +743,16 @@ AI模型给出的答案：
                     self.chatgpt_base_url,
                     headers={
                         "Authorization": f"Bearer {self.chatgpt_api_key}",
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://mathtasks.app",  # OpenRouter 要求
+                        "X-Title": "MathTasks Answer Comparison"  # OpenRouter 要求
                     },
                     json=request_body
                 )
                 
-                # 如果请求失败，回退到 OpenRouter gpt-4o
+                # 如果请求失败，回退到 OpenRouter gpt-4o（通过香港代理）
                 if response.status_code == 400:
-                    fallback_url = "https://openrouter.ai/api/v1/chat/completions"
+                    fallback_url = "https://www.stem-align.com/v2/openrouter/api/v1/chat/completions"
                     request_body = {
                         "model": "openai/gpt-4o",
                         "messages": [
@@ -769,7 +772,9 @@ AI模型给出的答案：
                         fallback_url,
                         headers={
                             "Authorization": f"Bearer {self.chatgpt_api_key}",
-                            "Content-Type": "application/json"
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": "https://mathtasks.app",
+                            "X-Title": "MathTasks Answer Comparison"
                         },
                         json=request_body
                     )
