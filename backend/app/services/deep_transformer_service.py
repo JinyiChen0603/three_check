@@ -7,20 +7,23 @@
 import json
 import requests
 import time
+import urllib3
 from typing import Dict, Any, Optional
 
 from app.config import settings
+
+# 临时禁用 SSL 验证警告（代理服务器证书问题）
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class DeepTransformerService:
     """深度变形服务 - 无时间和token限制"""
     
     def __init__(self):
-        # 从配置文件获取API配置
-        self.api_key = settings.GEMINI_API_KEY
-        self.model = "gemini-2.0-flash-exp"
-        # 使用香港代理服务器中转（www.stem-align.com/v2/）
-        self.api_url = f"https://www.stem-align.com/v2/gemini/v1beta/models/{self.model}:generateContent?key={self.api_key}"
+        # 使用 OpenRouter API
+        self.api_key = settings.OPENROUTER_API_KEY
+        self.model = "google/gemini-3-pro-preview"
+        self.api_url = "https://openrouter.ai/api/v1/chat/completions"
     
     def chat_stream_with_auto_continue(
         self,
@@ -31,7 +34,7 @@ class DeepTransformerService:
         temperature=0.3
     ):
         """
-        流式输出 + token 截断自动续写（Gemini API）
+        流式输出 + token 截断自动续写（OpenRouter API - OpenAI兼容格式）
         返回完整文本
         
         无超时限制版本 - 允许AI长时间运行
@@ -47,40 +50,24 @@ class DeepTransformerService:
                 max_tokens = int(max_tokens * 1.5)  # 续写时增加token数
                 temperature = min(temperature + 0.2, 2.0)
 
-            # 转换消息格式为 Gemini 格式
-            gemini_contents = []
-            system_instruction = None
-            
-            for msg in current_messages:
-                if msg["role"] == "system":
-                    system_instruction = msg["content"]
-                else:
-                    role = "user" if msg["role"] == "user" else "model"
-                    gemini_contents.append({
-                        "role": role,
-                        "parts": [{"text": msg["content"]}]
-                    })
-
+            # OpenRouter 使用 OpenAI 兼容格式，直接传递 messages
             payload = {
-                "contents": gemini_contents,
-                "generationConfig": {
-                    "maxOutputTokens": max_tokens,
-                    "temperature": temperature
-                }
+                "model": self.model,
+                "messages": current_messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature
             }
-            
-            if system_instruction:
-                payload["systemInstruction"] = {
-                    "parts": [{"text": system_instruction}]
-                }
 
             response = requests.post(
                 self.api_url,
                 headers={
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                    "HTTP-Referer": "https://mathtasks.app",
+                    "X-Title": "MathTasks"
                 },
                 json=payload,
-                timeout=None,  # 无超时限制 - 允许长时间运行
+                timeout=None  # 无超时限制 - 允许长时间运行
             )
 
             response.raise_for_status()
@@ -89,19 +76,18 @@ class DeepTransformerService:
             round_text = ""
             finish_reason = None
 
-            if "candidates" in data and len(data["candidates"]) > 0:
-                candidate = data["candidates"][0]
-                if "content" in candidate and "parts" in candidate["content"]:
-                    for part in candidate["content"]["parts"]:
-                        if "text" in part:
-                            round_text += part["text"]
-                            full_text += part["text"]
+            # OpenAI 兼容格式的响应解析
+            if "choices" in data and len(data["choices"]) > 0:
+                choice = data["choices"][0]
+                if "message" in choice and "content" in choice["message"]:
+                    round_text = choice["message"]["content"] or ""
+                    full_text += round_text
                 
-                if "finishReason" in candidate:
-                    finish_reason = candidate["finishReason"]
+                if "finish_reason" in choice:
+                    finish_reason = choice["finish_reason"]
 
             # ✅ 正常结束，不需要续写
-            if finish_reason not in ["MAX_TOKENS"] or finish_reason == "STOP":
+            if finish_reason != "length":
                 break
 
             # ⚠️ token 用尽，需要续写
@@ -127,7 +113,7 @@ class DeepTransformerService:
         temperature=0.7
     ):
         """
-        非流式输出 + token 截断自动续写（Gemini API）
+        非流式输出 + token 截断自动续写（OpenRouter API - OpenAI兼容格式）
         返回完整文本
         
         无超时限制版本 - 允许AI长时间运行
@@ -143,38 +129,21 @@ class DeepTransformerService:
                 max_tokens = int(max_tokens * 1.5)
                 temperature = min(temperature + 0.2, 2.0)
 
-            # 转换消息格式为 Gemini 格式
-            gemini_contents = []
-            system_instruction = None
-            
-            for msg in current_messages:
-                if msg["role"] == "system":
-                    system_instruction = msg["content"]
-                else:
-                    role = "user" if msg["role"] == "user" else "model"
-                    gemini_contents.append({
-                        "role": role,
-                        "parts": [{"text": msg["content"]}]
-                    })
-
+            # OpenRouter 使用 OpenAI 兼容格式
             payload = {
-                "contents": gemini_contents,
-                "generationConfig": {
-                    "maxOutputTokens": max_tokens,
-                    "temperature": temperature
-                }
+                "model": self.model,
+                "messages": current_messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature
             }
-            
-            if system_instruction:
-                payload["systemInstruction"] = {
-                    "parts": [{"text": system_instruction}]
-                }
 
             response = requests.post(
                 self.api_url,
                 headers={
                     "Content-Type": "application/json",
-                    "Connection": "close"
+                    "Authorization": f"Bearer {self.api_key}",
+                    "HTTP-Referer": "https://mathtasks.app",
+                    "X-Title": "MathTasks"
                 },
                 json=payload,
                 timeout=None  # 无超时限制
@@ -186,21 +155,20 @@ class DeepTransformerService:
             content = ""
             finish_reason = None
 
-            if "candidates" in data and len(data["candidates"]) > 0:
-                candidate = data["candidates"][0]
-                if "content" in candidate and "parts" in candidate["content"]:
-                    for part in candidate["content"]["parts"]:
-                        if "text" in part:
-                            content += part["text"]
+            # OpenAI 兼容格式的响应解析
+            if "choices" in data and len(data["choices"]) > 0:
+                choice = data["choices"][0]
+                if "message" in choice and "content" in choice["message"]:
+                    content = choice["message"]["content"] or ""
                 
-                if "finishReason" in candidate:
-                    finish_reason = candidate["finishReason"]
+                if "finish_reason" in choice:
+                    finish_reason = choice["finish_reason"]
 
             if content:
                 full_text += content
 
             # ✅ 正常结束
-            if finish_reason not in ["MAX_TOKENS"] or finish_reason == "STOP":
+            if finish_reason != "length":
                 break
 
             # ⚠️ token 用尽，准备续写
@@ -373,16 +341,21 @@ class DeepTransformerService:
         # 2. 构造 prompt
         system_prompt = """你是数学出题专家。根据原题的题目、解析和答案以及修改要求，生成一道新的变体题目。
 
-必须按此 JSON 格式返回（不要包含思考过程）：
-{
-    "variant_content": "变体题目内容",
-    "variant_explanation": "详细的解题步骤和分析",
-    "variant_answer": "最终答案"
-}
+请严格按以下格式返回（使用分隔符区分各部分）：
 
-文字描述用文本格式，数学公式满足：行内公式使用 $...$，独立公式使用 $$...$$
+【变体题目】
+（在这里写变体题目的完整内容）
 
-禁止：不要在 JSON 中出现 "Let's think"、"Actually"、"Wait" 等思考词汇。直接输出结果。"""
+【变体解析】
+（在这里写详细的解题步骤和分析）
+
+【变体答案】
+（在这里写最终答案）
+
+注意事项：
+1. 必须包含以上三个部分，每个部分用【】标记
+2. 数学公式使用 LaTeX 格式：行内公式用 $...$，独立公式用 $$...$$
+3. 直接输出结果，不要包含思考过程"""
 
         # 根据修改要求是否为空，构造不同的 user_message
         if modification_requirement and modification_requirement.strip():
@@ -432,27 +405,34 @@ class DeepTransformerService:
                 temperature=temperature
             )
         
-        # 4. 提取并解析 JSON
-        json_text = self.extract_last_brace_block(result_text)
+        # 4. 解析文本格式的返回内容
+        import re
         
-        if not json_text:
-            raise ValueError("AI 返回内容中未找到有效的 JSON 格式")
+        def extract_section(text: str, section_name: str) -> str:
+            """从文本中提取指定分隔符之间的内容"""
+            # 匹配 【section_name】 后面的内容，直到下一个 【 或文本结束
+            pattern = rf'【{section_name}】\s*([\s\S]*?)(?=【|$)'
+            match = re.search(pattern, text)
+            if match:
+                return match.group(1).strip()
+            return ""
         
-        try:
-            result_data = json.loads(json_text)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"JSON 解析失败: {str(e)}\n原始内容: {json_text}")
+        variant_content = extract_section(result_text, "变体题目")
+        variant_explanation = extract_section(result_text, "变体解析")
+        variant_answer = extract_section(result_text, "变体答案")
         
-        # 5. 验证和返回
-        required_fields = ["variant_content", "variant_explanation", "variant_answer"]
-        for field in required_fields:
-            if field not in result_data:
-                raise ValueError(f"AI 返回的 JSON 缺少必需字段: {field}")
+        # 5. 验证必需字段
+        if not variant_content:
+            raise ValueError(f"AI 返回内容缺少【变体题目】部分\n原始内容: {result_text[:500]}...")
+        if not variant_explanation:
+            raise ValueError(f"AI 返回内容缺少【变体解析】部分\n原始内容: {result_text[:500]}...")
+        if not variant_answer:
+            raise ValueError(f"AI 返回内容缺少【变体答案】部分\n原始内容: {result_text[:500]}...")
         
         return {
-            "variant_content": result_data["variant_content"],
-            "variant_explanation": result_data["variant_explanation"],
-            "variant_answer": result_data["variant_answer"]
+            "variant_content": variant_content,
+            "variant_explanation": variant_explanation,
+            "variant_answer": variant_answer
         }
 
     def generate_multiple_variants(
