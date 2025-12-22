@@ -44,7 +44,7 @@ export interface TaskBatch {
   }>;
 }
 
-// 任务批次响应
+// 任务批次响应~
 export interface TaskBatchesResponse {
   total_batches: number;
   batches: TaskBatch[];
