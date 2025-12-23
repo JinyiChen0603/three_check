@@ -18,6 +18,7 @@ import {
   Divider,
   Modal,
 } from 'antd';
+import ReactMarkdown from 'react-markdown';
 import {
   UploadOutlined,
   CheckCircleOutlined,
@@ -34,6 +35,32 @@ import type { ProblemItem, VariantItem, ValidationStatus } from './types';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+
+// 模型名称映射（将后端模型ID转换为友好名称）
+const getModelDisplayName = (modelId?: string): string => {
+  if (!modelId) return 'AI';
+  
+  const modelLower = modelId.toLowerCase();
+  
+  if (modelLower.includes('doubao') || modelLower.includes('seed')) {
+    return '豆包';
+  }
+  if (modelLower.includes('gpt') || modelLower.includes('chatgpt') || modelLower.includes('openai')) {
+    return 'ChatGPT';
+  }
+  if (modelLower.includes('zhipu') || modelLower.includes('glm')) {
+    return '智谱GLM';
+  }
+  if (modelLower.includes('deepseek')) {
+    return 'DeepSeek';
+  }
+  if (modelLower.includes('gemini')) {
+    return 'Gemini';
+  }
+  
+  // 如果无法识别，返回原始名称（去掉版本号等）
+  return modelId.split('/').pop()?.split('-').slice(0, 2).join(' ') || modelId;
+};
 
 export default function ProblemCreation() {
   const [currentStep, setCurrentStep] = useState(0);
@@ -356,7 +383,7 @@ export default function ProblemCreation() {
       title: '验证状态',
       dataIndex: 'validationStatus',
       key: 'validationStatus',
-      width: '15%',
+      width: '20%',
       render: (status: string, record: ProblemItem) => {
         if (status === 'queued') {
           return <Tag color="default">排队中</Tag>;
@@ -364,20 +391,56 @@ export default function ProblemCreation() {
         if (status === 'validating') {
           return <Tag icon={<SyncOutlined spin />} color="processing">验证中</Tag>;
         }
-        if (status === 'passed') {
+        if (status === 'passed' || status === 'failed') {
+          const result = record.validationResult;
+          const isPassed = status === 'passed';
+          
+          // 提取每个模型的结果
+          const modelResults: Array<{ name: string; correct: number; total: number; passed: boolean }> = [];
+          
+          if (result?.chatgpt_result) {
+            modelResults.push({
+              name: 'ChatGPT',
+              correct: result.chatgpt_result.correct_count ?? 0,
+              total: result.chatgpt_result.attempts ?? BUSINESS_CONSTANTS.VALIDATION_ATTEMPTS,
+              passed: result.chatgpt_result.is_passed ?? false,
+            });
+          }
+          if (result?.zhipu_result) {
+            modelResults.push({
+              name: '智谱GLM',
+              correct: result.zhipu_result.correct_count ?? 0,
+              total: result.zhipu_result.attempts ?? BUSINESS_CONSTANTS.VALIDATION_ATTEMPTS,
+              passed: result.zhipu_result.is_passed ?? false,
+            });
+          }
+          
+          // 如果没有分模型结果，使用旧的 correct_count（兼容豆包等单模型）
+          if (modelResults.length === 0 && result?.correct_count !== undefined) {
+            modelResults.push({
+              name: getModelDisplayName(result.ai_model),
+              correct: result.correct_count,
+              total: result.attempts ?? BUSINESS_CONSTANTS.VALIDATION_ATTEMPTS,
+              passed: isPassed,
+            });
+          }
+          
           return (
             <div>
-              <Tag icon={<CheckCircleOutlined />} color="success">通过</Tag>
-              {record.validationResult && (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {record.validationResult.correct_count}/{BUSINESS_CONSTANTS.VALIDATION_ATTEMPTS}
-                </Text>
+              <Tag icon={isPassed ? <CheckCircleOutlined /> : undefined} color={isPassed ? 'success' : 'error'}>
+                {isPassed ? '通过' : '未通过'}
+              </Tag>
+              {modelResults.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  {modelResults.map((m, idx) => (
+                    <div key={idx} style={{ fontSize: 12, color: m.passed ? '#52c41a' : '#ff4d4f' }}>
+                      {m.name}: {m.correct}/{m.total}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           );
-        }
-        if (status === 'failed') {
-          return <Tag color="error">未通过</Tag>;
         }
         return <Tag color="default">待验证</Tag>;
       },
@@ -677,7 +740,7 @@ export default function ProblemCreation() {
             {problems.length > 0 && (
               <Alert
                 message="验证说明"
-                description={`系统会使用AI模型测试${BUSINESS_CONSTANTS.VALIDATION_ATTEMPTS}次，如果正确次数不超过${BUSINESS_CONSTANTS.VALIDATION_THRESHOLD}次，则认为题目难度合适。`}
+                description={`系统会使用 ChatGPT 和 智谱GLM 两个模型各测试${BUSINESS_CONSTANTS.VALIDATION_ATTEMPTS}次，每个模型正确次数不超过${BUSINESS_CONSTANTS.VALIDATION_THRESHOLD}次才算通过（两个都要通过）。`}
                 type="info"
                 showIcon
               />
@@ -772,20 +835,139 @@ export default function ProblemCreation() {
                         type="link"
                         size="small"
                         onClick={() => {
+                          const contentText = typeof record.content === 'string'
+                            ? record.content
+                            : (record.content as any)?.text ?? String(record.content ?? '');
+                          
+                          // 获取质检结果（quality_check）
+                          const qualityCheck = record.quality_check as any; // 使用 any 避免类型检查过于严格
+                          const difficultyResult = qualityCheck?.difficulty;
+                          
                           Modal.info({
                             title: '题目详情',
-                            width: 800,
+                            width: 900,
                             content: (
-                              <div>
-                                <p>
-                                  <strong>内容：</strong>
-                                  {typeof record.content === 'string'
-                                    ? record.content
-                                    : (record.content as any)?.text ?? String(record.content ?? '')}
-                                </p>
-                                <p><strong>答案：</strong>{record.answer}</p>
+                              <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
+                                <div style={{ marginBottom: 16 }}>
+                                  <strong style={{ fontSize: 14 }}>题目内容：</strong>
+                                  <div style={{ 
+                                    marginTop: 8, 
+                                    padding: 12, 
+                                    background: '#f5f5f5', 
+                                    borderRadius: 6,
+                                    lineHeight: 1.8
+                                  }}>
+                                    <ReactMarkdown>{contentText}</ReactMarkdown>
+                                  </div>
+                                </div>
+                                <div style={{ marginBottom: 16 }}>
+                                  <strong style={{ fontSize: 14 }}>答案：</strong>
+                                  <div style={{ 
+                                    marginTop: 8, 
+                                    padding: 12, 
+                                    background: '#e6f7ff', 
+                                    borderRadius: 6,
+                                    lineHeight: 1.8
+                                  }}>
+                                    <ReactMarkdown>{record.answer || ''}</ReactMarkdown>
+                                  </div>
+                                </div>
                                 {record.explanation && (
-                                  <p><strong>解析：</strong>{record.explanation}</p>
+                                  <div style={{ marginBottom: 16 }}>
+                                    <strong style={{ fontSize: 14 }}>解析：</strong>
+                                    <div style={{ 
+                                      marginTop: 8, 
+                                      padding: 12, 
+                                      background: '#f6ffed', 
+                                      borderRadius: 6,
+                                      lineHeight: 1.8
+                                    }}>
+                                      <ReactMarkdown>{record.explanation}</ReactMarkdown>
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {/* 显示质检结果中的AI模型评价 */}
+                                {difficultyResult && (
+                                  <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #e8e8e8' }}>
+                                    <strong style={{ fontSize: 14, color: '#1890ff' }}>AI模型评价：</strong>
+                                    <div style={{ marginTop: 12 }}>
+                                      {/* 双模型评价（从 difficulty 结果中提取） */}
+                                      {difficultyResult.chatgpt_result?.evaluation && (
+                                        <div style={{ marginBottom: 16 }}>
+                                          <div style={{ 
+                                            fontWeight: 600, 
+                                            marginBottom: 8, 
+                                            color: '#52c41a' 
+                                          }}>
+                                            ChatGPT：
+                                          </div>
+                                          <div style={{ 
+                                            padding: 12, 
+                                            background: '#f0f9ff', 
+                                            borderRadius: 6,
+                                            lineHeight: 1.8,
+                                            fontSize: 13
+                                          }}>
+                                            {difficultyResult.chatgpt_result.evaluation}
+                                          </div>
+                                        </div>
+                                      )}
+                                      {difficultyResult.zhipu_result?.evaluation && (
+                                        <div style={{ marginBottom: 16 }}>
+                                          <div style={{ 
+                                            fontWeight: 600, 
+                                            marginBottom: 8, 
+                                            color: '#722ed1' 
+                                          }}>
+                                            智谱GLM：
+                                          </div>
+                                          <div style={{ 
+                                            padding: 12, 
+                                            background: '#f9f0ff', 
+                                            borderRadius: 6,
+                                            lineHeight: 1.8,
+                                            fontSize: 13
+                                          }}>
+                                            {difficultyResult.zhipu_result.evaluation}
+                                          </div>
+                                        </div>
+                                      )}
+                                      
+                                      {/* 单模型评价（兼容旧格式） */}
+                                      {!difficultyResult.chatgpt_result?.evaluation && 
+                                       !difficultyResult.zhipu_result?.evaluation && 
+                                       difficultyResult.evaluation && (
+                                        <div>
+                                          <div style={{ 
+                                            fontWeight: 600, 
+                                            marginBottom: 8, 
+                                            color: '#1890ff' 
+                                          }}>
+                                            {getModelDisplayName(difficultyResult.ai_model)}：
+                                          </div>
+                                          <div style={{ 
+                                            padding: 12, 
+                                            background: '#f0f2f5', 
+                                            borderRadius: 6,
+                                            lineHeight: 1.8,
+                                            fontSize: 13
+                                          }}>
+                                            {difficultyResult.evaluation}
+                                          </div>
+                                        </div>
+                                      )}
+                                      
+                                      {/* 如果没有评价，显示提示 */}
+                                      {!difficultyResult.chatgpt_result?.evaluation && 
+                                       !difficultyResult.zhipu_result?.evaluation && 
+                                       !difficultyResult.evaluation && (
+                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                          暂无AI评价（请先进行质检）
+                                        </Text>
+                                      )}
+                                    </div>
+                                  </div>
                                 )}
                               </div>
                             ),

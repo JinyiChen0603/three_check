@@ -1,5 +1,11 @@
-import { Button, Modal, Space, Table, Tag, Typography } from 'antd';
-import { CheckCircleOutlined, ClockCircleOutlined, DeleteOutlined, FileTextOutlined } from '@ant-design/icons';
+import { Button, Modal, Space, Table, Tag, Typography, Progress } from 'antd';
+import {
+  ClockCircleOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  StarOutlined,
+} from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
@@ -23,6 +29,7 @@ export function TaskList({
   loading: boolean;
   onAbandon: (taskId: number) => Promise<void>;
 }) {
+  const navigate = useNavigate();
   const getTimeRemaining = (expiresAt?: string) => {
     if (!expiresAt) return null;
 
@@ -74,36 +81,71 @@ export function TaskList({
     });
   };
 
+  const handleEnterTask = (task: Task) => {
+    if (task.task_type === TaskType.PROBLEM_CREATION) {
+      navigate('/problem');
+    } else {
+      navigate('/review');
+    }
+  };
+
   const columns = [
-    { title: '任务ID', dataIndex: 'id', key: 'id', width: 80 },
+    { title: '批次ID', dataIndex: 'batch_id', key: 'batch_id', width: 120, ellipsis: true,
+      render: (batchId?: string) => batchId ? <Text code>{batchId.replace('batch_', '')}</Text> : '-'
+    },
     {
       title: '任务类型',
       dataIndex: 'task_type',
       key: 'task_type',
+      width: 120,
       render: (type: TaskType) => (
-        <Tag icon={type === TaskType.PROBLEM_CREATION ? <FileTextOutlined /> : <CheckCircleOutlined />}>
-          {type === TaskType.PROBLEM_CREATION ? '出题任务' : '评分任务'}
+        <Tag 
+          icon={type === TaskType.PROBLEM_CREATION ? <EditOutlined /> : <StarOutlined />}
+          color={type === TaskType.PROBLEM_CREATION ? 'blue' : 'purple'}
+        >
+          {type === TaskType.PROBLEM_CREATION ? '出题' : '评分'}
         </Tag>
       ),
     },
-    { title: '状态', dataIndex: 'status', key: 'status', render: (status: TaskStatus) => getStatusTag(status) },
-    {
-      title: '任务数量',
-      dataIndex: 'total_count',
-      key: 'total_count',
+    { 
+      title: '状态', 
+      dataIndex: 'status', 
+      key: 'status', 
       width: 100,
-      render: (count?: number) => (count !== undefined ? count : '-'),
+      render: (status: TaskStatus) => getStatusTag(status) 
+    },
+    {
+      title: '进度',
+      key: 'progress',
+      width: 160,
+      render: (_: any, record: Task) => {
+        const total = record.total_count || 0;
+        const completed = record.completed_count || 0;
+        const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+        return (
+          <div>
+            <Progress 
+              percent={percent} 
+              size="small" 
+              status={completed >= total ? 'success' : 'active'}
+              format={() => `${completed}/${total}`}
+            />
+          </div>
+        );
+      },
     },
     {
       title: '领取时间',
       dataIndex: 'claimed_at',
       key: 'claimed_at',
-      render: (time?: string) => (time ? dayjs(time).format('YYYY-MM-DD HH:mm') : '-'),
+      width: 150,
+      render: (time?: string) => (time ? dayjs(time).format('MM-DD HH:mm') : '-'),
     },
     {
       title: '剩余时间',
       dataIndex: 'expires_at',
       key: 'expires_at',
+      width: 160,
       render: (_: any, record: Task) => (
         <Space>
           <ClockCircleOutlined />
@@ -114,12 +156,35 @@ export function TaskList({
     {
       title: '操作',
       key: 'action',
+      width: 180,
       render: (_: any, record: Task) => (
         <Space>
           {(record.status === TaskStatus.CLAIMED || record.status === TaskStatus.IN_PROGRESS) && (
-            <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleAbandonTask(record.id)}>
-              放弃
-            </Button>
+            <>
+              <Button 
+                type="primary" 
+                size="small"
+                icon={record.task_type === TaskType.PROBLEM_CREATION ? <EditOutlined /> : <StarOutlined />}
+                onClick={() => handleEnterTask(record)}
+              >
+                {record.task_type === TaskType.PROBLEM_CREATION ? '去出题' : '去评分'}
+              </Button>
+              <Button 
+                type="link" 
+                danger 
+                size="small"
+                icon={<DeleteOutlined />} 
+                onClick={() => handleAbandonTask(record.id)}
+              >
+                放弃
+              </Button>
+            </>
+          )}
+          {record.status === TaskStatus.SUBMITTED && (
+            <Tag color="green">已提交</Tag>
+          )}
+          {record.status === TaskStatus.COMPLETED && (
+            <Tag color="success">已完成</Tag>
           )}
         </Space>
       ),

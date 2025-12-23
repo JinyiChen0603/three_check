@@ -19,8 +19,10 @@ class DeepTransformerService:
         # 从配置文件获取API配置
         self.api_key = settings.GEMINI_API_KEY
         self.model = "gemini-2.0-flash-exp"
-        self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
-    
+        # 使用香港代理服务器中转（www.stem-align.com/v2/）
+        #self.api_url = f"https://www.stem-align.com/v2/gemini/v1beta/models/{self.model}:generateContent?key={self.api_key}"
+        # 使用 Google 官方 Gemini API
+        #self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
     def chat_stream_with_auto_continue(
         self,
         messages,

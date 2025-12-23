@@ -44,7 +44,7 @@ export interface TaskBatch {
   }>;
 }
 
-// 任务批次响应
+// 任务批次响应~
 export interface TaskBatchesResponse {
   total_batches: number;
   batches: TaskBatch[];
@@ -86,21 +86,51 @@ export interface Problem {
 
 // 质量检查
 export interface QualityCheck {
+  all_passed?: boolean;
   difficulty: {
-    status: 'passed' | 'failed';
-    correct_count: number;
-    total_attempts: number;
+    status?: 'passed' | 'failed';
+    correct_count?: number;
+    total_attempts?: number;
+    attempts?: number;
+    is_passed?: boolean;
+    ai_model?: string;
+    evaluation?: string;
+    chatgpt_result?: {
+      correct_count: number;
+      attempts: number;
+      is_passed: boolean;
+      evaluation?: string;
+      [key: string]: any;
+    };
+    zhipu_result?: {
+      correct_count: number;
+      attempts: number;
+      is_passed: boolean;
+      evaluation?: string;
+      [key: string]: any;
+    };
+    verdict?: string;
+    [key: string]: any;
   };
   originality: {
-    status: 'passed' | 'failed';
-    is_original: boolean;
+    status?: 'passed' | 'failed';
+    is_original?: boolean;
     reason?: string;
+    verdict?: string;
+    details?: string;
+    [key: string]: any;
   };
   rigor: {
-    status: 'passed' | 'failed';
-    is_rigorous: boolean;
+    status?: 'passed' | 'failed';
+    is_rigorous?: boolean;
     reason?: string;
+    verdict?: string;
+    details?: string;
+    [key: string]: any;
   };
+  early_stop?: boolean;
+  early_stop_reason?: string;
+  [key: string]: any;
 }
 
 // 评分
@@ -124,11 +154,13 @@ export interface Review {
 export interface Material {
   id: number;
   category: string;
+  category_display?: string; // 类别显示名称
   title: string;
-  description: string;
+  description: string | null;
   baidu_link: string;
-  extract_code: string;
+  extract_code: string | null;
   download_count: number;
+  problem_count?: number; // 题目数量
 }
 
 // 交易记录
