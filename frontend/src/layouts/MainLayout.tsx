@@ -101,7 +101,7 @@ export default function MainLayout() {
     {
       key: '/review',
       icon: <CheckCircleOutlined />,
-      label: '评分',
+      label: '评分流程',
     },
     {
       key: '/review-history',
