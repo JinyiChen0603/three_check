@@ -330,6 +330,16 @@ async def create_problem(
                 detail="母题已达到最大变形次数（10次）"
             )
     
+    # 根据是否有 parent_problem_id 区分母题和变体的状态
+    if request.parent_problem_id:
+        # 变体：直接设为待审核状态，可被领取评分
+        problem_status = ProblemStatus.PENDING_REVIEW
+        problem_validation_status = ProblemValidationStatus.PASSED
+    else:
+        # 母题：保持草稿状态
+        problem_status = ProblemStatus.DRAFT
+        problem_validation_status = ProblemValidationStatus.NOT_VALIDATED
+    
     # 使用ProblemStorageService创建题目（PostgreSQL + MongoDB）
     try:
         storage_service = get_problem_storage_service()
@@ -342,8 +352,8 @@ async def create_problem(
             "category": category_enum,
             "source_type": ProblemSourceType(request.source_type),
             "ocr_image_url": request.ocr_image_url,
-            "status": ProblemStatus.DRAFT,
-            "validation_status": ProblemValidationStatus.NOT_VALIDATED,
+            "status": problem_status,
+            "validation_status": problem_validation_status,
             "human_review_status": HumanReviewStatus.PENDING,
             "variant_count": 0
         }
@@ -387,8 +397,8 @@ async def create_problem(
             category=category_enum,
             source_type=ProblemSourceType(request.source_type),
             ocr_image_url=request.ocr_image_url,
-            status=ProblemStatus.DRAFT,
-            validation_status=ProblemValidationStatus.NOT_VALIDATED,
+            status=problem_status,
+            validation_status=problem_validation_status,
             human_review_status=HumanReviewStatus.PENDING,
             variant_count=0
         )
