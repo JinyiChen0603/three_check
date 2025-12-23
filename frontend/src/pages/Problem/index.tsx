@@ -967,7 +967,7 @@ export default function ProblemCreation() {
                                       
                                       {/* 单模型评价（兼容旧格式） */}
                                       {!difficultyResult.chatgpt_result?.evaluation && 
-                                       !difficultyResult.zhipu_result?.evaluation && 
+                                       !difficultyResult.zhipu_result?.evaluation &&
                                        difficultyResult.evaluation && (
                                         <div>
                                           <div style={{ 
@@ -991,7 +991,7 @@ export default function ProblemCreation() {
                                       
                                       {/* 如果没有评价，显示提示 */}
                                       {!difficultyResult.chatgpt_result?.evaluation && 
-                                       !difficultyResult.zhipu_result?.evaluation && 
+                                       !difficultyResult.zhipu_result?.evaluation &&
                                        !difficultyResult.evaluation && (
                                         <Text type="secondary" style={{ fontSize: 12 }}>
                                           暂无AI评价（请先进行质检）
