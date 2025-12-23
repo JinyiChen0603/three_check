@@ -10,24 +10,24 @@ from app.config import settings
 
 
 class OriginalityCheckService:
-    """原创性检测服务 - 使用 GPT-4o Research 联网搜索"""
+    """原创性检测服务 - 使用 GPT-4o Research 联网搜索"""#现改用
     
     def __init__(self):
         # 使用 OpenRouter API Key
         self.openai_api_key = settings.OPENROUTER_API_KEY
-        self.gpt4_model = settings.OPENAI_GPT4_MODEL  # OpenRouter 格式
+        self.ORIGINALITY_MODEL = settings.OPENAI_GPT_ORIGINALITY_MODEL  # OpenRouter 格式
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
     
     async def check_originality(self, problem: str) -> Dict[str, Any]:
         
-        #临时测试：直接返回通过
-        return {
-            "success": True,
-            "is_original": True,
-            "details": "【测试模式】自动通过",
-            "verdict": "原创性合格（测试模式）",
-            "ai_model": "test_mode"
-        }
+        # #临时测试：直接返回通过
+        # return {
+        #     "success": True,
+        #     "is_original": True,
+        #     "details": "【测试模式】自动通过",
+        #     "verdict": "原创性合格（测试模式）",
+        #     "ai_model": "test_mode"
+        # }
         """
         检查原创性（使用GPT-4o Research联网搜索）
         
@@ -65,7 +65,7 @@ class OriginalityCheckService:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": self.gpt4_model,
+                        "model": self.ORIGINALITY_MODEL,
                         "messages": [
                             {"role": "user", "content": prompt}
                         ],
@@ -87,7 +87,7 @@ class OriginalityCheckService:
                     "is_original": is_original,
                     "details": content,
                     "verdict": "原创性合格" if is_original else "可能存在相似题目",
-                    "ai_model": self.gpt4_model
+                    "ai_model": self.ORIGINALITY_MODEL
                 }
         
         except Exception as e:

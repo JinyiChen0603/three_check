@@ -27,7 +27,7 @@ class DifficultyCheckService:
         # 通过香港代理访问 OpenRouter（绕过地区限制）
         self.chatgpt_api_key = settings.OPENROUTER_API_KEY
         # self.chatgpt_model = "openai/gpt-5.2-pro"  # gpt-5.2-pro 暂时注释，待代理配置完善后启用
-        self.chatgpt_model = "openai/gpt-4o"  # 暂时使用 gpt-4o
+        self.chatgpt_model = settings.CHATGPT_VALIDATION_MODEL  # 改为5.2
         self.chatgpt_base_url = "https://www.stem-align.com/v2/openrouter/api/v1/chat/completions"
         
         # ==================== 智谱 GLM 配置（新增） ====================
@@ -101,33 +101,35 @@ class DifficultyCheckService:
             prompt = self._build_prompt(problem)
             
             # 并发执行两个模型的验证
-            chatgpt_task = self._validate_with_model("chatgpt", prompt, answer, attempts)
+            # chatgpt_task = self._validate_with_model("chatgpt", prompt, answer, attempts)  # 注释掉：只使用智谱
             zhipu_task = self._validate_with_model("zhipu", prompt, answer, attempts)
             
-            results = await asyncio.gather(chatgpt_task, zhipu_task, return_exceptions=True)
+            # results = await asyncio.gather(chatgpt_task, zhipu_task, return_exceptions=True)  # 注释掉：原双模型
+            results = await asyncio.gather(zhipu_task, return_exceptions=True)  # 只执行智谱
             
             # 处理结果
-            chatgpt_result = results[0] if not isinstance(results[0], Exception) else {
+            # chatgpt_result = results[0] if not isinstance(results[0], Exception) else {  # 注释掉：ChatGPT结果处理
+            #     "success": False, "error": str(results[0]), "correct_count": 0, "is_passed": False
+            # }
+            zhipu_result = results[0] if not isinstance(results[0], Exception) else {
                 "success": False, "error": str(results[0]), "correct_count": 0, "is_passed": False
-            }
-            zhipu_result = results[1] if not isinstance(results[1], Exception) else {
-                "success": False, "error": str(results[1]), "correct_count": 0, "is_passed": False
             }
             
             # 两个模型都要通过
-            chatgpt_passed = chatgpt_result.get("is_passed", False)
+            # chatgpt_passed = chatgpt_result.get("is_passed", False)  # 注释掉：ChatGPT判断
             zhipu_passed = zhipu_result.get("is_passed", False)
-            is_passed = chatgpt_passed and zhipu_passed
+            # is_passed = chatgpt_passed and zhipu_passed  # 注释掉：原双模型判断
+            is_passed = zhipu_passed  # 只判断智谱
             
             # 生成总结
-            chatgpt_correct = chatgpt_result.get("correct_count", 0)
+            # chatgpt_correct = chatgpt_result.get("correct_count", 0)  # 注释掉：ChatGPT正确数
             zhipu_correct = zhipu_result.get("correct_count", 0)
             
             verdict_parts = []
-            if chatgpt_passed:
-                verdict_parts.append(f"ChatGPT通过({chatgpt_correct}/{attempts})")
-            else:
-                verdict_parts.append(f"ChatGPT未通过({chatgpt_correct}/{attempts})")
+            # if chatgpt_passed:  # 注释掉：ChatGPT verdict
+            #     verdict_parts.append(f"ChatGPT通过({chatgpt_correct}/{attempts})")
+            # else:
+            #     verdict_parts.append(f"ChatGPT未通过({chatgpt_correct}/{attempts})")
             
             if zhipu_passed:
                 verdict_parts.append(f"智谱GLM通过({zhipu_correct}/{attempts})")
@@ -135,54 +137,58 @@ class DifficultyCheckService:
                 verdict_parts.append(f"智谱GLM未通过({zhipu_correct}/{attempts})")
             
             # 生成详细评价（异步，不阻塞主流程）
-            chatgpt_evaluation = None
+            # chatgpt_evaluation = None  # 注释掉：ChatGPT评价
             zhipu_evaluation = None
             try:
-                # 并发生成两个模型的评价
-                eval_tasks = []
-                if chatgpt_result.get("success"):
-                    eval_tasks.append(self._generate_evaluation("chatgpt", problem, answer, chatgpt_correct, attempts, chatgpt_passed))
-                else:
-                    eval_tasks.append(None)
-                
+                # 只生成智谱的评价
                 if zhipu_result.get("success"):
-                    eval_tasks.append(self._generate_evaluation("zhipu", problem, answer, zhipu_correct, attempts, zhipu_passed))
-                else:
-                    eval_tasks.append(None)
+                    zhipu_evaluation = await self._generate_evaluation("zhipu", problem, answer, zhipu_correct, attempts, zhipu_passed)
                 
-                eval_results = await asyncio.gather(*[t for t in eval_tasks if t is not None], return_exceptions=True)
-                
-                eval_idx = 0
-                if chatgpt_result.get("success"):
-                    if eval_idx < len(eval_results) and not isinstance(eval_results[eval_idx], Exception):
-                        chatgpt_evaluation = eval_results[eval_idx]
-                    eval_idx += 1
-                
-                if zhipu_result.get("success"):
-                    if eval_idx < len(eval_results) and not isinstance(eval_results[eval_idx], Exception):
-                        zhipu_evaluation = eval_results[eval_idx]
+                # 注释掉：ChatGPT评价生成
+                # eval_tasks = []
+                # if chatgpt_result.get("success"):
+                #     eval_tasks.append(self._generate_evaluation("chatgpt", problem, answer, chatgpt_correct, attempts, chatgpt_passed))
+                # else:
+                #     eval_tasks.append(None)
+                # 
+                # if zhipu_result.get("success"):
+                #     eval_tasks.append(self._generate_evaluation("zhipu", problem, answer, zhipu_correct, attempts, zhipu_passed))
+                # else:
+                #     eval_tasks.append(None)
+                # 
+                # eval_results = await asyncio.gather(*[t for t in eval_tasks if t is not None], return_exceptions=True)
+                # 
+                # eval_idx = 0
+                # if chatgpt_result.get("success"):
+                #     if eval_idx < len(eval_results) and not isinstance(eval_results[eval_idx], Exception):
+                #         chatgpt_evaluation = eval_results[eval_idx]
+                #     eval_idx += 1
+                # 
+                # if zhipu_result.get("success"):
+                #     if eval_idx < len(eval_results) and not isinstance(eval_results[eval_idx], Exception):
+                #         zhipu_evaluation = eval_results[eval_idx]
             except Exception as e:
                 # 评价生成失败不影响主流程
                 print(f"生成评价失败: {str(e)}")
             
             # 更新结果中的评价
-            if chatgpt_evaluation:
-                chatgpt_result["evaluation"] = chatgpt_evaluation
+            # if chatgpt_evaluation:  # 注释掉：ChatGPT评价更新
+            #     chatgpt_result["evaluation"] = chatgpt_evaluation
             if zhipu_evaluation:
                 zhipu_result["evaluation"] = zhipu_evaluation
             
             return {
                 "success": True,
                 "is_passed": is_passed,
-                "mode": "dual",
+                "mode": "zhipu_only",  # 标识：只使用智谱
                 "attempts": attempts,
                 "max_correct_threshold": self.dual_model_max_correct,
-                "chatgpt_result": chatgpt_result,
+                # "chatgpt_result": chatgpt_result,  # 注释掉：ChatGPT结果
                 "zhipu_result": zhipu_result,
-                "correct_count": max(chatgpt_correct, zhipu_correct),  # 兼容旧接口
+                "correct_count": zhipu_correct,  # 只使用智谱的正确数
                 "verdict": "难度合格" if is_passed else "难度不合格",
                 "summary": " | ".join(verdict_parts),
-                "ai_model": "ChatGPT + 智谱GLM"
+                "ai_model": f"智谱GLM ({self.zhipu_model})"  # 只显示智谱
             }
         
         except Exception as e:

@@ -15,7 +15,7 @@ class RigorCheckService:
     def __init__(self):
         # 使用 OpenRouter API Key
         self.openai_api_key = settings.OPENROUTER_API_KEY
-        self.gpt4_model = settings.OPENAI_GPT_rigorous_MODEL  # OpenRouter 格式
+        self.RIGOR_MODEL = settings.OPENAI_GPT_RIGOR_MODEL  # OpenRouter 格式
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
     
     async def check_rigor(
@@ -84,7 +84,7 @@ class RigorCheckService:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": self.gpt4_model,
+                        "model": self.RIGOR_MODEL,
                         "messages": [
                             {"role": "user", "content": prompt}
                         ],
@@ -106,7 +106,7 @@ class RigorCheckService:
                     "is_rigorous": is_rigorous,
                     "details": content,
                     "verdict": "数学严谨性合格" if is_rigorous else "存在严谨性问题",
-                    "ai_model": self.gpt4_model
+                    "ai_model": self.RIGOR_MODEL
                 }
         
         except Exception as e:
