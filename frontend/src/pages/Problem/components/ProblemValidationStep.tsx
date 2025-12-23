@@ -31,7 +31,7 @@ export function ProblemValidationStep({
   return (
     <Space orientation="vertical" style={{ width: '100%' }} size="large">
       <Alert
-        message="准备母题"
+        title="准备母题"
         description={
           <div>
             <p>您可以：</p>
@@ -76,7 +76,7 @@ export function ProblemValidationStep({
 
       {problems.length > 0 && (
         <Alert
-          message="验证说明"
+          title="验证说明"
           description={`系统会使用AI模型测试${BUSINESS_CONSTANTS.VALIDATION_ATTEMPTS}次，如果正确次数不超过${BUSINESS_CONSTANTS.VALIDATION_THRESHOLD}次，则认为题目难度合适。`}
           type="info"
           showIcon

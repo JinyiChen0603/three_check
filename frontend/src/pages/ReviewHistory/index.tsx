@@ -148,7 +148,7 @@ export default function ReviewHistory() {
       <Title level={2}>我的评分记录</Title>
 
       <Card>
-        <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
+        <Space orientation="vertical" style={{ width: '100%', marginBottom: 16 }}>
           <Space>
             <Text>共 {reviews.length} 条评分记录</Text>
             <Button onClick={loadReviews} loading={loading}>

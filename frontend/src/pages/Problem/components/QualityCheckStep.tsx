@@ -54,7 +54,7 @@ export function QualityCheckStep({
   return (
     <Space orientation="vertical" style={{ width: '100%' }} size="large">
       <Alert
-        message="恭喜！"
+        title="恭喜！"
         description={`您已完成 ${passedVariants.length} 个合格题目的创建。这些题目将进入人工质检流程。`}
         type="success"
         showIcon

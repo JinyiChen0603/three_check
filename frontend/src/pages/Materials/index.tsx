@@ -129,7 +129,7 @@ export default function Materials() {
 
       {/* 使用说明 */}
       <Alert
-        message="使用说明"
+        title="使用说明"
         description={
           <div>
             <p>1. 点击"下载"按钮，系统会自动复制百度网盘链接和提取码到剪贴板</p>

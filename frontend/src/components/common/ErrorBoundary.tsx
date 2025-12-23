@@ -33,7 +33,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <Alert
           type="error"
           showIcon
-          message={this.props.title || '页面发生错误'}
+          title={this.props.title || '页面发生错误'}
           description="请刷新页面重试；如果持续出现，请联系管理员。"
         />
         <Space style={{ marginTop: 16 }}>

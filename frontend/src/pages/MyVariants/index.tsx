@@ -146,7 +146,7 @@ export default function MyVariants() {
       <Title level={2}>我的变体题目</Title>
 
       <Card>
-        <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
+        <Space orientation="vertical" style={{ width: '100%', marginBottom: 16 }}>
           <Space>
             <Text>共 {total} 道变体题目</Text>
             <Button

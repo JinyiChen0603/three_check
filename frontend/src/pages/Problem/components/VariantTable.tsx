@@ -57,7 +57,7 @@ export function VariantTable({
         if (record.quality_check) {
           const qc = record.quality_check;
           return (
-            <Space direction="vertical" size="small">
+            <Space orientation="vertical" size="small">
               <Tag color={qc.all_passed ? 'success' : 'error'}>
                 {qc.all_passed ? '全部通过' : '未完全通过'}
               </Tag>

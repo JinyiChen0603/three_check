@@ -364,7 +364,7 @@ export default function ProblemCreation() {
           onChange={(e) =>
             handleProblemChange(record.key, 'explanation', e.target.value)
           }
-          placeholder="请输入解析（可选）..."
+          placeholder="请输入解析"
           rows={2}
         />
       ),
@@ -773,7 +773,7 @@ export default function ProblemCreation() {
 
             {problems.length > 0 && (
               <Alert
-                message="验证说明"
+                title="验证说明"
                 description={`系统会使用 ChatGPT 和 智谱GLM 两个模型各测试${BUSINESS_CONSTANTS.VALIDATION_ATTEMPTS}次，每个模型正确次数不超过${BUSINESS_CONSTANTS.VALIDATION_THRESHOLD}次才算通过（两个都要通过）。`}
                 type="info"
                 showIcon
@@ -1096,7 +1096,7 @@ export default function ProblemCreation() {
                 >
                   <Space orientation="vertical" style={{ width: '100%' }} size="middle">
                     <Alert
-                      message="母题信息"
+                      title="母题信息"
                       description={
                         <div>
                           <p><strong>内容：</strong></p>
@@ -1189,7 +1189,7 @@ export default function ProblemCreation() {
               return (
                 <>
                   <Alert
-                    message="恭喜！"
+                    title="恭喜！"
                     description={`您已选择 ${passedVariants.length} 个合格题目提交。点击提交后，这些题目将写入数据库并进入人工审核流程。`}
                     type="success"
                     showIcon
