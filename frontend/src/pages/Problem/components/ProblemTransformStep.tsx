@@ -140,7 +140,9 @@ export function ProblemTransformStep({
       })}
 
       <Space>
+        {/* 暂时隐藏返回上一步按钮，后期可能恢复使用
         <Button onClick={onBack}>返回上一步</Button>
+        */}
         <Button type="primary" onClick={onNext} disabled={!canNext}>
           下一步：提交合格题目
         </Button>

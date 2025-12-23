@@ -20,6 +20,13 @@ class DeepTransformerService:
     """深度变形服务 - 无时间和token限制"""
     
     def __init__(self):
+        # 从配置文件获取API配置
+        # self.api_key = settings.GEMINI_API_KEY
+        # self.model = "gemini-2.0-flash-exp"
+        # 使用香港代理服务器中转（www.stem-align.com/v2/）
+        #self.api_url = f"https://www.stem-align.com/v2/gemini/v1beta/models/{self.model}:generateContent?key={self.api_key}"
+        # 使用 Google 官方 Gemini API
+        #self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
         # 使用 OpenRouter API
         self.api_key = settings.OPENROUTER_API_KEY
         self.model = "google/gemini-3-pro-preview"

@@ -84,16 +84,17 @@ export default function Login() {
             </Button>
           </Form.Item>
         </Form>
-
-        <div className="login-footer">
-          <Text type="secondary">
-            测试账户：lifanghe / admin123 (管理员)
-          </Text>
-          <br />
-          <Text type="secondary">
-            hewenze / user123 (普通用户)
-          </Text>
-        </div>
+        {/* 登录测试账户 */}{
+        // <div className="login-footer">
+        //   <Text type="secondary">
+        //     测试账户：lifanghe / admin123 (管理员)
+        //   </Text>
+        //   <br />
+        //   <Text type="secondary">
+        //     hewenze / user123 (普通用户)
+        //   </Text>
+        // </div>
+        }
       </Card>
     </div>
   );

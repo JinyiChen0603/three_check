@@ -27,7 +27,7 @@ class ValidationService:
         problem: str,
         answer: str,
         explanation: Optional[str] = None,
-        attempts: int = 8
+        attempts: int = 16
     ) -> Dict[str, Any]:
         """
         验证题目难度（对抗验证）
