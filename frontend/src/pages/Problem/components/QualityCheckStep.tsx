@@ -1,7 +1,8 @@
-import { Alert, Button, Space, Table, message } from 'antd';
+import { Alert, Button, Space, Table, Tooltip, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
 import type { VariantItem } from '../types';
+import MathRenderer from '../../../components/MathRenderer';
 
 export function QualityCheckStep({
   passedVariants,
@@ -13,8 +14,41 @@ export function QualityCheckStep({
   onSubmitAll: () => Promise<void> | void;
 }) {
   const columns: ColumnsType<VariantItem> = [
-    { title: '题目内容', dataIndex: 'content', key: 'content', ellipsis: true, render: (c: any) => (typeof c === 'string' ? c : (c as any)?.text ?? String(c ?? '')) },
-    { title: '答案', dataIndex: 'answer', key: 'answer', ellipsis: true },
+    { 
+      title: '题目内容（鼠标悬停预览全部内容）', 
+      dataIndex: 'content', 
+      key: 'content', 
+      ellipsis: true, 
+      render: (c: any) => {
+        const text = typeof c === 'string' ? c : (c as any)?.text ?? String(c ?? '');
+        return (
+          <Tooltip 
+            title={<MathRenderer content={text} style={{ maxWidth: 400, maxHeight: 300, overflow: 'auto' }} />} 
+            placement="topLeft"
+            overlayStyle={{ maxWidth: 450 }}
+          >
+            <span>{text.slice(0, 50)}{text.length > 50 ? '...' : ''}</span>
+          </Tooltip>
+        );
+      }
+    },
+    { 
+      title: '答案', 
+      dataIndex: 'answer', 
+      key: 'answer', 
+      ellipsis: true,
+      render: (answer: string) => {
+        const text = answer || '';
+        return (
+          <Tooltip 
+            title={<MathRenderer content={text} />} 
+            placement="topLeft"
+          >
+            <span>{text.slice(0, 30)}{text.length > 30 ? '...' : ''}</span>
+          </Tooltip>
+        );
+      }
+    },
   ];
 
   return (
