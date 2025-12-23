@@ -15,7 +15,7 @@ class RigorCheckService:
     def __init__(self):
         # 使用 OpenRouter API Key
         self.openai_api_key = settings.OPENROUTER_API_KEY
-        self.gpt4_model = settings.OPENAI_GPT4_MODEL  # OpenRouter 格式
+        self.gpt4_model = settings.OPENAI_GPT_rigorous_MODEL  # OpenRouter 格式
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
     
     async def check_rigor(
