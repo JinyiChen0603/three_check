@@ -53,6 +53,18 @@ INITIAL_USERS = [
         "password": "user123",  # 生产环境请修改
         "role": UserRole.USER,
     },
+        {
+        "username": "zhuzhijun",
+        "email": "zhuzhijun@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+        {
+        "username": "zhaozhuoying",
+        "email": "zhaozhuoying@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
 ]
 
 
@@ -87,16 +99,25 @@ async def create_initial_users():
             await session.commit()
             print("\n🎉 初始用户创建完成！")
             
-            # 打印登录信息
+            # 打印登录信息（动态显示）
             print("\n" + "="*50)
             print("初始账户信息：")
             print("="*50)
-            print("\n【管理员账户】")
-            print("  用户名: lifanghe  | 密码: admin123")
-            print("  用户名: gexinlin  | 密码: admin123")
-            print("\n【普通用户账户】")
-            print("  用户名: hewenze   | 密码: user123")
-            print("  用户名: chenjinyi | 密码: user123")
+            
+            # 动态显示管理员账户
+            admin_users = [u for u in INITIAL_USERS if u["role"] == UserRole.ADMIN]
+            if admin_users:
+                print("\n【管理员账户】")
+                for user in admin_users:
+                    print(f"  用户名: {user['username']:15} | 密码: {user['password']}")
+            
+            # 动态显示普通用户账户
+            regular_users = [u for u in INITIAL_USERS if u["role"] == UserRole.USER]
+            if regular_users:
+                print("\n【普通用户账户】")
+                for user in regular_users:
+                    print(f"  用户名: {user['username']:15} | 密码: {user['password']}")
+            
             print("\n⚠️  生产环境请立即修改这些默认密码！")
             print("="*50)
             
