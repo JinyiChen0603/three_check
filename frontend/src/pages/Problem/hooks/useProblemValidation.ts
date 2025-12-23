@@ -98,7 +98,7 @@ export function useProblemValidation({
   const handleValidateSingle = useCallback(
     (problem: ProblemItem) => {
       if (!problem.content || !problem.answer) {
-        message.warning('请填写完整的题目和答案');
+        message.warning('请填写完整的题目，解析和答案');
         return;
       }
       enqueueProblems([problem.key]);
