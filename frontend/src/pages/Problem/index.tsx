@@ -1002,6 +1002,68 @@ export default function ProblemCreation() {
                                     </div>
                                   </div>
                                 )}
+                                
+                                {/* 原创性检测详情 */}
+                                {qualityCheck?.originality && (
+                                  <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #e8e8e8' }}>
+                                    <strong style={{ fontSize: 14, color: '#52c41a' }}>原创性检测：</strong>
+                                    <div style={{ marginTop: 12 }}>
+                                      <Tag color={qualityCheck.originality.is_original ? 'green' : 'orange'}>
+                                        {qualityCheck.originality.is_original ? '通过' : '未通过'}
+                                      </Tag>
+                                      {qualityCheck.originality.verdict && (
+                                        <div style={{ marginTop: 8, fontSize: 13, color: '#666' }}>
+                                          判定：{qualityCheck.originality.verdict}
+                                        </div>
+                                      )}
+                                      {qualityCheck.originality.details && (
+                                        <div style={{ 
+                                          marginTop: 12, 
+                                          padding: 12, 
+                                          background: '#f6ffed', 
+                                          borderRadius: 6,
+                                          borderLeft: '3px solid #52c41a',
+                                          lineHeight: 1.8,
+                                          fontSize: 13,
+                                          whiteSpace: 'pre-wrap'
+                                        }}>
+                                          {qualityCheck.originality.details}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {/* 严谨性检测详情 */}
+                                {qualityCheck?.rigor && (
+                                  <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #e8e8e8' }}>
+                                    <strong style={{ fontSize: 14, color: '#722ed1' }}>严谨性检测：</strong>
+                                    <div style={{ marginTop: 12 }}>
+                                      <Tag color={qualityCheck.rigor.is_rigorous ? 'purple' : 'orange'}>
+                                        {qualityCheck.rigor.is_rigorous ? '通过' : '未通过'}
+                                      </Tag>
+                                      {qualityCheck.rigor.verdict && (
+                                        <div style={{ marginTop: 8, fontSize: 13, color: '#666' }}>
+                                          判定：{qualityCheck.rigor.verdict}
+                                        </div>
+                                      )}
+                                      {qualityCheck.rigor.details && (
+                                        <div style={{ 
+                                          marginTop: 12, 
+                                          padding: 12, 
+                                          background: '#f9f0ff', 
+                                          borderRadius: 6,
+                                          borderLeft: '3px solid #722ed1',
+                                          lineHeight: 1.8,
+                                          fontSize: 13,
+                                          whiteSpace: 'pre-wrap'
+                                        }}>
+                                          {qualityCheck.rigor.details}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             ),
                           });
