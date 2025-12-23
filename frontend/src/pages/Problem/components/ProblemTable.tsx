@@ -68,7 +68,7 @@ export function ProblemTable({
                 : undefined,
           }}
           onChange={(e) => onProblemChange(record.key, 'explanation', e.target.value)}
-          placeholder="请输入解析（可选）..."
+          placeholder="请输入解析"
           rows={2}
         />
       ),

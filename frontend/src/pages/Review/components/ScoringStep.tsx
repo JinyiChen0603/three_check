@@ -36,7 +36,7 @@ export function ScoringStep({
       <Space orientation="vertical" style={{ width: '100%' }} size="large">
         {isCorrect === false && (
           <Alert
-            message="答案不正确"
+            title="答案不正确"
             description="请参考解析，必要时可一票否决或给出较低评分。"
             type="warning"
             showIcon

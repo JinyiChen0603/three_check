@@ -22,7 +22,7 @@ export function CorrectnessStep({
     <Card title="步骤1：正确性验证">
       <Space orientation="vertical" style={{ width: '100%' }} size="large">
         <Alert
-          message="请选择正确答案"
+          title="请选择正确答案"
           description={problemData.instruction || '从以下选项中选择您认为正确的答案。'}
           type="info"
           showIcon

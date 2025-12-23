@@ -53,7 +53,7 @@ export function ProblemTransformStep({
           >
             <Space orientation="vertical" style={{ width: '100%' }} size="middle">
               <Alert
-                message="母题信息"
+                title="母题信息"
                 description={
                   <div>
                     <p><strong>内容：</strong></p>
