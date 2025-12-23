@@ -1,6 +1,7 @@
 import { Alert, Button, Card, Radio, Space } from 'antd';
 
 import type { ReviewChoiceResponse } from '../types';
+import MathRenderer from '../../../components/MathRenderer';
 
 export function CorrectnessStep({
   problemData,
@@ -45,7 +46,10 @@ export function CorrectnessStep({
                   width: '100%',
                 }}
               >
-                选项 {String.fromCharCode(65 + index)}: {option}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  选项 {String.fromCharCode(65 + index)}: 
+                  <MathRenderer content={option} style={{ display: 'inline' }} />
+                </span>
               </Radio>
             ))}
           </Space>

@@ -1,8 +1,9 @@
-import { Button, Modal, Space, Table, Tag, Typography } from 'antd';
+import { Button, Modal, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SyncOutlined } from '@ant-design/icons';
 
 import type { VariantItem } from '../types';
+import MathRenderer from '../../../components/MathRenderer';
 
 const { Text } = Typography;
 
@@ -26,27 +27,19 @@ export function VariantTable({
       key: 'content',
       ellipsis: true,
       render: (_: any, record: VariantItem) => {
-        // 直接从 record.content 获取，因为 dataIndex 已经指定了 'content'
-        // 但为了保险，我们也直接从 record 获取
         const content = record.content;
-        
-        // 处理字符串格式
-        if (typeof content === 'string') {
-          return content;
-        }
-        
-        // 处理对象格式 { text: "..." }
-        if (content && typeof content === 'object') {
-          const textValue = (content as any).text;
-          if (typeof textValue === 'string' && textValue.trim()) {
-            return textValue;
-          }
-          // 如果是其他对象格式，尝试 JSON 序列化
-          return JSON.stringify(content);
-        }
-        
-        // 如果 content 为空，返回空字符串
-        return '';
+        const text = typeof content === 'string' 
+          ? content 
+          : (content as any)?.text ?? String(content ?? '');
+        return (
+          <Tooltip 
+            title={<MathRenderer content={text} style={{ maxWidth: 400, maxHeight: 300, overflow: 'auto' }} />} 
+            placement="topLeft"
+            overlayStyle={{ maxWidth: 450 }}
+          >
+            <span>{text.slice(0, 50)}{text.length > 50 ? '...' : ''}</span>
+          </Tooltip>
+        );
       },
     },
     {
@@ -128,20 +121,22 @@ export function VariantTable({
                       <p>
                         <strong>内容：</strong>
                       </p>
-                      <div style={{ marginLeft: '20px', marginTop: '8px' }}>
-                        {typeof record.content === 'string'
+                      <MathRenderer 
+                        content={typeof record.content === 'string'
                           ? record.content
                           : (record.content as any)?.text ?? String(record.content ?? '')}
-                      </div>
+                        style={{ marginLeft: '20px', marginTop: '8px' }}
+                      />
                     </div>
                     
                     <div style={{ marginBottom: '20px' }}>
                       <p>
                         <strong>答案：</strong>
                       </p>
-                      <div style={{ marginLeft: '20px', marginTop: '8px' }}>
-                        {record.answer}
-                      </div>
+                      <MathRenderer 
+                        content={record.answer || ''}
+                        style={{ marginLeft: '20px', marginTop: '8px' }}
+                      />
                     </div>
                     
                     {record.explanation && (
@@ -149,9 +144,10 @@ export function VariantTable({
                         <p>
                           <strong>解析：</strong>
                         </p>
-                        <div style={{ marginLeft: '20px', marginTop: '8px' }}>
-                          {record.explanation}
-                        </div>
+                        <MathRenderer 
+                          content={record.explanation}
+                          style={{ marginLeft: '20px', marginTop: '8px' }}
+                        />
                       </div>
                     )}
                     

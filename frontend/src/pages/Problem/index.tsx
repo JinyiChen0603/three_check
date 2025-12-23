@@ -17,8 +17,9 @@ import {
   Alert,
   Divider,
   Modal,
+  Tooltip,
 } from 'antd';
-import ReactMarkdown from 'react-markdown';
+import MathRenderer from '../../components/MathRenderer';
 import {
   UploadOutlined,
   CheckCircleOutlined,
@@ -883,40 +884,40 @@ export default function ProblemCreation() {
                               <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
                                 <div style={{ marginBottom: 16 }}>
                                   <strong style={{ fontSize: 14 }}>题目内容：</strong>
-                                  <div style={{ 
-                                    marginTop: 8, 
-                                    padding: 12, 
-                                    background: '#f5f5f5', 
-                                    borderRadius: 6,
-                                    lineHeight: 1.8
-                                  }}>
-                                    <ReactMarkdown>{contentText}</ReactMarkdown>
-                                  </div>
+                                  <MathRenderer 
+                                    content={contentText}
+                                    style={{ 
+                                      marginTop: 8, 
+                                      padding: 12, 
+                                      background: '#f5f5f5', 
+                                      borderRadius: 6,
+                                    }}
+                                  />
                                 </div>
                                 <div style={{ marginBottom: 16 }}>
                                   <strong style={{ fontSize: 14 }}>答案：</strong>
-                                  <div style={{ 
-                                    marginTop: 8, 
-                                    padding: 12, 
-                                    background: '#e6f7ff', 
-                                    borderRadius: 6,
-                                    lineHeight: 1.8
-                                  }}>
-                                    <ReactMarkdown>{record.answer || ''}</ReactMarkdown>
-                                  </div>
+                                  <MathRenderer 
+                                    content={record.answer || ''}
+                                    style={{ 
+                                      marginTop: 8, 
+                                      padding: 12, 
+                                      background: '#e6f7ff', 
+                                      borderRadius: 6,
+                                    }}
+                                  />
                                 </div>
                                 {record.explanation && (
                                   <div style={{ marginBottom: 16 }}>
                                     <strong style={{ fontSize: 14 }}>解析：</strong>
-                                    <div style={{ 
-                                      marginTop: 8, 
-                                      padding: 12, 
-                                      background: '#f6ffed', 
-                                      borderRadius: 6,
-                                      lineHeight: 1.8
-                                    }}>
-                                      <ReactMarkdown>{record.explanation}</ReactMarkdown>
-                                    </div>
+                                    <MathRenderer 
+                                      content={record.explanation}
+                                      style={{ 
+                                        marginTop: 8, 
+                                        padding: 12, 
+                                        background: '#f6ffed', 
+                                        borderRadius: 6,
+                                      }}
+                                    />
                                   </div>
                                 )}
                                 
@@ -1101,8 +1102,10 @@ export default function ProblemCreation() {
                       message="母题信息"
                       description={
                         <div>
-                          <p><strong>内容：</strong>{p.source.content}</p>
-                          <p><strong>答案：</strong>{p.source.answer}</p>
+                          <p><strong>内容：</strong></p>
+                          <MathRenderer content={p.source.content} />
+                          <p style={{ marginTop: 8 }}><strong>答案：</strong></p>
+                          <MathRenderer content={p.source.answer} />
                         </div>
                       }
                       type="success"
@@ -1197,8 +1200,41 @@ export default function ProblemCreation() {
 
                   <Table
                     columns={[
-                      { title: '题目内容', dataIndex: 'content', key: 'content', ellipsis: true, render: (c: any) => typeof c === 'string' ? c : c?.text ?? String(c ?? '') },
-                      { title: '答案', dataIndex: 'answer', key: 'answer', ellipsis: true },
+                      { 
+                        title: '题目内容', 
+                        dataIndex: 'content', 
+                        key: 'content', 
+                        ellipsis: true, 
+                        render: (c: any) => {
+                          const text = typeof c === 'string' ? c : c?.text ?? String(c ?? '');
+                          return (
+                            <Tooltip 
+                              title={<MathRenderer content={text} style={{ maxWidth: 400, maxHeight: 300, overflow: 'auto' }} />} 
+                              placement="topLeft"
+                              overlayStyle={{ maxWidth: 450 }}
+                            >
+                              <span>{text.slice(0, 50)}{text.length > 50 ? '...' : ''}</span>
+                            </Tooltip>
+                          );
+                        }
+                      },
+                      { 
+                        title: '答案', 
+                        dataIndex: 'answer', 
+                        key: 'answer', 
+                        ellipsis: true,
+                        render: (answer: string) => {
+                          const text = answer || '';
+                          return (
+                            <Tooltip 
+                              title={<MathRenderer content={text} />} 
+                              placement="topLeft"
+                            >
+                              <span>{text.slice(0, 30)}{text.length > 30 ? '...' : ''}</span>
+                            </Tooltip>
+                          );
+                        }
+                      },
                     ]}
                     dataSource={passedVariants}
                     rowKey="key"

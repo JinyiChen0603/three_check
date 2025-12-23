@@ -8,8 +8,9 @@ import { Card, Table, Tag, Typography, Space, Button, message, Modal, Descriptio
 import { EyeOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { problemApi } from '../../api';
+import MathRenderer from '../../components/MathRenderer';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 // TODO: 以后可扩展更多字段，如 title, status, category 等
 interface VariantItem {
@@ -207,32 +208,26 @@ export default function MyVariants() {
               })()}
             </Descriptions.Item>
             <Descriptions.Item label="题目内容">
-              <Paragraph
+              <MathRenderer
+                content={renderContent(selectedProblem.content)}
                 style={{
-                  whiteSpace: 'pre-wrap',
                   maxHeight: 300,
                   overflow: 'auto',
-                  margin: 0,
                 }}
-              >
-                {renderContent(selectedProblem.content)}
-              </Paragraph>
+              />
             </Descriptions.Item>
             <Descriptions.Item label="答案">
-              <Text code>{selectedProblem.answer}</Text>
+              <MathRenderer content={selectedProblem.answer} />
             </Descriptions.Item>
             {selectedProblem.explanation && (
               <Descriptions.Item label="解析">
-                <Paragraph
+                <MathRenderer
+                  content={selectedProblem.explanation}
                   style={{
-                    whiteSpace: 'pre-wrap',
                     maxHeight: 200,
                     overflow: 'auto',
-                    margin: 0,
                   }}
-                >
-                  {selectedProblem.explanation}
-                </Paragraph>
+                />
               </Descriptions.Item>
             )}
             <Descriptions.Item label="创建时间">

@@ -4,6 +4,7 @@ import { BUSINESS_CONSTANTS } from '../../../config/constants';
 import type { VariantItem } from '../types';
 import type { ParentProblem } from '../hooks/useProblemTransform';
 import { VariantTable } from './VariantTable';
+import MathRenderer from '../../../components/MathRenderer';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -55,14 +56,10 @@ export function ProblemTransformStep({
                 message="母题信息"
                 description={
                   <div>
-                    <p>
-                      <strong>内容：</strong>
-                      {p.source.content}
-                    </p>
-                    <p>
-                      <strong>答案：</strong>
-                      {p.source.answer}
-                    </p>
+                    <p><strong>内容：</strong></p>
+                    <MathRenderer content={p.source.content} />
+                    <p style={{ marginTop: 8 }}><strong>答案：</strong></p>
+                    <MathRenderer content={p.source.answer} />
                   </div>
                 }
                 type="success"
