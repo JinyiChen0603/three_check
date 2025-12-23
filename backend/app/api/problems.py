@@ -843,6 +843,59 @@ async def rollback_task_progress(
     return {"success": True, "message": "已回退出题任务额度，如有需要请自行处理题目状态/删除"}
 
 
+@router.get("/my-variants", summary="查看我创建的变体题目")
+async def get_my_variants(
+    skip: int = 0,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取当前用户创建的所有变体题目（仅返回必要字段）
+    查询条件：creator_id = 当前用户 AND parent_problem_id IS NOT NULL
+    返回字段：id, parent_problem_id, created_at
+    """
+    from sqlalchemy import func
+    
+    # 查询总数
+    count_query = select(func.count(Problem.id)).where(
+        and_(
+            Problem.creator_id == current_user.id,
+            Problem.parent_problem_id.isnot(None)
+        )
+    )
+    count_result = await db.execute(count_query)
+    total = count_result.scalar() or 0
+    
+    # 只查询必要字段：id, parent_problem_id, created_at
+    # TODO: 以后可以在这里扩展返回更多字段，如 title, status, category 等
+    query = select(
+        Problem.id,
+        Problem.parent_problem_id,
+        Problem.created_at
+    ).where(
+        and_(
+            Problem.creator_id == current_user.id,
+            Problem.parent_problem_id.isnot(None)
+        )
+    ).order_by(Problem.created_at.desc()).offset(skip).limit(limit)
+    
+    result = await db.execute(query)
+    rows = result.all()
+    
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": row.id,
+                "parent_problem_id": row.parent_problem_id,
+                "created_at": row.created_at
+            }
+            for row in rows
+        ]
+    }
+
+
 @router.get("/my-problems", summary="查看我创建的题目")
 async def get_my_problems(
     status: Optional[str] = None,

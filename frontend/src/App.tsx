@@ -21,6 +21,7 @@ import Tasks from './pages/Tasks';  // 使用完整版任务管理页面
 import Review from './pages/Review';
 import ReviewHistory from './pages/ReviewHistory';
 import Problem from './pages/Problem';
+import MyVariants from './pages/MyVariants';
 
 // 创建 React Query 客户端
 const queryClient = new QueryClient({
@@ -70,6 +71,10 @@ function App() {
               <Route 
                 path="problem" 
                 element={<Problem />} 
+              />
+              <Route 
+                path="my-variants" 
+                element={<MyVariants />} 
               />
               <Route 
                 path="review" 

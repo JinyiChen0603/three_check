@@ -26,6 +26,7 @@ import {
   TeamOutlined,
   WalletOutlined,
   HistoryOutlined,
+  CopyOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/useAuthStore';
 import { UserRole } from '../config/constants';
@@ -93,9 +94,14 @@ export default function MainLayout() {
       label: '出题流程',
     },
     {
+      key: '/my-variants',
+      icon: <CopyOutlined />,
+      label: '我的变体题目',
+    },
+    {
       key: '/review',
       icon: <CheckCircleOutlined />,
-      label: '评分流程',
+      label: '评分',
     },
     {
       key: '/review-history',
