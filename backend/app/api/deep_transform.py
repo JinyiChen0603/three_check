@@ -103,7 +103,7 @@ async def generate_modified_problem(
     ```
     """
     try:
-        result = deep_transformer_service.generate_modified_problem(
+        result = await deep_transformer_service.generate_modified_problem(
             original_problem=request.original_problem,
             original_answer=request.original_answer,
             modification_requirement=request.modification_requirement,
@@ -157,7 +157,7 @@ async def generate_variant(
     ```
     """
     try:
-        result = deep_transformer_service.generate_problem_variant_with_explanation(
+        result = await deep_transformer_service.generate_problem_variant_with_explanation(
             original_content=request.original_content,
             original_explanation=request.original_explanation,
             original_answer=request.original_answer,
@@ -222,7 +222,7 @@ async def generate_multiple_variants(
     ```
     """
     try:
-        result = deep_transformer_service.generate_multiple_variants(
+        result = await deep_transformer_service.generate_multiple_variants(
             original_content=request.original_content,
             original_explanation=request.original_explanation,
             original_answer=request.original_answer,

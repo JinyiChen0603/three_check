@@ -5,8 +5,8 @@
 """
 
 import json
-import requests
-import time
+import httpx
+import asyncio
 import urllib3
 from typing import Dict, Any, Optional
 
@@ -32,7 +32,7 @@ class DeepTransformerService:
         self.model = "google/gemini-3-pro-preview"
         self.api_url = "https://openrouter.ai/api/v1/chat/completions"
     
-    def chat_stream_with_auto_continue(
+    async def chat_stream_with_auto_continue(
         self,
         messages,
         max_rounds=20,  # 增加到20轮以支持更长内容
@@ -65,17 +65,17 @@ class DeepTransformerService:
                 "temperature": temperature
             }
 
-            response = requests.post(
-                self.api_url,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.api_key}",
-                    "HTTP-Referer": "https://mathtasks.app",
-                    "X-Title": "MathTasks"
-                },
-                json=payload,
-                timeout=None  # 无超时限制 - 允许长时间运行
-            )
+            async with httpx.AsyncClient(timeout=None) as client:
+                response = await client.post(
+                    self.api_url,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {self.api_key}",
+                        "HTTP-Referer": "https://mathtasks.app",
+                        "X-Title": "MathTasks"
+                    },
+                    json=payload,
+                )
 
             response.raise_for_status()
             data = response.json()
@@ -107,11 +107,11 @@ class DeepTransformerService:
                 "content": "请从上文中断处继续，不要重复已生成内容。"
             })
 
-            time.sleep(sleep_between_rounds)
+            await asyncio.sleep(sleep_between_rounds)
 
         return full_text
 
-    def chat_with_auto_continue_non_stream(
+    async def chat_with_auto_continue_non_stream(
         self,
         messages,
         max_rounds=20,  # 增加到20轮
@@ -144,17 +144,17 @@ class DeepTransformerService:
                 "temperature": temperature
             }
 
-            response = requests.post(
-                self.api_url,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.api_key}",
-                    "HTTP-Referer": "https://mathtasks.app",
-                    "X-Title": "MathTasks"
-                },
-                json=payload,
-                timeout=None  # 无超时限制
-            )
+            async with httpx.AsyncClient(timeout=None) as client:
+                response = await client.post(
+                    self.api_url,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {self.api_key}",
+                        "HTTP-Referer": "https://mathtasks.app",
+                        "X-Title": "MathTasks"
+                    },
+                    json=payload,
+                )
 
             response.raise_for_status()
             data = response.json()
@@ -188,7 +188,7 @@ class DeepTransformerService:
                 "content": "请从上文中断处继续，不要重复已生成内容。"
             })
 
-            time.sleep(sleep_between_rounds)
+            await asyncio.sleep(sleep_between_rounds)
 
         return full_text
 
@@ -220,7 +220,7 @@ class DeepTransformerService:
 
         return ""
 
-    def generate_modified_problem(
+    async def generate_modified_problem(
         self,
         original_problem: str,
         original_answer: str,
@@ -286,13 +286,13 @@ class DeepTransformerService:
         print(json.dumps(messages, indent=4, ensure_ascii=False))
 
         if use_stream:
-            result_text = self.chat_stream_with_auto_continue(
+            result_text = await self.chat_stream_with_auto_continue(
                 messages, 
                 max_tokens=max_tokens, 
                 temperature=temperature
             )
         else:
-            result_text = self.chat_with_auto_continue_non_stream(
+            result_text = await self.chat_with_auto_continue_non_stream(
                 messages, 
                 max_tokens=max_tokens, 
                 temperature=temperature
@@ -303,7 +303,7 @@ class DeepTransformerService:
 
         return filtered_text
 
-    def generate_problem_variant_with_explanation(
+    async def generate_problem_variant_with_explanation(
         self,
         original_content: str,
         original_explanation: str,
@@ -400,13 +400,13 @@ class DeepTransformerService:
         print(json.dumps(messages, indent=4, ensure_ascii=False))
         
         if use_stream:
-            result_text = self.chat_stream_with_auto_continue(
+            result_text = await self.chat_stream_with_auto_continue(
                 messages, 
                 max_tokens=max_tokens, 
                 temperature=temperature
             )
         else:
-            result_text = self.chat_with_auto_continue_non_stream(
+            result_text = await self.chat_with_auto_continue_non_stream(
                 messages, 
                 max_tokens=max_tokens, 
                 temperature=temperature
@@ -442,7 +442,7 @@ class DeepTransformerService:
             "variant_answer": variant_answer
         }
 
-    def generate_multiple_variants(
+    async def generate_multiple_variants(
         self,
         original_content: str,
         original_explanation: str,
@@ -486,7 +486,7 @@ class DeepTransformerService:
                 print(f"\n=== 生成第 {i + 1}/{count} 个变体 ===\n")
                 
                 try:
-                    result = self.generate_problem_variant_with_explanation(
+                    result = await self.generate_problem_variant_with_explanation(
                         original_content=original_content,
                         original_explanation=original_explanation,
                         original_answer=original_answer,
@@ -512,7 +512,7 @@ class DeepTransformerService:
                 
                 # 批量生成时在每个变体之间稍作停顿
                 if i < count - 1:
-                    time.sleep(1)
+                    await asyncio.sleep(1)
             
             return {
                 "success": True,
