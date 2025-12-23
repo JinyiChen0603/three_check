@@ -469,7 +469,7 @@ async def generate_variant(
 
     try:
         # 调用 deep_transformer_service 生成变体（使用 Gemini API）
-        variant_result = deep_transformer_service.generate_problem_variant_with_explanation(
+        variant_result = await deep_transformer_service.generate_problem_variant_with_explanation(
             original_content=problem_text,
             original_explanation=problem_explanation,
             original_answer=problem_answer,

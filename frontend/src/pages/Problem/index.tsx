@@ -69,6 +69,7 @@ export default function ProblemCreation() {
   const [problems, setProblems] = useState<ProblemItem[]>([]);
   const problemsRef = useRef<ProblemItem[]>([]);
   const [ocrLoading, setOcrLoading] = useState(false);
+  const [usedProblemKeys, setUsedProblemKeys] = useState<Set<string>>(new Set());
 
   // 步骤2：题目变形（多母题）
   const [parentProblems, setParentProblems] = useState<Array<{ id: number; source: ProblemItem }>>([]);
@@ -284,9 +285,9 @@ export default function ProblemCreation() {
     !!p.explanation?.trim();
 
   const handleBatchUse = async () => {
-    const passed = problems.filter(isProblemComplete);
+    const passed = problems.filter(p => isProblemComplete(p) && !usedProblemKeys.has(p.key));
     if (passed.length === 0) {
-      message.warning('请先完成验证并确保题目、答案、解析都填写完整');
+      message.warning('没有可使用的题目（请确保题目、答案、解析完整且未被使用）');
       return;
     }
     try {
@@ -303,6 +304,9 @@ export default function ProblemCreation() {
         const created = await problemApi.createProblem(problemData);
         createdList.push({ id: created.id, source: item });
         addParentProblem(created.id, item);
+        
+        // 标记为已使用
+        setUsedProblemKeys(prev => new Set([...prev, item.key]));
       }
       if (createdList.length > 0) {
         setCurrentStep(1);
@@ -473,7 +477,8 @@ export default function ProblemCreation() {
               record.validationStatus !== 'passed' ||
               !record.content?.trim() ||
               !record.answer?.trim() ||
-              !record.explanation?.trim()
+              !record.explanation?.trim() ||
+              usedProblemKeys.has(record.key)
             }
             onClick={async () => {
               if (record.validationStatus !== 'passed') {
@@ -482,6 +487,10 @@ export default function ProblemCreation() {
               }
               if (!record.content?.trim() || !record.answer?.trim() || !record.explanation?.trim()) {
                 message.warning('题目、答案、解析都不能为空');
+                return;
+              }
+              if (usedProblemKeys.has(record.key)) {
+                message.warning('该题目已被使用过');
                 return;
               }
               
@@ -497,6 +506,9 @@ export default function ProblemCreation() {
                 };
                 
                 const created = await problemApi.createProblem(problemData);
+                
+                // 标记该题目已被使用
+                setUsedProblemKeys(prev => new Set([...prev, record.key]));
                 
                 addParentProblem(created.id, record);
                 setCurrentStep(1);
@@ -744,7 +756,7 @@ export default function ProblemCreation() {
               </Button>
               <Button
                 onClick={handleBatchUse}
-                disabled={problems.filter(isProblemComplete).length === 0}
+                disabled={problems.filter(p => isProblemComplete(p) && !usedProblemKeys.has(p.key)).length === 0}
               >
                 批量使用
               </Button>

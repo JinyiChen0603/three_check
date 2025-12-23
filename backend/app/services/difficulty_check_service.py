@@ -1,8 +1,8 @@
 """
 难度检测服务模块
 支持两种验证模式：
-1. 豆包模式：Doubao Seed Thinking 8次对抗验证（保留原逻辑）
-2. 双模型模式：ChatGPT + 智谱GLM 各16次验证（新增）
+1. 豆包模式:Doubao Seed Thinking 8次对抗验证(保留原逻辑)
+2. 双模型模式:ChatGPT + 智谱GLM 各16次验证(新增)
 """
 
 import asyncio
