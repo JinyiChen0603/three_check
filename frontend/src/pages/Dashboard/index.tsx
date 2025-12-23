@@ -131,7 +131,7 @@ export default function Dashboard() {
           <Card>
             <Statistic
               title="已出题目"
-              value={user?.problems_created_count || 0}
+              value={stats?.problems_created_count || 0}
               prefix={<FileTextOutlined />}
               suffix={
                 <span style={{ fontSize: 14, color: '#999' }}>
@@ -146,7 +146,7 @@ export default function Dashboard() {
           <Card>
             <Statistic
               title="已完成评分"
-              value={user?.reviews_completed_count || 0}
+              value={stats?.reviews_completed_count || 0}
               prefix={<CheckCircleOutlined />}
               suffix={
                 <span style={{ fontSize: 14, color: '#999' }}>

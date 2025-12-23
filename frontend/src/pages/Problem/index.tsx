@@ -276,10 +276,17 @@ export default function ProblemCreation() {
     message.success('已加入验证队列');
   };
 
+  // 检查题目是否完整（题目、答案、解析都非空）且验证通过
+  const isProblemComplete = (p: ProblemItem) =>
+    p.validationStatus === 'passed' &&
+    !!p.content?.trim() &&
+    !!p.answer?.trim() &&
+    !!p.explanation?.trim();
+
   const handleBatchUse = async () => {
-    const passed = problems.filter((p) => p.validationStatus === 'passed');
+    const passed = problems.filter(isProblemComplete);
     if (passed.length === 0) {
-      message.warning('请先完成验证并选择通过的题目');
+      message.warning('请先完成验证并确保题目、答案、解析都填写完整');
       return;
     }
     try {
@@ -462,10 +469,19 @@ export default function ProblemCreation() {
           <Button
             type="link"
             size="small"
-            disabled={record.validationStatus !== 'passed'}
+            disabled={
+              record.validationStatus !== 'passed' ||
+              !record.content?.trim() ||
+              !record.answer?.trim() ||
+              !record.explanation?.trim()
+            }
             onClick={async () => {
               if (record.validationStatus !== 'passed') {
                 message.warning('请先验证题目并通过验证');
+                return;
+              }
+              if (!record.content?.trim() || !record.answer?.trim() || !record.explanation?.trim()) {
+                message.warning('题目、答案、解析都不能为空');
                 return;
               }
               
@@ -533,20 +549,24 @@ export default function ProblemCreation() {
         return;
       }
 
-      const createdVariant = await problemApi.createProblem({
+      // 延迟写入数据库：只保存到前端状态，不调用 createProblem
+      // 变体会在质检时或点击"提交所有合格题目"时写入数据库
+      const newVariant: VariantItem = {
+        // 临时数据，没有 id（等待写入数据库时获取）
+        id: undefined as unknown as number,
+        creator_id: 0,
+        parent_problem_id: parentId,
         title: `变体-${Date.now()}`,
         content: typeof variantResult.new_problem === 'string'
           ? { text: variantResult.new_problem }
           : variantResult.new_problem,
         explanation: variantResult.new_explanation,
         answer: variantResult.new_answer,
-        category: 'high_school_comprehensive', // 默认分类
+        category: 'high_school_comprehensive',
         source_type: 'ai_variant',
-        parent_problem_id: parentId,
-      });
-
-      const newVariant = {
-        ...createdVariant,
+        variant_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
         key: `variant-${Date.now()}`,
         qualityCheckStatus: 'pending' as const,
       };
@@ -559,7 +579,7 @@ export default function ProblemCreation() {
         ],
       }));
       setVariantCountMap((prev) => ({ ...prev, [parentId]: count + 1 }));
-      message.success('题目变形成功并已保存到数据库！');
+      message.success('题目变形成功！点击质检或提交时将保存到数据库');
       setTransformPrompts((prev) => ({ ...prev, [parentId]: '' }));
     } catch (error: any) {
       console.error('❌ [DEBUG] 题目变形失败:', error);
@@ -576,10 +596,11 @@ export default function ProblemCreation() {
   };
 
   const handleQualityCheck = async (parentId: number, variant: VariantItem) => {
-    if (!variant.id) {
-      message.error('题目ID不存在，无法进行质检');
-      return;
-    }
+    // 使用新的内容质检 API，不再需要 variant.id
+    // 变体内容直接发送到后端进行质检
+    const contentText = typeof variant.content === 'string'
+      ? variant.content
+      : (variant.content as any)?.text ?? JSON.stringify(variant.content ?? '');
 
     setVariantsMap((prev) => ({
       ...prev,
@@ -589,7 +610,12 @@ export default function ProblemCreation() {
     }));
 
     try {
-      const result = await problemApi.qualityCheck(variant.id);
+      // 使用新的内容质检 API（无需 problem_id）
+      const result = await problemApi.qualityCheckContent(
+        contentText,
+        variant.answer || '',
+        variant.explanation
+      );
       
       const allPassed =
         result.all_passed === true ||
@@ -632,26 +658,21 @@ export default function ProblemCreation() {
   };
 
   const handleSubmitForReview = async (parentId: number, variant: VariantItem) => {
-    if (!variant.id) {
-      message.error('题目ID不存在，无法提交审核');
-      return;
-    }
+    // 延迟写入流程：不再需要 variant.id，也不调用后端 API
+    // 只需要质检通过，就可以加入提交列表
     if (variant.qualityCheckStatus !== 'passed') {
-      message.warning('请先通过质量检查，再提交审核');
+      message.warning('请先通过质量检查，再加入提交列表');
       return;
     }
-    try {
-      await problemApi.submitForReview(variant.id);
-      message.success('已提交审核，状态已更新为待审核');
-      setVariantsMap((prev) => ({
-        ...prev,
-        [parentId]: (prev[parentId] || []).map((v) =>
-          v.key === variant.key ? { ...v, human_review_status: 'pending_review' } : v
-        ),
-      }));
-    } catch (error: any) {
-      message.error('提交审核失败: ' + (error.response?.data?.detail || error.message));
-    }
+    
+    // 更新状态为"待提交"（触发"下一步"按钮启用）
+    setVariantsMap((prev) => ({
+      ...prev,
+      [parentId]: (prev[parentId] || []).map((v) =>
+        v.key === variant.key ? { ...v, human_review_status: 'pending_review' } : v
+      ),
+    }));
+    message.success('已加入提交列表，可点击"下一步"提交');
   };
 
   // ==================== 渲染 ====================
@@ -723,7 +744,7 @@ export default function ProblemCreation() {
               </Button>
               <Button
                 onClick={handleBatchUse}
-                disabled={problems.filter((p) => p.validationStatus === 'passed').length === 0}
+                disabled={problems.filter(isProblemComplete).length === 0}
               >
                 批量使用
               </Button>
@@ -1087,19 +1108,22 @@ export default function ProblemCreation() {
           <Space orientation="vertical" style={{ width: '100%' }} size="large">
             {(() => {
               const allVariants = Object.values(variantsMap).flat();
-              const passedVariants = allVariants.filter((v) => v.qualityCheckStatus === 'passed' && v.human_review_status === 'pending_review');
+              // 显示用户明确要提交的变体（质检通过 + 点击过"加入提交列表"按钮的）
+              const passedVariants = allVariants.filter(
+                (v) => v.qualityCheckStatus === 'passed' && v.human_review_status === 'pending_review'
+              );
               return (
                 <>
                   <Alert
                     message="恭喜！"
-                    description={`您已完成 ${passedVariants.length} 个合格题目的创建。这些题目将进入人工质检流程。`}
+                    description={`您已选择 ${passedVariants.length} 个合格题目提交。点击提交后，这些题目将写入数据库并进入人工审核流程。`}
                     type="success"
                     showIcon
                   />
 
                   <Table
                     columns={[
-                      { title: '题目内容', dataIndex: 'content', key: 'content', ellipsis: true },
+                      { title: '题目内容', dataIndex: 'content', key: 'content', ellipsis: true, render: (c: any) => typeof c === 'string' ? c : c?.text ?? String(c ?? '') },
                       { title: '答案', dataIndex: 'answer', key: 'answer', ellipsis: true },
                     ]}
                     dataSource={passedVariants}
@@ -1117,7 +1141,25 @@ export default function ProblemCreation() {
                             message.warning('没有合格的题目可以提交');
                             return;
                           }
-                          message.success(`已提交 ${passedVariants.length} 个合格题目到数据库！`);
+                          
+                          // 循环调用 createProblem 写入数据库
+                          // 后端会在创建变体时自动更新 problems_created_count
+                          message.loading({ content: '正在提交题目...', key: 'submitting' });
+                          
+                          for (const variant of passedVariants) {
+                            await problemApi.createProblem({
+                              title: variant.title || `变体-${Date.now()}`,
+                              content: variant.content,
+                              answer: variant.answer || '',
+                              explanation: variant.explanation,
+                              category: variant.category || 'high_school_comprehensive',
+                              source_type: 'ai_variant',
+                              parent_problem_id: variant.parent_problem_id,
+                            });
+                          }
+                          
+                          message.success({ content: `已提交 ${passedVariants.length} 个合格题目！`, key: 'submitting' });
+                          
                           // 重置状态
                           setCurrentStep(0);
                           setParentProblems([]);
@@ -1125,7 +1167,7 @@ export default function ProblemCreation() {
                           setVariantsMap({});
                           setVariantCountMap({});
                         } catch (error: any) {
-                          message.error('提交失败: ' + (error.response?.data?.detail || error.message));
+                          message.error({ content: '提交失败: ' + (error.response?.data?.detail || error.message), key: 'submitting' });
                         }
                       }}
                     >

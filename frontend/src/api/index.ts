@@ -116,9 +116,19 @@ export const problemApi = {
     return response.data;
   },
 
-  // 质量检查
+  // 质量检查（需要题目ID）
   qualityCheck: async (problemId: number) => {
     const response = await apiClient.post(`/problems/${problemId}/quality-check`);
+    return response.data;
+  },
+
+  // 内容质检（无需题目ID，用于延迟写入场景）
+  qualityCheckContent: async (content: any, answer: string, explanation?: string) => {
+    const response = await apiClient.post('/problems/quality-check-content', {
+      content: typeof content === 'string' ? content : JSON.stringify(content),
+      answer,
+      explanation,
+    });
     return response.data;
   },
 

@@ -51,22 +51,26 @@ export function useProblemTransform() {
       throw new Error(variantResult?.error || '生成变体失败');
     }
 
-    const createdVariant = await problemApi.createProblem({
-      title: `变体-${Date.now()}`,
-      content:
-        typeof variantResult.new_problem === 'string'
-          ? { text: variantResult.new_problem }
-          : variantResult.new_problem,
-      explanation: variantResult.new_explanation,
-      answer: variantResult.new_answer,
-      category: 'high_school_comprehensive',
-      source_type: 'ai_variant',
-      parent_problem_id: parentId,
-    });
-
+    // 延迟写入数据库：只保存到前端状态，不调用 createProblem
+    // 变体会在点击"提交所有合格题目"时写入数据库
     setVariantsMap((prev) => {
       const newVariant = {
-        ...createdVariant,
+        // 临时数据，没有数据库 id（等待提交时获取）
+        id: undefined as unknown as number,
+        creator_id: 0,
+        parent_problem_id: parentId,
+        title: `变体-${Date.now()}`,
+        content:
+          typeof variantResult.new_problem === 'string'
+            ? { text: variantResult.new_problem }
+            : variantResult.new_problem,
+        explanation: variantResult.new_explanation,
+        answer: variantResult.new_answer,
+        category: 'high_school_comprehensive',
+        source_type: 'ai_variant',
+        variant_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
         key: `variant-${Date.now()}`,
         qualityCheckStatus: 'pending' as const,
       };

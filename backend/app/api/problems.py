@@ -132,6 +132,13 @@ class GenerateVariantRequest(BaseModel):
     custom_prompt: Optional[str] = Field(None, description="自定义变形prompt")
 
 
+class QualityCheckContentRequest(BaseModel):
+    """内容质检请求（无需题目ID）"""
+    content: str = Field(..., description="题目内容")
+    answer: str = Field(..., description="标准答案")
+    explanation: Optional[str] = Field(None, description="解析")
+
+
 class ProblemResponse(BaseModel):
     """题目响应模型"""
     id: int
@@ -357,9 +364,10 @@ async def create_problem(
         )
         await _mark_create_task_progress(db, current_user.id, problem_id)
         
-        # 如果是变体，更新母题的变形次数
+        # 如果是变体，更新母题的变形次数和用户的出题计数
         if parent_problem:
             parent_problem.variant_count += 1
+            current_user.problems_created_count += 1
             await db.commit()
         
         # 获取完整题目数据返回
@@ -389,6 +397,7 @@ async def create_problem(
         
         if parent_problem:
             parent_problem.variant_count += 1
+            current_user.problems_created_count += 1
         
         await db.commit()
         await db.refresh(new_problem)
@@ -502,6 +511,50 @@ async def generate_variant(
         "new_explanation": new_explanation,
         "model": variant_result.get("model"),
         "tokens": variant_result.get("tokens"),
+    }
+
+
+@router.post("/quality-check-content", summary="内容质检（无需题目ID）")
+async def quality_check_content(
+    request: QualityCheckContentRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    对题目内容进行三维质检（无需先保存到数据库）
+    用于变体生成后、写入数据库前的质检
+    
+    三个维度：
+    1. 难度检测（Doubao 8次验证）
+    2. 原创性检测（GPT-4o Research）
+    3. 数学严谨性检测（GPT-4o）
+    """
+    # 处理内容格式
+    problem_content = request.content
+    if isinstance(problem_content, dict):
+        problem_content = json.dumps(problem_content, ensure_ascii=False)
+    
+    # 执行质检
+    check_result = await quality_check_service.full_quality_check(
+        problem=problem_content,
+        answer=request.answer,
+        explanation=request.explanation or ""
+    )
+    
+    if not check_result["success"]:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=check_result.get("error", "质检失败")
+        )
+    
+    return {
+        "success": True,
+        "all_passed": check_result["all_passed"],
+        **check_result,
+        "next_step": (
+            "✅ 质检全部通过！可以提交题目。"
+            if check_result["all_passed"]
+            else "❌ 质检未通过，请根据反馈修改题目或选择放弃。"
+        )
     }
 
 

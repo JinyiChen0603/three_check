@@ -15,6 +15,11 @@ export interface ProblemItem {
 export interface VariantItem extends Problem {
   key: string;
   qualityCheckStatus?: 'pending' | 'checking' | 'passed' | 'failed';
+  // 延迟写入场景需要的额外字段
+  title?: string;
+  category?: string;
+  source_type?: string;
+  quality_check?: any;
 }
 
 
