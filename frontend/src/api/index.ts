@@ -159,6 +159,20 @@ export const problemApi = {
     const response = await apiClient.post(`/problems/${problemId}/submit-for-review`);
     return response.data;
   },
+
+  // 获取我的变体题目列表（仅元数据）
+  getMyVariants: async (skip = 0, limit = 20) => {
+    const response = await apiClient.get('/problems/my-variants', {
+      params: { skip, limit }
+    });
+    return response.data;
+  },
+
+  // 获取单个题目详情（包含完整内容）
+  getProblemDetail: async (problemId: number) => {
+    const response = await apiClient.get(`/problems/${problemId}`);
+    return response.data;
+  },
 };
 
 // 评分相关 API

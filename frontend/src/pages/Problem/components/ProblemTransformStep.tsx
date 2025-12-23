@@ -18,7 +18,7 @@ export function ProblemTransformStep({
   onQualityCheck,
   onSubmitForReview,
   onDeleteVariant,
-  onBack,
+  onBack: _onBack,
   onNext,
   canNext,
 }: {
