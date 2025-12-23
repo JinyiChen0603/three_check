@@ -22,7 +22,7 @@ export function VariantTable({
 }) {
   const columns: ColumnsType<VariantItem> = [
     {
-      title: '题目内容',
+      title: '题目内容（鼠标悬停预览全部内容）',
       dataIndex: 'content',
       key: 'content',
       ellipsis: true,

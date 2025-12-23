@@ -794,27 +794,24 @@ export default function ProblemCreation() {
               const variantCount = variantCountMap[parentId] || 0;
               const columns = [
                 {
-                  title: '题目内容',
+                  title: '题目内容（鼠标悬停预览全部内容）',
                   dataIndex: 'content',
                   key: 'content',
                   ellipsis: true,
                   render: (_: any, record: VariantItem) => {
-                    // 处理 content 字段，可能是字符串或对象 {text: '...'}
                     const content = record.content;
-                    
-                    if (typeof content === 'string') {
-                      return content;
-                    }
-                    
-                    if (content && typeof content === 'object') {
-                      const textValue = (content as any).text;
-                      if (typeof textValue === 'string' && textValue.trim()) {
-                        return textValue;
-                      }
-                      return JSON.stringify(content);
-                    }
-                    
-                    return '';
+                    const text = typeof content === 'string' 
+                      ? content 
+                      : (content as any)?.text ?? String(content ?? '');
+                    return (
+                      <Tooltip 
+                        title={<MathRenderer content={text} style={{ maxWidth: 400, maxHeight: 300, overflow: 'auto' }} />} 
+                        placement="topLeft"
+                        overlayStyle={{ maxWidth: 450 }}
+                      >
+                        <span>{text.slice(0, 50)}{text.length > 50 ? '...' : ''}</span>
+                      </Tooltip>
+                    );
                   },
                 },
                 {
@@ -1201,7 +1198,7 @@ export default function ProblemCreation() {
                   <Table
                     columns={[
                       { 
-                        title: '题目内容', 
+                        title: '题目内容（鼠标悬停预览全部内容）', 
                         dataIndex: 'content', 
                         key: 'content', 
                         ellipsis: true, 
