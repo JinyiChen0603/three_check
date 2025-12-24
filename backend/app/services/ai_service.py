@@ -1,355 +1,29 @@
 """
 AI 服务模块
-集成 DeepSeek Math-V2 用于题目创新和变形
+集成 GPT-4o 用于生成相似答案（评分流程4选1）
 """
 
-from typing import Dict, Any, Optional
-import httpx
-import re
-import logging
+from typing import Dict, Any, List
 
-from app.config import settings
-
-
-class DeepSeekService:
-    """DeepSeek Math-V2 服务（题目创新）- 通过 Canopy Wave"""
-    
-    def __init__(self):
-        # 使用 Canopy Wave API Key 而不是 DeepSeek 直接 API
-        self.api_key = settings.CANOPY_WAVE_API_KEY
-        self.model = "deepseek-ai/DeepSeek-Math-V2"
-        # Canopy Wave API endpoint (兼容 OpenAI 格式)
-        self.base_url = "https://api.canopywave.io/v1/chat/completions"
-    
-    async def generate_variant(
-        self,
-        original_problem: str,
-        original_answer: str,
-        original_explanation: Optional[str] = None,
-        custom_prompt: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        生成题目变体
-        
-        要求：新题目与原题目必须有明显不同，包括但不限于：
-        - 表述方式不同
-        - 数字不同
-        - 解答方法不同
-        
-        Args:
-            original_problem: 原题目内容
-            original_answer: 原题目答案
-            original_explanation: 原题目解析
-            custom_prompt: 用户自定义的变形prompt
-            
-        Returns:
-            Dict: {
-                "success": bool,
-                "new_problem": str,  # 新题目
-                "new_answer": str,   # 新答案
-                "new_explanation": str,  # 新解析
-                "changes": str,  # 变化说明
-                "error": str  # 错误信息（如果失败）
-            }
-        """
-        try:
-            # 构建prompt
-            if custom_prompt:
-                # 使用用户自定义prompt
-                prompt = f"""{custom_prompt}
-
-【原题目】
-{original_problem}
-
-【原答案】
-{original_answer}"""
-                
-                if original_explanation:
-                    prompt += f"\n\n【原解析】\n{original_explanation}"
-                
-                prompt += """
-
-请基于以上信息，生成一个新的题目。
-
-请按照以下格式返回：
-【新题目】
-（新题目的完整内容）
-
-【新答案】
-（新题目的标准答案）
-
-【新解析】
-（新题目的解题过程）
-
-【变化说明】
-（说明相比原题做了哪些创新和改变）"""
-            
-            else:
-                # 使用默认prompt
-                prompt = f"""请基于以下数学题目，创造一个新的变体题目。
-
-【原题目】
-{original_problem}
-
-【原答案】
-{original_answer}"""
-                
-                if original_explanation:
-                    prompt += f"\n\n【原解析】\n{original_explanation}"
-                
-                prompt += """
-
-要求：
-1. 新题目必须与原题目有明显不同，包括：
-   - 改变表述方式
-   - 改变具体数字
-   - 可以改变解答方法或考查角度
-2. 新题目需要保持与原题目相近的难度
-3. 新题目必须有明确的答案（不要证明题、判断题或选择题）
-4. 确保数学严谨性
-
-请按照以下格式返回：
-【新题目】
-（新题目的完整内容）
-
-【新答案】
-（新题目的标准答案）
-
-【新解析】
-（新题目的解题过程）
-
-【变化说明】
-（说明相比原题做了哪些创新和改变）"""
-            
-            # 调用DeepSeek API
-            async with httpx.AsyncClient(timeout=90.0) as client:
-                response = await client.post(
-                    self.base_url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "你是一位资深的数学题目创作专家，擅长基于已有题目创造新的变体题目。"
-                            },
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ],
-                        "max_tokens": 3000,
-                        "temperature": 0.8,  # 较高温度以增加创新性
-                    }
-                )
-                
-                response.raise_for_status()
-                result = response.json()
-                
-                # 解析返回结果
-                content = result["choices"][0]["message"]["content"]
-                
-                # 添加日志记录原始内容
-                logger = logging.getLogger(__name__)
-                logger.info(f"AI返回的原始内容: {content[:500]}...")  # 只记录前500字符
-                
-                parsed_result = self._parse_variant_result(content)
-                
-                # 验证解析结果
-                if not parsed_result.get("new_problem") or not parsed_result.get("new_answer"):
-                    logger.error(f"解析失败：new_problem={parsed_result.get('new_problem')}, new_answer={parsed_result.get('new_answer')}")
-                    logger.error(f"原始内容: {content}")
-                    return {
-                        "success": False,
-                        "error": f"AI返回内容格式不符合预期，无法解析。原始内容: {content[:200]}..."
-                    }
-                
-                return {
-                    "success": True,
-                    "raw_content": content,
-                    **parsed_result
-                }
-        
-        except httpx.HTTPError as e:
-            return {
-                "success": False,
-                "error": f"HTTP请求失败: {str(e)}"
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"生成变体失败: {str(e)}"
-            }
-    
-    def _parse_variant_result(self, content: str) -> Dict[str, str]:
-        """
-        解析变体生成结果
-        
-        Args:
-            content: AI返回的内容
-            
-        Returns:
-            Dict: 包含new_problem, new_answer, new_explanation, changes的字典
-        """
-        result = {
-            "new_problem": "",
-            "new_answer": "",
-            "new_explanation": "",
-            "changes": ""
-        }
-        
-        if not content or not content.strip():
-            return result
-        
-        # 尝试多种解析方式
-        # 方式1: 使用【】标记
-        sections = content.split("【")
-        
-        for section in sections:
-            if section.startswith("新题目】"):
-                content_part = section.replace("新题目】", "").strip()
-                if "【" in content_part:
-                    content_part = content_part.split("【")[0].strip()
-                if content_part:
-                    result["new_problem"] = content_part
-            
-            elif section.startswith("新答案】"):
-                content_part = section.replace("新答案】", "").strip()
-                if "【" in content_part:
-                    content_part = content_part.split("【")[0].strip()
-                if content_part:
-                    result["new_answer"] = content_part
-            
-            elif section.startswith("新解析】"):
-                content_part = section.replace("新解析】", "").strip()
-                if "【" in content_part:
-                    content_part = content_part.split("【")[0].strip()
-                if content_part:
-                    result["new_explanation"] = content_part
-            
-            elif section.startswith("变化说明】"):
-                content_part = section.replace("变化说明】", "").strip()
-                if content_part:
-                    result["changes"] = content_part
-        
-        # 方式2: 如果方式1失败，尝试使用其他标记
-        if not result["new_problem"]:
-            # 尝试查找可能的题目部分（在第一个【新答案】或【新解析】之前）
-            problem_patterns = [
-                r"【新题目】\s*(.*?)(?=【新答案】|【新解析】|$)",
-                r"题目[：:]\s*(.*?)(?=答案|解析|$)",
-                r"问题[：:]\s*(.*?)(?=答案|解析|$)",
-            ]
-            for pattern in problem_patterns:
-                match = re.search(pattern, content, re.DOTALL)
-                if match:
-                    result["new_problem"] = match.group(1).strip()
-                    break
-        
-        if not result["new_answer"]:
-            # 尝试查找答案部分
-            answer_patterns = [
-                r"【新答案】\s*(.*?)(?=【新解析】|【变化说明】|$)",
-                r"答案[：:]\s*(.*?)(?=解析|变化|$)",
-            ]
-            for pattern in answer_patterns:
-                match = re.search(pattern, content, re.DOTALL)
-                if match:
-                    result["new_answer"] = match.group(1).strip()
-                    break
-        
-        if not result["new_explanation"]:
-            # 尝试查找解析部分
-            explanation_patterns = [
-                r"【新解析】\s*(.*?)(?=【变化说明】|$)",
-                r"解析[：:]\s*(.*?)(?=变化|$)",
-            ]
-            for pattern in explanation_patterns:
-                match = re.search(pattern, content, re.DOTALL)
-                if match:
-                    result["new_explanation"] = match.group(1).strip()
-                    break
-        
-        return result
-    
-    async def generate_multiple_variants(
-        self,
-        original_problem: str,
-        original_answer: str,
-        original_explanation: Optional[str] = None,
-        count: int = 1,
-        custom_prompt: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        批量生成多个变体
-        
-        Args:
-            original_problem: 原题目
-            original_answer: 原答案
-            original_explanation: 原解析
-            count: 生成数量（最多10个）
-            custom_prompt: 自定义prompt
-            
-        Returns:
-            Dict: {
-                "success": bool,
-                "variants": List[Dict],  # 变体列表
-                "error": str
-            }
-        """
-        try:
-            if count > 10:
-                return {
-                    "success": False,
-                    "error": "单个母题最多生成10个变体"
-                }
-            
-            variants = []
-            for i in range(count):
-                result = await self.generate_variant(
-                    original_problem,
-                    original_answer,
-                    original_explanation,
-                    custom_prompt
-                )
-                
-                if result["success"]:
-                    variants.append({
-                        "index": i + 1,
-                        **result
-                    })
-                else:
-                    # 如果生成失败，记录错误
-                    variants.append({
-                        "index": i + 1,
-                        "success": False,
-                        "error": result.get("error", "未知错误")
-                    })
-            
-            return {
-                "success": True,
-                "count": len([v for v in variants if v.get("success", False)]),
-                "variants": variants
-            }
-        
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"批量生成失败: {str(e)}"
-            }
+from app.services.llm import gpt4o, LLMClient
 
 
 class GPTService:
-    """GPT-4o 服务（用于生成相似答案等）- 通过 OpenRouter"""
+    """
+    GPT-4o 服务（用于生成相似答案）
     
-    def __init__(self):
-        # 使用 OpenRouter API Key 而不是 OpenAI 直接 API
-        self.api_key = settings.OPENROUTER_API_KEY
-        self.model = "openai/gpt-4o"  # OpenRouter 格式
-        self.base_url = "https://openrouter.ai/api/v1/chat/completions"
+    用于评分流程的4选1功能：生成看起来合理但实际错误的答案
+    """
+    
+    def __init__(self, client: LLMClient = None):
+        """
+        初始化 GPT 服务
+        
+        Args:
+            client: LLMClient 实例，默认使用 gpt4o
+        """
+        self.client = client or gpt4o
+        self.model_name = "gpt-4o"
     
     async def generate_similar_answers(
         self,
@@ -368,12 +42,15 @@ class GPTService:
         Returns:
             Dict: {
                 "success": bool,
-                "similar_answers": List[str],  # 相似答案列表
+                "similar_answers": List[str],
                 "error": str
             }
         """
         try:
-            prompt = f"""请为以下数学题目生成{count}个相似但错误的答案。
+            messages = [
+                {
+                    "role": "user",
+                    "content": f"""请为以下数学题目生成{count}个相似但错误的答案。
 
 题目：
 {problem}
@@ -387,46 +64,35 @@ class GPTService:
 3. 每个答案单独一行
 
 请直接列出{count}个答案，每行一个："""
-            
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    self.base_url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {"role": "user", "content": prompt}
-                        ],
-                        "max_tokens": 500,
-                        "temperature": 0.9,  # 较高温度以增加多样性
-                    }
-                )
-                
-                response.raise_for_status()
-                result = response.json()
-                
-                content = result["choices"][0]["message"]["content"]
-                
-                # 解析答案列表
-                similar_answers = [
-                    line.strip()
-                    for line in content.split("\n")
-                    if line.strip() and not line.strip().startswith("#")
-                ]
-                
-                # 去除编号
-                similar_answers = [
-                    answer.split(".", 1)[-1].strip() if "." in answer else answer
-                    for answer in similar_answers
-                ]
-                
-                return {
-                    "success": True,
-                    "similar_answers": similar_answers[:count]
                 }
+            ]
+            
+            response = await self.client.chat(
+                messages=messages,
+                max_tokens=500,
+                temperature=0.9
+            )
+            
+            content = LLMClient.extract_content(response)
+            
+            # 解析答案列表
+            similar_answers = [
+                line.strip()
+                for line in content.split("\n")
+                if line.strip() and not line.strip().startswith("#")
+            ]
+            
+            # 去除编号
+            similar_answers = [
+                answer.split(".", 1)[-1].strip() if "." in answer else answer
+                for answer in similar_answers
+            ]
+            
+            return {
+                "success": True,
+                "similar_answers": similar_answers[:count],
+                "ai_model": self.model_name
+            }
         
         except Exception as e:
             return {
@@ -436,6 +102,4 @@ class GPTService:
 
 
 # 全局服务实例
-deepseek_service = DeepSeekService()
 gpt_service = GPTService()
-

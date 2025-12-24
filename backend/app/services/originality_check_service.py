@@ -1,35 +1,33 @@
 """
 原创性检测服务模块
-使用 GPT-4o Research 联网搜索判断题目原创性
+使用 GPT-5.2 Responses API + web_search 联网搜索判断题目原创性
 """
 
-from typing import Dict, Any
-import httpx
+from typing import Dict, Any, List
 
-from app.config import settings
+from app.services.llm import gpt52_research, ResponsesAPIClient
 
 
 class OriginalityCheckService:
-    """原创性检测服务 - 使用 GPT-4o Research 联网搜索"""#现改用
+    """
+    原创性检测服务 - 使用 GPT-5.2 Responses API + web_search
     
-    def __init__(self):
-        # 使用 OpenRouter API Key
-        self.openai_api_key = settings.OPENROUTER_API_KEY
-        self.ORIGINALITY_MODEL = settings.OPENAI_GPT_ORIGINALITY_MODEL  # OpenRouter 格式
-        self.base_url = "https://openrouter.ai/api/v1/chat/completions"
+    通过联网搜索判断题目是否在网络上已存在相同或高度相似的题目。
+    """
+    
+    def __init__(self, client: ResponsesAPIClient = None):
+        """
+        初始化原创性检测服务
+        
+        Args:
+            client: ResponsesAPIClient 实例，默认使用 gpt52_research
+        """
+        self.client = client or gpt52_research
+        self.model_name = "gpt-5.2-research"
     
     async def check_originality(self, problem: str) -> Dict[str, Any]:
-        
-        # #临时测试：直接返回通过
-        # return {
-        #     "success": True,
-        #     "is_original": True,
-        #     "details": "【测试模式】自动通过",
-        #     "verdict": "原创性合格（测试模式）",
-        #     "ai_model": "test_mode"
-        # }
         """
-        检查原创性（使用GPT-4o Research联网搜索）
+        检查原创性（使用 GPT-5.2 Responses API + web_search 联网搜索）
         
         Args:
             problem: 题目内容
@@ -41,6 +39,7 @@ class OriginalityCheckService:
                 "details": str,
                 "verdict": str,
                 "ai_model": str,
+                "citations": List[Dict],  # 引用来源
                 "error": str  # 错误信息（如果失败）
             }
         """
@@ -49,52 +48,93 @@ class OriginalityCheckService:
 
 请联网搜索，判断这道题目（不考虑具体的数字和语义环境）是否在网络上已经存在相同或高度相似的题目。
 
+搜索时请注意：
+1. 搜索题目的核心结构和解题思路
+2. 忽略具体数字的差异
+3. 关注题目类型和考查点是否相似
+
 题目：
 {problem}
 
 请按照以下格式回答：
 【判断结果】（原创/非原创）
-【相似度】（如果找到相似题目，说明相似度）
+【相似度】（如果找到相似题目，说明相似程度：高度相似/部分相似/无相似）
+【搜索发现】（列出搜索到的相关题目或来源）
 【依据】（说明判断依据）"""
             
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    self.base_url,
-                    headers={
-                        "Authorization": f"Bearer {self.openai_api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": self.ORIGINALITY_MODEL,
-                        "messages": [
-                            {"role": "user", "content": prompt}
-                        ],
-                        "max_tokens": 1000,
-                        "temperature": 0.3,
-                    }
-                )
-                
-                response.raise_for_status()
-                result = response.json()
-                
-                content = result["choices"][0]["message"]["content"]
-                
-                # 简单解析判断结果
-                is_original = "原创" in content and "非原创" not in content
-                
+            # 使用 Responses API + web_search 进行联网搜索
+            response = await self.client.web_search(
+                query=prompt,
+                reasoning_effort="medium"
+            )
+            
+            # 提取输出文本
+            content = ResponsesAPIClient.extract_output_text(response)
+            
+            # 提取引用来源
+            citations = ResponsesAPIClient.extract_citations(response)
+            
+            if not content:
                 return {
-                    "success": True,
-                    "is_original": is_original,
-                    "details": content,
-                    "verdict": "原创性合格" if is_original else "可能存在相似题目",
-                    "ai_model": self.ORIGINALITY_MODEL
+                    "success": False,
+                    "error": "AI 返回内容为空"
                 }
+            
+            # 解析判断结果
+            is_original = self._parse_originality_result(content)
+            
+            return {
+                "success": True,
+                "is_original": is_original,
+                "details": content,
+                "verdict": "原创性合格" if is_original else "可能存在相似题目",
+                "ai_model": self.model_name,
+                "citations": citations
+            }
         
         except Exception as e:
             return {
                 "success": False,
                 "error": f"原创性检测失败: {str(e)}"
             }
+    
+    def _parse_originality_result(self, content: str) -> bool:
+        """
+        解析原创性判断结果
+        
+        Args:
+            content: AI 返回的内容
+            
+        Returns:
+            bool: 是否原创
+        """
+        content_lower = content.lower()
+        
+        # 检查判断结果部分
+        if "【判断结果】" in content:
+            # 提取判断结果部分
+            start = content.find("【判断结果】")
+            end = content.find("【", start + 1) if "【" in content[start + 1:] else len(content)
+            result_section = content[start:end]
+            
+            # 判断是否为原创
+            if "非原创" in result_section or "不原创" in result_section:
+                return False
+            if "原创" in result_section:
+                return True
+        
+        # 回退：检查相似度部分
+        if "高度相似" in content:
+            return False
+        
+        # 回退：简单判断
+        if "非原创" in content or "不原创" in content:
+            return False
+        if "原创" in content:
+            return True
+        
+        # 默认认为原创（保守策略）
+        return True
 
 
 # 全局服务实例

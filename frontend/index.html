@@ -1,16 +1,16 @@
 <!doctype html>
 <html lang="en">
-<script>
-  // Polyfill for crypto.randomUUID - 必须在最前面执行
-  if (!crypto.randomUUID) {
-    crypto.randomUUID = function randomUUID() {
-      return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
-        (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
-      );
-    };
-  }
-</script>
   <head>
+    <script>
+      // Polyfill for crypto.randomUUID - 必须在最前面执行
+      if (!crypto.randomUUID) {
+        crypto.randomUUID = function randomUUID() {
+          return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+            (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+          );
+        };
+      }
+    </script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
