@@ -17,10 +17,9 @@ export default function MathRenderer({ content, className, style }: MathRenderer
   const rendered = useMemo(() => {
     if (!content) return '';
     
-    // 先处理换行符，将 \n 转换为 <br>
-    let result = content.replace(/\n/g, '<br>');
+    let result = content;
     
-    // 处理块级公式 $$...$$
+    // 1. 先处理块级公式 $$...$$ (内部换行符由 KaTeX 处理)
     result = result.replace(/\$\$([\s\S]+?)\$\$/g, (_, formula) => {
       try {
         return `<div class="katex-block" style="text-align: center; margin: 12px 0;">${katex.renderToString(formula.trim(), { 
@@ -32,7 +31,7 @@ export default function MathRenderer({ content, className, style }: MathRenderer
       }
     });
 
-    // 处理行内公式 $...$（注意避免匹配已经处理过的块级公式）
+    // 2. 再处理行内公式 $...$
     result = result.replace(/\$([^$\n]+?)\$/g, (_, formula) => {
       try {
         return katex.renderToString(formula.trim(), { 
@@ -43,6 +42,9 @@ export default function MathRenderer({ content, className, style }: MathRenderer
         return `<code style="color: #d32f2f;">${formula}</code>`;
       }
     });
+
+    // 3. 最后处理换行符
+    result = result.replace(/\n/g, '<br>');
 
     return result;
   }, [content]);

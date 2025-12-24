@@ -18,9 +18,12 @@ export function ProblemDisplay({
         <div>
           <Text strong>题目内容：</Text>
           <MathRenderer 
-            content={typeof problemData.problem_content === 'string'
-              ? problemData.problem_content
-              : JSON.stringify(problemData.problem_content, null, 2)}
+            content={
+              typeof problemData.problem_content === 'string'
+                ? problemData.problem_content
+                : problemData.problem_content?.text 
+                  ?? JSON.stringify(problemData.problem_content, null, 2)
+            }
             style={{ marginTop: 8, fontSize: 16 }}
           />
         </div>
