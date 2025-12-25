@@ -120,9 +120,8 @@ Please provide your review in Chinese using the following format:
             ]
             
             response = await self.client.chat(
-                messages=messages,
-                temperature=0.3,  # 低温度，更稳定的输出
-                max_completion_tokens=2000  # GPT-5.2 使用 max_completion_tokens 而不是 max_tokens
+                messages=messages
+                # GPT-5.2 不支持自定义 temperature，使用默认值
             )
             
             # 提取内容

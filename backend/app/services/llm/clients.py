@@ -56,7 +56,7 @@ class LLMClient:
     async def chat(
         self, 
         messages: List[dict[str, str]], 
-        temperature: float = 0.8, 
+        temperature: float = None,  # None 时不发送，GPT-5.2 + reasoning_effort 时必须为 None
         max_tokens: int = None,
         **kwargs
     ) -> Dict[str, Any]:
@@ -68,7 +68,7 @@ class LLMClient:
             messages: 消息列表
                 格式：[{"role": "system", "content": "你是一位自身的数学题目创作专家"}, {"role": "user", "content": "请创作一道数学题目"}]
                 role可以是："system", "user", "assistant"
-            temperature: 温度参数，越低越稳定
+            temperature: 温度参数，None表示不发送（GPT-5.2 + reasoning_effort 时必须为 None）
             max_tokens: 最大tokens数，None表示不限制 
             **kwargs: 其他参数，如：
                 - thinking: {"type": "enabled"}  # 智谱 Thinking 模式
@@ -91,9 +91,12 @@ class LLMClient:
         request_body = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature,
             **merged_params
         }
+
+        # 只有设置了 temperature 时，才添加到请求体（GPT-5.2 + reasoning_effort 时不能设置）
+        if temperature is not None:
+            request_body["temperature"] = temperature
 
         # 只有设置了 max_tokens 时，才添加到请求体
         if max_tokens is not None:
