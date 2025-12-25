@@ -368,6 +368,15 @@ gpt52_with_reasoning = LLMClient(
     default_extra_params={"reasoning_effort": "low"}
 )
 
+# GPT-4o 通用模型（用于答案对比等简单任务）
+gpt4o = LLMClient(
+    api_key=settings.OPENAI_API_KEY,
+    base_url="https://api.openai.com/v1/chat/completions",
+    model="gpt-4o",
+    timeout=300.0,
+    default_extra_params={}
+)
+
 
 # ==================== Responses API 客户端（支持 web_search 等工具） ====================
 

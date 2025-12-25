@@ -43,8 +43,9 @@ export default function MathRenderer({ content, className, style }: MathRenderer
       }
     });
 
-    // 3. 最后处理换行符
-    result = result.replace(/\n/g, '<br>');
+    // 3. 最后处理换行符（避免替换 HTML 标签属性内的换行符）
+    // 使用更安全的方式：只替换不在 < > 标签内的换行符
+    result = result.replace(/\n(?![^<]*>)/g, '<br>');
 
     return result;
   }, [content]);

@@ -485,8 +485,7 @@ async def generate_variant(
             original_answer=problem_answer,
             modification_requirement=request.custom_prompt or "",
             max_tokens=10000,
-            temperature=0.7,
-            use_stream=True
+            temperature=0.7
         )
         
         # 验证返回的数据

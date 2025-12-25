@@ -3,6 +3,7 @@
 使用 GPT-5.2 Responses API + web_search 联网搜索判断数学严谨性
 """
 
+import traceback
 from typing import Dict, Any, Optional, List
 
 from app.services.llm import gpt52_research, ResponsesAPIClient
@@ -115,9 +116,26 @@ class RigorCheckService:
             }
         
         except Exception as e:
+            # 打印详细错误信息到控制台
+            error_msg = str(e) if str(e) else repr(e)
+            print(f"[RigorCheck] 严谨性检测失败!")
+            print(f"[RigorCheck] 异常类型: {type(e).__name__}")
+            print(f"[RigorCheck] 异常信息: {error_msg}")
+            print(f"[RigorCheck] 完整堆栈:")
+            traceback.print_exc()
+            
+            # 如果是 HTTP 错误，尝试提取更多信息
+            if hasattr(e, 'response'):
+                try:
+                    resp = e.response
+                    print(f"[RigorCheck] HTTP 状态码: {resp.status_code}")
+                    print(f"[RigorCheck] HTTP 响应内容: {resp.text[:1000]}")
+                except:
+                    pass
+            
             return {
                 "success": False,
-                "error": f"严谨性检测失败: {str(e)}"
+                "error": f"严谨性检测失败: {type(e).__name__}: {error_msg}"
             }
     
     def _parse_rigor_result(self, content: str) -> bool:
