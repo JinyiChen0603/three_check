@@ -472,3 +472,38 @@ class ValidationRecord(Base):
     def __repr__(self):
         return f"<ValidationRecord(id={self.id}, problem_id={self.problem_id}, type={self.validation_type}, passed={self.is_passed})>"
 
+
+class ValidatedProblemExport(Base):
+    """已验证题目导出记录表"""
+    __tablename__ = "validated_problem_exports"
+    
+    # 基础字段
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    
+    # 题目信息
+    title = Column(String(200), nullable=True)  # 自动生成，可选
+    content = Column(Text, nullable=False)  # 题目内容
+    answer = Column(Text, nullable=False)  # 标准答案
+    explanation = Column(Text, nullable=False)  # 解析（必填）
+    category = Column(Enum(MaterialCategory), nullable=True)  # 已移除，可选
+    
+    # 难度验证结果
+    difficulty_validation = Column(JSON, nullable=True)  # 难度验证结果
+    
+    # 二维质检结果
+    originality_check = Column(JSON, nullable=False)  # 原创性检测结果
+    rigor_check = Column(JSON, nullable=False)  # 严谨性检测结果
+    
+    # 状态
+    is_exported = Column(Boolean, default=False)  # 是否已导出
+    exported_at = Column(DateTime, nullable=True)  # 导出时间
+    
+    # 时间戳
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    
+    # 关系
+    user = relationship("User", backref="validated_exports")
+    
+    def __repr__(self):
+        return f"<ValidatedProblemExport(id={self.id}, title={self.title}, is_exported={self.is_exported})>"

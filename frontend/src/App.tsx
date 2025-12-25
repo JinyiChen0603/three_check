@@ -22,6 +22,7 @@ import Review from './pages/Review';
 import ReviewHistory from './pages/ReviewHistory';
 import Problem from './pages/Problem';
 import MyVariants from './pages/MyVariants';
+import TotalPage from './pages/totalpage';
 
 // 创建 React Query 客户端
 const queryClient = new QueryClient({
@@ -91,6 +92,10 @@ function App() {
               <Route 
                 path="admin" 
                 element={<Admin />} 
+              />
+              <Route 
+                path="totalpage" 
+                element={<TotalPage />} 
               />
             </Route>
 

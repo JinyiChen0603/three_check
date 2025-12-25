@@ -22,7 +22,7 @@ from app.models import (
     Problem, ProblemStatus, ProblemSourceType,
     ProblemValidationStatus, HumanReviewStatus, MaterialCategory,
     ValidationRecord, Transaction, TransactionType, TransactionStatus,
-    Task, TaskType, TaskStatus
+    Task, TaskType, TaskStatus, ValidatedProblemExport
 )
 from app.api.deps import get_current_user
 from app.services.ocr_service import ocr_service
@@ -32,7 +32,9 @@ from app.services.originality_check_service import originality_check_service
 from app.services.rigor_check_service import rigor_check_service
 from app.services.deep_transformer_service import deep_transformer_service
 from app.services.problem_storage import get_problem_storage_service
+from app.services.export_service import export_service
 from app.config import settings
+from fastapi.responses import StreamingResponse
 
 
 router = APIRouter()
@@ -1052,4 +1054,360 @@ async def get_problem(
     except RuntimeError:
         # MongoDB未配置，返回PostgreSQL数据（兼容模式）
         return problem_meta
+
+
+# ==================== 新增：题目验证和导出相关API ====================
+
+def _safe_bool(value) -> bool:
+    """
+    安全地将值转换为布尔值
+    处理可能的字符串 "true"/"false" 或 "True"/"False"
+    
+    Args:
+        value: 要转换的值
+        
+    Returns:
+        bool: 转换后的布尔值
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ("true", "1", "yes")
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return False
+
+
+@router.post("/validate-and-save", summary="验证并保存题目（用于批量导出）")
+async def validate_and_save_problem(
+    problem: str = Form(...),
+    answer: str = Form(...),
+    explanation: str = Form(...),
+    include_difficulty: bool = Form(False),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    验证题目并保存到导出列表
+    
+    流程：
+    1. 可选：验证难度
+    2. 二维质检（原创性 + 严谨性）
+    3. 保存到待导出列表
+    
+    不会创建正式的Problem记录，只保存到ValidatedProblemExport表
+    """
+    try:
+        # 1. 验证难度（可选）
+        difficulty_result = None
+        if include_difficulty:
+            try:
+                difficulty_result = await validation_service.validate_difficulty(
+                    problem=problem,
+                    answer=answer,
+                    explanation=explanation,
+                    attempts=settings.VALIDATION_ATTEMPTS
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"难度验证失败: {str(e)}")
+                difficulty_result = {"success": False, "error": str(e)}
+        
+        # 2. 二维质检
+        try:
+            check_result = await quality_check_service.two_dimension_check(
+                problem=problem,
+                answer=answer,
+                explanation=explanation
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"质检失败: {str(e)}")
+            check_result = {
+                "success": False,
+                "all_passed": False,
+                "originality": {"success": False, "error": f"质检异常: {str(e)}"},
+                "rigor": {"success": False, "error": f"质检异常: {str(e)}"}
+            }
+        
+        # 即使质检失败也保存，用于记录 AI 分析结果供参考
+        # 安全地获取质检结果，如果失败则使用空字典
+        originality_check = check_result.get("originality", {"success": False, "error": "质检异常"})
+        rigor_check = check_result.get("rigor", {"success": False, "error": "质检异常"})
+        
+        # 3. 保存到导出列表
+        # 生成默认标题：取题目内容的前50个字符
+        default_title = problem[:50] + "..." if len(problem) > 50 else problem
+        
+        validated_problem = ValidatedProblemExport(
+            user_id=current_user.id,
+            title=default_title,
+            content=problem,
+            answer=answer,
+            explanation=explanation,
+            category=None,
+            difficulty_validation=difficulty_result,
+            originality_check=originality_check,
+            rigor_check=rigor_check,
+            is_exported=False
+        )
+        
+        db.add(validated_problem)
+        await db.commit()
+        await db.refresh(validated_problem)
+        
+        # 安全地获取 all_passed 状态
+        all_passed = check_result.get("all_passed", False)
+        
+        return {
+            "success": True,
+            "id": validated_problem.id,
+            "all_passed": all_passed,
+            "message": "题目已保存到导出列表" if all_passed else "题目未通过质检但已保存",
+            **check_result
+        }
+    
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"保存题目失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"保存题目失败: {str(e)}"
+        )
+
+
+@router.get("/export-validated", summary="导出已验证的题目到Excel")
+async def export_validated_problems(
+    only_passed: int = 1,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    导出当前用户验证过的题目到Excel
+    
+    Args:
+        only_passed: 是否只导出二维质检都通过的题目 (0=全部导出, 1=仅通过的)
+    
+    Returns:
+        Excel文件下载
+    """
+    try:
+        # 查询待导出的题目
+        query = select(ValidatedProblemExport).where(
+            ValidatedProblemExport.user_id == current_user.id,
+            ValidatedProblemExport.is_exported == False
+        ).order_by(ValidatedProblemExport.created_at.asc())
+        
+        result = await db.execute(query)
+        validated_problems = result.scalars().all()
+        
+        if not validated_problems:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="没有待导出的题目"
+            )
+        
+        # 转换为字典列表
+        problems_data = []
+        for p in validated_problems:
+            try:
+                # 判断是否通过 - 使用 _safe_bool 处理可能的字符串 "true"/"false"
+                originality_passed = _safe_bool(p.originality_check.get("is_original", False)) if p.originality_check else False
+                rigor_passed = _safe_bool(p.rigor_check.get("is_rigorous", False)) if p.rigor_check else False
+                all_passed = originality_passed and rigor_passed
+                
+                # 如果只导出通过的题目，跳过未通过的 (only_passed: 1=仅通过, 0=全部)
+                if only_passed == 1 and not all_passed:
+                    continue
+                
+                problems_data.append({
+                    "title": p.title,
+                    "content": p.content,
+                    "answer": p.answer,
+                    "explanation": p.explanation,
+                    "category": p.category.value if p.category else "未分类",
+                    "difficulty_validation": p.difficulty_validation,
+                    "originality_check": p.originality_check,
+                    "rigor_check": p.rigor_check,
+                    "created_at": p.created_at.strftime("%Y-%m-%d %H:%M:%S") if p.created_at else None
+                })
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"处理导出题目失败 {p.id}: {str(e)}")
+                continue
+        
+        if not problems_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="没有通过质检的题目可导出"
+            )
+        
+        # 生成Excel
+        excel_file = export_service.export_to_excel(problems_data)
+        
+        # 标记为已导出
+        for p in validated_problems:
+            p.is_exported = True
+            p.exported_at = datetime.utcnow()
+        await db.commit()
+        
+        # 返回文件下载
+        filename = f"验证题目_{current_user.username}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        return StreamingResponse(
+            excel_file,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"导出题目失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"导出题目失败: {str(e)}"
+        )
+
+
+@router.delete("/clear-export-list", summary="清空导出列表")
+async def clear_export_list(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    清空当前用户的待导出列表
+    """
+    try:
+        result = await db.execute(
+            select(ValidatedProblemExport).where(
+                ValidatedProblemExport.user_id == current_user.id,
+                ValidatedProblemExport.is_exported == False
+            )
+        )
+        problems = result.scalars().all()
+        
+        for p in problems:
+            await db.delete(p)
+        
+        await db.commit()
+        
+        return {
+            "success": True,
+            "message": f"已清空 {len(problems)} 道题目"
+        }
+    
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"清空列表失败: {str(e)}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"清空列表失败: {str(e)}"
+        )
+
+
+@router.get("/export-list", summary="查看待导出列表")
+async def get_export_list(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    查看当前用户的待导出题目列表
+    """
+    try:
+        result = await db.execute(
+            select(ValidatedProblemExport).where(
+                ValidatedProblemExport.user_id == current_user.id,
+                ValidatedProblemExport.is_exported == False
+            ).order_by(ValidatedProblemExport.created_at.desc())
+        )
+        problems = result.scalars().all()
+        
+        # 统计通过情况
+        passed_count = 0
+        for p in problems:
+            originality_passed = _safe_bool(p.originality_check.get("is_original", False)) if p.originality_check else False
+            rigor_passed = _safe_bool(p.rigor_check.get("is_rigorous", False)) if p.rigor_check else False
+            if originality_passed and rigor_passed:
+                passed_count += 1
+        
+        # 构建返回数据，添加更安全的错误处理
+        problems_list = []
+        for p in problems:
+            try:
+                # 安全地提取难度检测结果
+                difficulty_passed = None
+                if p.difficulty_validation and isinstance(p.difficulty_validation, dict):
+                    difficulty_passed = _safe_bool(p.difficulty_validation.get("is_passed", None)) if p.difficulty_validation.get("is_passed") is not None else None
+                
+                # 安全地提取原创性检测结果
+                originality_passed = False
+                if p.originality_check and isinstance(p.originality_check, dict):
+                    originality_passed = _safe_bool(p.originality_check.get("is_original", False))
+                
+                # 安全地提取严谨性检测结果
+                rigor_passed = False
+                if p.rigor_check and isinstance(p.rigor_check, dict):
+                    rigor_passed = _safe_bool(p.rigor_check.get("is_rigorous", False))
+                
+                # 安全地处理时间
+                created_at_str = None
+                if p.created_at:
+                    try:
+                        created_at_str = p.created_at.isoformat()
+                    except:
+                        created_at_str = str(p.created_at)
+                
+                # 安全处理category
+                category_str = "未分类"
+                if p.category:
+                    try:
+                        category_str = p.category.value if hasattr(p.category, 'value') else str(p.category)
+                    except:
+                        category_str = "未分类"
+                
+                problems_list.append({
+                    "id": p.id,
+                    "title": p.title or "无标题",
+                    "category": category_str,
+                    "difficulty_passed": difficulty_passed,
+                    "originality_passed": originality_passed,
+                    "rigor_passed": rigor_passed,
+                    "created_at": created_at_str
+                })
+            except Exception as e:
+                # 如果单条记录有问题，记录错误但继续处理其他记录
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"处理题目记录失败 {p.id}: {str(e)}")
+                continue
+        
+        return {
+            "total": len(problems_list),
+            "passed": passed_count,
+            "failed": len(problems_list) - passed_count,
+            "problems": problems_list
+        }
+    
+    except Exception as e:
+        # 捕获所有异常（包括表不存在、数据库连接失败等）
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"加载导出列表失败: {str(e)}")
+        
+        # 返回空数据而不是抛出异常
+        return {
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "problems": []
+        }
 

@@ -27,6 +27,7 @@ import {
   WalletOutlined,
   HistoryOutlined,
   CopyOutlined,
+  FileExcelOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/useAuthStore';
 import { UserRole } from '../config/constants';
@@ -97,6 +98,11 @@ export default function MainLayout() {
       key: '/my-variants',
       icon: <CopyOutlined />,
       label: '我的变体题目',
+    },
+    {
+      key: '/totalpage',
+      icon: <FileExcelOutlined />,
+      label: '题目验证导出',
     },
     {
       key: '/review',

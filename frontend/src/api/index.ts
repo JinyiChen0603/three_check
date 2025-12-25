@@ -203,6 +203,50 @@ export const problemApi = {
     const response = await apiClient.get(`/problems/${problemId}`);
     return response.data;
   },
+
+  // ==================== 新增：题目验证和导出相关API ====================
+  
+  // 验证并保存题目到导出列表
+  validateAndSave: async (data: {
+    problem: string;
+    answer: string;
+    explanation: string;
+    include_difficulty?: boolean;
+  }) => {
+    const formData = new FormData();
+    formData.append('problem', data.problem);
+    formData.append('answer', data.answer);
+    formData.append('explanation', data.explanation);
+    formData.append('include_difficulty', data.include_difficulty ? 'true' : 'false');
+    
+    const response = await apiClient.post('/problems/validate-and-save', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  // 获取待导出列表
+  getExportList: async () => {
+    const response = await apiClient.get('/problems/export-list');
+    return response.data;
+  },
+
+  // 导出验证题目到Excel
+  exportValidated: async (onlyPassed: boolean = true) => {
+    const response = await apiClient.get('/problems/export-validated', {
+      params: { only_passed: onlyPassed },
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  // 清空导出列表
+  clearExportList: async () => {
+    const response = await apiClient.delete('/problems/clear-export-list');
+    return response.data;
+  },
 };
 
 // 评分相关 API
