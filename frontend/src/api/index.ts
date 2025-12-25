@@ -132,6 +132,36 @@ export const problemApi = {
     return response.data;
   },
 
+  // 单独检测难度
+  checkDifficulty: async (content: any, answer: string, explanation?: string) => {
+    const response = await apiClient.post('/problems/check-difficulty', {
+      content: typeof content === 'string' ? content : JSON.stringify(content),
+      answer,
+      explanation,
+    });
+    return response.data;
+  },
+
+  // 单独检测原创性
+  checkOriginality: async (content: any, answer: string, explanation?: string) => {
+    const response = await apiClient.post('/problems/check-originality', {
+      content: typeof content === 'string' ? content : JSON.stringify(content),
+      answer,
+      explanation,
+    });
+    return response.data;
+  },
+
+  // 单独检测严谨性
+  checkRigor: async (content: any, answer: string, explanation?: string) => {
+    const response = await apiClient.post('/problems/check-rigor', {
+      content: typeof content === 'string' ? content : JSON.stringify(content),
+      answer,
+      explanation,
+    });
+    return response.data;
+  },
+
   // 获取我的题目列表
   getMyProblems: async (status?: string) => {
     const response = await apiClient.get('/problems/my-problems', {

@@ -3,9 +3,9 @@
 整合三个独立的检测服务：难度、原创性、严谨性
 
 检测流程：
-1. 难度检测：智谱 GLM-4.6 对抗验证（16次，≤8次正确）+ GPT-5.2 答案校验
+1. 难度检测：豆包对抗验证（16次，≤8次正确）+ GPT-4o 答案校验
 2. 原创性检测：GPT-5.2 Responses API + web_search
-3. 严谨性检测：GPT-5.2 Responses API + web_search
+3. 严谨性检测：GPT-5.2（专注于竞赛题目的命题严谨性）
 """
 
 import asyncio
@@ -52,9 +52,9 @@ class QualityCheckService:
     质量检查协调服务（三维度）
     
     整合三个独立的检测服务：
-    1. 难度检测 - DifficultyCheckService (智谱 GLM-4.6 + GPT-5.2 答案校验)
+    1. 难度检测 - DifficultyCheckService (豆包 + GPT-4o 答案校验)
     2. 原创性检测 - OriginalityCheckService (GPT-5.2 Responses API + web_search)
-    3. 严谨性检测 - RigorCheckService (GPT-5.2 Responses API + web_search)
+    3. 严谨性检测 - RigorCheckService (GPT-5.2，专注于竞赛题目命题严谨性)
     """
     
     def __init__(self):
@@ -72,9 +72,9 @@ class QualityCheckService:
         """
         完整的质量检查（三个维度）
         
-        1. 难度检测：智谱 GLM-4.6 对抗验证（16次，≤8次正确）+ GPT-5.2 答案校验
+        1. 难度检测：豆包对抗验证（16次，≤8次正确）+ GPT-4o 答案校验
         2. 原创性检测：GPT-5.2 Responses API + web_search 联网搜索
-        3. 严谨性检测：GPT-5.2 Responses API + web_search 联网搜索
+        3. 严谨性检测：GPT-5.2（专注于竞赛题目的命题严谨性）
         
         Args:
             problem: 题目内容

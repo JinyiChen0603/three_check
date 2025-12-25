@@ -27,6 +27,9 @@ from app.models import (
 from app.api.deps import get_current_user
 from app.services.ocr_service import ocr_service
 from app.services.validation_service import validation_service, quality_check_service
+from app.services.difficulty_check_service import difficulty_check_service
+from app.services.originality_check_service import originality_check_service
+from app.services.rigor_check_service import rigor_check_service
 from app.services.deep_transformer_service import deep_transformer_service
 from app.services.problem_storage import get_problem_storage_service
 from app.config import settings
@@ -564,6 +567,81 @@ async def quality_check_content(
             if check_result["all_passed"]
             else "❌ 质检未通过，请根据反馈修改题目或选择放弃。"
         )
+    }
+
+
+# ====================== 独立质检 API ======================
+
+@router.post("/check-difficulty", summary="单独检测难度")
+async def check_difficulty_only(
+    request: QualityCheckContentRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    单独检测题目难度（豆包对抗验证 + GPT-4o 答案校验）
+    比完整质检更快，适合单独调试难度
+    """
+    problem_content = request.content
+    if isinstance(problem_content, dict):
+        problem_content = json.dumps(problem_content, ensure_ascii=False)
+    
+    result = await difficulty_check_service.validate_difficulty(
+        problem=problem_content,
+        answer=request.answer,
+        explanation=request.explanation or ""
+    )
+    
+    return {
+        "success": result.get("success", False),
+        "difficulty": result,
+        "is_passed": result.get("is_passed", False),
+    }
+
+
+@router.post("/check-originality", summary="单独检测原创性")
+async def check_originality_only(
+    request: QualityCheckContentRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    单独检测题目原创性（GPT-5.2 Responses API + web_search）
+    """
+    problem_content = request.content
+    if isinstance(problem_content, dict):
+        problem_content = json.dumps(problem_content, ensure_ascii=False)
+    
+    result = await originality_check_service.check_originality(problem=problem_content)
+    
+    return {
+        "success": result.get("success", False),
+        "originality": result,
+        "is_original": result.get("is_original", False),
+    }
+
+
+@router.post("/check-rigor", summary="单独检测严谨性")
+async def check_rigor_only(
+    request: QualityCheckContentRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    单独检测数学严谨性（GPT-5.2）
+    检查题目表述、条件完整性、答案正确性等
+    """
+    problem_content = request.content
+    if isinstance(problem_content, dict):
+        problem_content = json.dumps(problem_content, ensure_ascii=False)
+    
+    result = await rigor_check_service.check_rigor(
+        problem=problem_content,
+        answer=request.answer,
+        explanation=request.explanation or ""
+    )
+    
+    return {
+        "success": result.get("success", False),
+        "rigor": result,
+        "is_rigorous": result.get("is_rigorous", False),
     }
 
 

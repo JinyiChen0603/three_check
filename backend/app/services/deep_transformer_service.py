@@ -32,7 +32,7 @@ class DeepTransformerService:
         original_problem: str,
         original_answer: str,
         modification_requirement: str,
-        max_tokens: int = 8000,
+        max_tokens: int = None,
         temperature: float = 0.7,
         max_rounds: int = 20
     ) -> str:
@@ -103,8 +103,8 @@ class DeepTransformerService:
         original_explanation: str,
         original_answer: str,
         modification_requirement: str = "",
-        max_tokens: int = 10000,
-        temperature: float = 0.7,
+        max_tokens: int = None,
+        temperature: float = 1.5,
         max_rounds: int = 20
     ) -> Dict[str, Any]:
         """
@@ -220,7 +220,7 @@ class DeepTransformerService:
         original_answer: str,
         modification_requirement: str = "",
         count: int = 1,
-        max_tokens: int = 10000,
+        max_tokens: int = None,
         temperature: float = 0.7,
         max_rounds: int = 20
     ) -> Dict[str, Any]:

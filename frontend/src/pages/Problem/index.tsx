@@ -608,6 +608,156 @@ export default function ProblemCreation() {
     }
   };
 
+  // ====================== 独立质检函数 ======================
+
+  // 难度检测
+  const handleDifficultyCheck = async (parentId: number, variant: VariantItem) => {
+    const contentText = typeof variant.content === 'string'
+      ? variant.content
+      : (variant.content as any)?.text ?? JSON.stringify(variant.content ?? '');
+
+    setVariantsMap((prev) => ({
+      ...prev,
+      [parentId]: (prev[parentId] || []).map((v) =>
+        v.key === variant.key ? { ...v, difficultyCheckStatus: 'checking' } : v
+      ),
+    }));
+
+    try {
+      const result = await problemApi.checkDifficulty(contentText, variant.answer || '', variant.explanation);
+      const passed = result.is_passed === true;
+
+      setVariantsMap((prev) => ({
+        ...prev,
+        [parentId]: (prev[parentId] || []).map((v) =>
+          v.key === variant.key
+            ? {
+                ...v,
+                difficultyCheckStatus: passed ? 'passed' : 'failed',
+                quality_check: { ...v.quality_check, difficulty: result.difficulty },
+              }
+            : v
+        ),
+      }));
+
+      if (passed) {
+        message.success('✅ 难度检测通过！');
+      } else {
+        message.warning('⚠️ 难度检测未通过');
+      }
+    } catch (error: any) {
+      setVariantsMap((prev) => ({
+        ...prev,
+        [parentId]: (prev[parentId] || []).map((v) =>
+          v.key === variant.key ? { ...v, difficultyCheckStatus: 'failed' } : v
+        ),
+      }));
+      message.error('难度检测失败: ' + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  // 原创性检测
+  const handleOriginalityCheck = async (parentId: number, variant: VariantItem) => {
+    const contentText = typeof variant.content === 'string'
+      ? variant.content
+      : (variant.content as any)?.text ?? JSON.stringify(variant.content ?? '');
+
+    setVariantsMap((prev) => ({
+      ...prev,
+      [parentId]: (prev[parentId] || []).map((v) =>
+        v.key === variant.key ? { ...v, originalityCheckStatus: 'checking' } : v
+      ),
+    }));
+
+    try {
+      const result = await problemApi.checkOriginality(contentText, variant.answer || '', variant.explanation);
+      const passed = result.is_original === true;
+
+      setVariantsMap((prev) => ({
+        ...prev,
+        [parentId]: (prev[parentId] || []).map((v) =>
+          v.key === variant.key
+            ? {
+                ...v,
+                originalityCheckStatus: passed ? 'passed' : 'failed',
+                quality_check: { ...v.quality_check, originality: result.originality },
+              }
+            : v
+        ),
+      }));
+
+      if (passed) {
+        message.success('✅ 原创性检测通过！');
+      } else {
+        message.warning('⚠️ 原创性检测未通过');
+      }
+    } catch (error: any) {
+      setVariantsMap((prev) => ({
+        ...prev,
+        [parentId]: (prev[parentId] || []).map((v) =>
+          v.key === variant.key ? { ...v, originalityCheckStatus: 'failed' } : v
+        ),
+      }));
+      message.error('原创性检测失败: ' + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  // 严谨性检测
+  const handleRigorCheck = async (parentId: number, variant: VariantItem) => {
+    const contentText = typeof variant.content === 'string'
+      ? variant.content
+      : (variant.content as any)?.text ?? JSON.stringify(variant.content ?? '');
+
+    setVariantsMap((prev) => ({
+      ...prev,
+      [parentId]: (prev[parentId] || []).map((v) =>
+        v.key === variant.key ? { ...v, rigorCheckStatus: 'checking' } : v
+      ),
+    }));
+
+    try {
+      const result = await problemApi.checkRigor(contentText, variant.answer || '', variant.explanation);
+      const passed = result.is_rigorous === true;
+
+      setVariantsMap((prev) => ({
+        ...prev,
+        [parentId]: (prev[parentId] || []).map((v) =>
+          v.key === variant.key
+            ? {
+                ...v,
+                rigorCheckStatus: passed ? 'passed' : 'failed',
+                quality_check: { ...v.quality_check, rigor: result.rigor },
+              }
+            : v
+        ),
+      }));
+
+      if (passed) {
+        message.success('✅ 严谨性检测通过！');
+      } else {
+        message.warning('⚠️ 严谨性检测未通过');
+      }
+    } catch (error: any) {
+      setVariantsMap((prev) => ({
+        ...prev,
+        [parentId]: (prev[parentId] || []).map((v) =>
+          v.key === variant.key ? { ...v, rigorCheckStatus: 'failed' } : v
+        ),
+      }));
+      message.error('严谨性检测失败: ' + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  // 综合质检状态（三个都通过才算通过）
+  const getOverallCheckStatus = (variant: VariantItem) => {
+    const statuses = [variant.difficultyCheckStatus, variant.originalityCheckStatus, variant.rigorCheckStatus];
+    if (statuses.some(s => s === 'checking')) return 'checking';
+    if (statuses.every(s => s === 'passed')) return 'passed';
+    if (statuses.some(s => s === 'failed')) return 'failed';
+    return 'pending';
+  };
+
+  // 保留原有的全部质检函数（兼容）
   const handleQualityCheck = async (parentId: number, variant: VariantItem) => {
     // 使用新的内容质检 API，不再需要 variant.id
     // 变体内容直接发送到后端进行质检
@@ -817,47 +967,84 @@ export default function ProblemCreation() {
                 {
                   title: '质量检查',
                   key: 'quality',
+                  width: 280,
                   render: (_: any, record: VariantItem) => {
-                    if (record.qualityCheckStatus === 'checking') {
-                      return <Tag icon={<SyncOutlined spin />} color="processing">检查中</Tag>;
-                    }
-                    if (record.qualityCheckStatus === 'passed') {
-                      return (
-                        <Space orientation="vertical" size="small">
-                          <Tag color="success">全部通过</Tag>
-                          {record.quality_check && (
-                            <Space size="small">
-                              <Tag color="blue">难度✓</Tag>
-                              <Tag color="green">原创✓</Tag>
-                              <Tag color="purple">严谨✓</Tag>
-                            </Space>
-                          )}
+                    // 渲染单个检测状态标签
+                    const renderCheckTag = (
+                      label: string, 
+                      status: string | undefined, 
+                      color: string, 
+                      checkingColor: string = 'processing'
+                    ) => {
+                      if (status === 'checking') {
+                        return <Tag icon={<SyncOutlined spin />} color={checkingColor}>{label}...</Tag>;
+                      }
+                      if (status === 'passed') {
+                        return <Tag color={color}>{label}✓</Tag>;
+                      }
+                      if (status === 'failed') {
+                        return <Tag color="error">{label}✗</Tag>;
+                      }
+                      return <Tag color="default">{label}</Tag>;
+                    };
+
+                    return (
+                      <Space direction="vertical" size={4}>
+                        <Space size={4} wrap>
+                          {renderCheckTag('难度', record.difficultyCheckStatus, 'blue')}
+                          {renderCheckTag('原创', record.originalityCheckStatus, 'green')}
+                          {renderCheckTag('严谨', record.rigorCheckStatus, 'purple')}
                         </Space>
-                      );
-                    }
-                    if (record.qualityCheckStatus === 'failed') {
-                      return <Tag color="error">未通过</Tag>;
-                    }
-                    return <Tag color="default">待检查</Tag>;
+                        {/* 独立的质检按钮 */}
+                        <Space size={4} wrap>
+                          <Button
+                            size="small"
+                            type={record.difficultyCheckStatus === 'passed' ? 'default' : 'primary'}
+                            onClick={() => handleDifficultyCheck(parentId, record)}
+                            loading={record.difficultyCheckStatus === 'checking'}
+                            style={{ fontSize: 12, padding: '0 6px' }}
+                          >
+                            难度
+                          </Button>
+                          <Button
+                            size="small"
+                            type={record.originalityCheckStatus === 'passed' ? 'default' : 'primary'}
+                            onClick={() => handleOriginalityCheck(parentId, record)}
+                            loading={record.originalityCheckStatus === 'checking'}
+                            style={{ fontSize: 12, padding: '0 6px' }}
+                          >
+                            原创
+                          </Button>
+                          <Button
+                            size="small"
+                            type={record.rigorCheckStatus === 'passed' ? 'default' : 'primary'}
+                            onClick={() => handleRigorCheck(parentId, record)}
+                            loading={record.rigorCheckStatus === 'checking'}
+                            style={{ fontSize: 12, padding: '0 6px' }}
+                          >
+                            严谨
+                          </Button>
+                        </Space>
+                      </Space>
+                    );
                   },
                 },
                 {
                   title: '操作',
                   key: 'action',
-                  render: (_: any, record: VariantItem) => (
+                  render: (_: any, record: VariantItem) => {
+                    // 三个维度都通过才能提交
+                    const allPassed = 
+                      record.difficultyCheckStatus === 'passed' && 
+                      record.originalityCheckStatus === 'passed' && 
+                      record.rigorCheckStatus === 'passed';
+                    
+                    return (
                     <Space>
                       <Button
                         type="link"
                         size="small"
-                        onClick={() => handleQualityCheck(parentId, record)}
-                        loading={record.qualityCheckStatus === 'checking'}
-                      >
-                        质检
-                      </Button>
-                      <Button
-                        type="link"
-                        size="small"
-                        disabled={record.qualityCheckStatus !== 'passed'}
+                        disabled={!allPassed}
                         onClick={() => handleSubmitForReview(parentId, record)}
                       >
                         提交审核
@@ -1083,7 +1270,8 @@ export default function ProblemCreation() {
                         删除
                       </Button>
                     </Space>
-                  ),
+                    );
+                  },
                 },
               ];
 
