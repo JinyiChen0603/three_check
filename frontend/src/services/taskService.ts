@@ -66,7 +66,7 @@ export function convertBatchesToTasks(batchesResponse: TaskBatchesResponse): Tas
 
 /**
  * 计算指定类型任务的总数量（total_count总和）
- * 只统计进行中（IN_PROGRESS）的任务，不包括已放弃、已完成、已提交等状态的任务
+ * 只统计已提交（SUBMITTED）的任务，不包括进行中、已放弃、已完成等状态的任务
  */
 export function calculateTotalTaskCount(tasks: Task[], taskType: TaskType): number {
   // 按batch_id去重，只计算每个批次的总数
@@ -74,10 +74,10 @@ export function calculateTotalTaskCount(tasks: Task[], taskType: TaskType): numb
   
   tasks
     .filter((task) => {
-      // 只统计指定类型且状态为进行中的任务
+      // 只统计指定类型且状态为已提交的任务
       return (
         task.task_type === taskType &&
-        task.status === TaskStatus.IN_PROGRESS // 只统计进行中的任务，排除已放弃、已完成等
+        task.status === TaskStatus.SUBMITTED
       );
     })
     .forEach((task) => {
@@ -100,7 +100,7 @@ export function calculateTotalTaskCount(tasks: Task[], taskType: TaskType): numb
 
 /**
  * 计算指定类型任务的已完成数量（completed_count总和）
- * 只统计进行中（IN_PROGRESS）的任务的完成数，不包括已放弃、已完成、已提交等状态的任务
+ * 只统计已提交（SUBMITTED）的任务的完成数，不包括进行中、已放弃、已完成等状态的任务
  */
 export function calculateCompletedTaskCount(tasks: Task[], taskType: TaskType): number {
   // 按batch_id去重，只计算每个批次的完成数
@@ -108,10 +108,10 @@ export function calculateCompletedTaskCount(tasks: Task[], taskType: TaskType): 
   
   tasks
     .filter((task) => {
-      // 只统计指定类型且状态为进行中的任务
+      // 只统计指定类型且状态为已提交的任务
       return (
         task.task_type === taskType &&
-        task.status === TaskStatus.IN_PROGRESS // 只统计进行中的任务，排除已放弃、已完成等
+        task.status === TaskStatus.SUBMITTED
       );
     })
     .forEach((task) => {

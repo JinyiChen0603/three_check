@@ -1,6 +1,7 @@
 import { InputNumber, Modal, Space, Typography } from 'antd';
 
-import { BUSINESS_CONSTANTS, TaskType } from '../../../config/constants';
+import { TaskType } from '../../../config/constants';
+import { useConfig } from '../../../hooks/useConfig';
 
 const { Text } = Typography;
 
@@ -21,6 +22,8 @@ export function ClaimTaskModal({
   onCancel: () => void;
   loading?: boolean;
 }) {
+  const config = useConfig();
+  
   return (
     <Modal
       title={`领取${currentTaskType === TaskType.PROBLEM_CREATION ? '出题' : '评分'}任务`}
@@ -37,20 +40,20 @@ export function ClaimTaskModal({
           <Text>领取数量：</Text>
           <InputNumber
             min={1}
-            max={BUSINESS_CONSTANTS.MAX_TASKS_PER_CLAIM}
+            max={config.maxTasksPerClaim}
             value={claimCount}
             onChange={(value) => setClaimCount(value || 1)}
             style={{ width: '100%', marginTop: 8 }}
           />
           <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-            每次最多领取 {BUSINESS_CONSTANTS.MAX_TASKS_PER_CLAIM} 个任务
+            每次最多领取 {config.maxTasksPerClaim} 个任务
           </Text>
         </div>
 
         <div>
           <Text strong>注意事项：</Text>
           <ul style={{ marginTop: 8, paddingLeft: 20 }}>
-            <li>领取后需在 {BUSINESS_CONSTANTS.TASK_TIMEOUT_HOURS} 小时内完成</li>
+            <li>领取后需在 {config.taskTimeoutHours} 小时内完成</li>
             <li>只有完成当前任务后才能继续领取新任务</li>
             <li>可以随时放弃任务，放弃的任务会返回任务池</li>
           </ul>

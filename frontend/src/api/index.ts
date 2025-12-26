@@ -8,6 +8,20 @@ import type { Problem, Task, Review, Ranking, Transaction } from '../types';
 export { authApi } from './auth';
 export { apiClient };
 
+// 配置相关 API
+export const configApi = {
+  // 获取前端配置
+  getConfig: async () => {
+    const response = await apiClient.get<{
+      max_tasks_per_claim: number;
+      task_timeout_hours: number;
+      reward_per_problem: number;
+      reward_per_review: number;
+    }>('/config');
+    return response.data;
+  },
+};
+
 // 任务相关 API
 export const taskApi = {
   // 获取可领取的任务列表

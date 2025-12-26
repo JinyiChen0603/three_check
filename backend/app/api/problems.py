@@ -1387,19 +1387,20 @@ async def delete_validated_problem(
         # 删除题目
         await db.delete(problem)
         
-        # 更新任务进度（减1）
-        now = datetime.utcnow()
+        # 更新任务进度（减1），支持IN_PROGRESS和SUBMITTED状态
+        # 使用统一的回退函数，如果任务状态是SUBMITTED，会自动改回IN_PROGRESS
+        await _rollback_create_task_progress(db, current_user.id)
+        
+        # 获取更新后的任务信息用于返回
         task_result = await db.execute(
             select(Task).where(
                 Task.user_id == current_user.id,
                 Task.task_type == TaskType.CREATE_PROBLEM,
-                Task.status == TaskStatus.IN_PROGRESS
-            ).order_by(Task.claimed_at.asc())
+                Task.status.in_([TaskStatus.IN_PROGRESS, TaskStatus.SUBMITTED]),
+                Task.completed_count > 0
+            ).order_by(Task.claimed_at.desc())
         )
         task = task_result.scalar_one_or_none()
-        
-        if task and task.completed_count > 0:
-            task.completed_count = task.completed_count - 1
         
         # 更新用户的出题数统计（用于仪表盘显示）
         if current_user.problems_created_count > 0:
@@ -1454,19 +1455,21 @@ async def clear_export_list(
         for p in problems:
             await db.delete(p)
         
-        # 更新任务进度（重置为0）
-        now = datetime.utcnow()
+        # 更新任务进度（按删除数量回退），支持IN_PROGRESS和SUBMITTED状态
+        # 循环调用回退函数，每次减1
+        for _ in range(deleted_count):
+            await _rollback_create_task_progress(db, current_user.id)
+        
+        # 获取更新后的任务信息
         task_result = await db.execute(
             select(Task).where(
                 Task.user_id == current_user.id,
                 Task.task_type == TaskType.CREATE_PROBLEM,
-                Task.status == TaskStatus.IN_PROGRESS
-            ).order_by(Task.claimed_at.asc())
+                Task.status.in_([TaskStatus.IN_PROGRESS, TaskStatus.SUBMITTED]),
+                Task.completed_count >= 0
+            ).order_by(Task.claimed_at.desc())
         )
         task = task_result.scalar_one_or_none()
-        
-        if task:
-            task.completed_count = 0
         
         # 更新用户的出题数统计（用于仪表盘显示）
         # 注意：这里只减少待导出列表中的题目数，不影响已导出的题目

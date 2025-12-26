@@ -27,7 +27,7 @@ router = APIRouter()
 class ClaimTasksRequest(BaseModel):
     """领取任务请求"""
     task_type: str = Field(..., description="任务类型：review_problem 或 create_problem")
-    count: int = Field(..., ge=1, le=50, description="领取数量（最多50个）")
+    count: int = Field(..., ge=1, description="领取数量（上限由配置决定）")
 
 
 class TaskResponse(BaseModel):
@@ -304,12 +304,16 @@ async def get_my_tasks(
                     "completed_count": task.completed_count,
                     "claimed_at": task.claimed_at,
                     "expires_at": task.expires_at,
+                    "submitted_at": task.submitted_at,
                     "tasks": []
                 }
             batches[task.batch_id]["tasks"].append({
                 "task_id": task.id,
                 "problem_id": task.problem_id
             })
+            # 确保使用最大的completed_count（对于同一批次的多条记录，取最大值）
+            if task.completed_count is not None and task.completed_count > batches[task.batch_id]["completed_count"]:
+                batches[task.batch_id]["completed_count"] = task.completed_count
     
     return {
         "total_batches": len(batches),
@@ -359,6 +363,21 @@ async def submit_task(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="任务已超时"
         )
+    
+    # 对于出题任务，检查题目数量是否超过任务数量
+    if task.task_type == TaskType.CREATE_PROBLEM:
+        completed_count = task.completed_count or 0
+        total_count = task.total_count or 0
+        if completed_count > total_count:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"题目数量({completed_count})超过任务数量({total_count})，无法提交"
+            )
+        if completed_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="至少需要完成1道题目才能提交"
+            )
     
     # 更新状态
     task.status = TaskStatus.SUBMITTED
