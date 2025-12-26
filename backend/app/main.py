@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db, close_db
 from app.services.problem_storage import init_mongodb, close_mongodb
+from app.services.redis_client import init_redis, close_redis
 
 
 @asynccontextmanager
@@ -29,6 +30,15 @@ async def lifespan(app: FastAPI):
     else:
         print("⚠️ MongoDB URL未配置，题目内容将存储在PostgreSQL")
     
+    # 初始化Redis（用于进度追踪等）
+    if settings.REDIS_URL:
+        try:
+            await init_redis()
+        except Exception as e:
+            print(f"⚠️ Redis连接失败: {e}，进度追踪功能将不可用")
+    else:
+        print("⚠️ Redis URL未配置，进度追踪功能将不可用")
+    
     yield
     
     # 关闭时
@@ -36,6 +46,8 @@ async def lifespan(app: FastAPI):
     await close_db()
     if settings.MONGODB_URL:
         await close_mongodb()
+    if settings.REDIS_URL:
+        await close_redis()
     print("👋 再见！")
 
 
