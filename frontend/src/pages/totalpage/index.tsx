@@ -1056,63 +1056,125 @@ export default function TotalPage() {
         {viewModalContent && (
           <div>
             {viewModalContent.title === '难度检测报告' && (
-              <Descriptions bordered column={1}>
-                <Descriptions.Item label="检测结果">
-                  {(() => {
-                    // 检查attempts_details中是否有error
-                    const hasError = viewModalContent.data.attempts_details?.some(
-                      (detail: any) => detail.error
-                    );
-                    
-                    if (hasError) {
-                      return <Tag color="error">检测出错</Tag>;
-                    }
-                    
-                    return viewModalContent.data.is_passed ? (
-                      <Tag color="success">通过</Tag>
-                    ) : (
-                      <Tag color="error">未通过</Tag>
-                    );
-                  })()}
-                </Descriptions.Item>
-                {(() => {
-                  // 检查是否有错误详情
-                  const errorDetails = viewModalContent.data.attempts_details?.filter(
-                    (detail: any) => detail.error
-                  );
-                  
-                  if (errorDetails && errorDetails.length > 0) {
-                    return (
-                      <Descriptions.Item label="错误信息">
-                        <Alert
-                          type="error"
-                          message="检测过程中出现错误"
-                          description={
-                            <ul style={{ margin: 0, paddingLeft: 20 }}>
-                              {errorDetails.map((detail: any, index: number) => (
-                                <li key={index}>{detail.error}</li>
-                              ))}
-                            </ul>
-                          }
-                        />
+              viewModalContent.data ? (
+                <>
+                  <Descriptions bordered column={1}>
+                    <Descriptions.Item label="检测结果">
+                      {(() => {
+                        // 检查attempts_details中是否有error
+                        const hasError = viewModalContent.data.attempts_details?.some(
+                          (detail: any) => detail.error
+                        );
+                        
+                        if (hasError) {
+                          return <Tag color="error">检测出错</Tag>;
+                        }
+                        
+                        return viewModalContent.data.is_passed ? (
+                          <Tag color="success">通过</Tag>
+                        ) : (
+                          <Tag color="error">未通过</Tag>
+                        );
+                      })()}
+                    </Descriptions.Item>
+                    {(() => {
+                      // 检查是否有错误详情
+                      const errorDetails = viewModalContent.data.attempts_details?.filter(
+                        (detail: any) => detail.error
+                      );
+                      
+                      if (errorDetails && errorDetails.length > 0) {
+                        return (
+                          <Descriptions.Item label="错误信息">
+                            <Alert
+                              type="error"
+                              message="检测过程中出现错误"
+                              description={
+                                <ul style={{ margin: 0, paddingLeft: 20 }}>
+                                  {errorDetails.map((detail: any, index: number) => (
+                                    <li key={index}>{detail.error}</li>
+                                  ))}
+                                </ul>
+                              }
+                            />
+                          </Descriptions.Item>
+                        );
+                      }
+                      return null;
+                    })()}
+                    <Descriptions.Item label="正确次数">
+                      {viewModalContent.data.correct_count || 0} /{' '}
+                      {viewModalContent.data.total_attempts || viewModalContent.data.attempts || 8}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="结论">
+                      {viewModalContent.data.verdict || '未知'}
+                    </Descriptions.Item>
+                    {viewModalContent.data.recommendation && (
+                      <Descriptions.Item label="建议">
+                        {viewModalContent.data.recommendation}
                       </Descriptions.Item>
-                    );
-                  }
-                  return null;
-                })()}
-                <Descriptions.Item label="正确次数">
-                  {viewModalContent.data.correct_count || 0} /{' '}
-                  {viewModalContent.data.total_attempts || viewModalContent.data.attempts || 8}
-                </Descriptions.Item>
-                <Descriptions.Item label="结论">
-                  {viewModalContent.data.verdict || '未知'}
-                </Descriptions.Item>
-                {viewModalContent.data.recommendation && (
-                  <Descriptions.Item label="建议">
-                    {viewModalContent.data.recommendation}
-                  </Descriptions.Item>
-                )}
-              </Descriptions>
+                    )}
+                  </Descriptions>
+                  
+                  {/* 每次尝试详情表格 */}
+                  {viewModalContent.data.attempts_details && viewModalContent.data.attempts_details.length > 0 && (
+                    <div style={{ marginTop: 16 }}>
+                      <Title level={5}>每次尝试详情</Title>
+                      <Table
+                        dataSource={viewModalContent.data.attempts_details}
+                        rowKey="attempt"
+                        size="small"
+                        pagination={false}
+                        columns={[
+                          {
+                            title: '序号',
+                            dataIndex: 'attempt',
+                            key: 'attempt',
+                            width: 60,
+                          },
+                          {
+                            title: 'AI回答',
+                            dataIndex: 'ai_answer',
+                            key: 'ai_answer',
+                            ellipsis: true,
+                            render: (text: string, record: any) => {
+                              if (record.error) {
+                                return <Text type="danger">{record.error}</Text>;
+                              }
+                              return (
+                                <Text 
+                                  ellipsis={{ tooltip: text }} 
+                                  style={{ maxWidth: 400 }}
+                                >
+                                  {text || '-'}
+                                </Text>
+                              );
+                            },
+                          },
+                          {
+                            title: '结果',
+                            dataIndex: 'is_correct',
+                            key: 'is_correct',
+                            width: 80,
+                            render: (isCorrect: boolean, record: any) => {
+                              if (record.error) {
+                                return <Tag color="error">出错</Tag>;
+                              }
+                              return isCorrect ? (
+                                <Tag icon={<CheckCircleOutlined />} color="success">正确</Tag>
+                              ) : (
+                                <Tag icon={<CloseCircleOutlined />} color="error">错误</Tag>
+                              );
+                            },
+                          },
+                        ]}
+                      />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <Alert type="info" message="无结果可查，请先进行检测" />
+              )
             )}
 
             {viewModalContent.title === '原创性检测报告' && (
