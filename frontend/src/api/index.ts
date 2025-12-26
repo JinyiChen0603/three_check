@@ -213,6 +213,8 @@ export const problemApi = {
     explanation: string;
     include_difficulty?: boolean;
     difficulty_result?: any;  // 前端已完成的难度检测结果
+    originality_result?: any;  // 前端已完成的原创性检测结果
+    rigor_result?: any;  // 前端已完成的严谨性检测结果
   }) => {
     const formData = new FormData();
     formData.append('problem', data.problem);
@@ -222,6 +224,14 @@ export const problemApi = {
     // 如果前端已经进行了难度检测，传递检测结果
     if (data.difficulty_result) {
       formData.append('difficulty_result_json', JSON.stringify(data.difficulty_result));
+    }
+    // 如果前端已经进行了原创性检测，传递检测结果
+    if (data.originality_result) {
+      formData.append('originality_result_json', JSON.stringify(data.originality_result));
+    }
+    // 如果前端已经进行了严谨性检测，传递检测结果
+    if (data.rigor_result) {
+      formData.append('rigor_result_json', JSON.stringify(data.rigor_result));
     }
     
     const response = await apiClient.post('/problems/validate-and-save', formData, {

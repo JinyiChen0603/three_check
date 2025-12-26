@@ -381,8 +381,10 @@ export default function TotalPage() {
         answer: values.answer,
         explanation: values.explanation,
         include_difficulty: false,
-        // 如果已经进行了难度检测，传递检测结果
+        // 传递前端已完成的检测结果
         difficulty_result: difficultyCheck.result || undefined,
+        originality_result: originalityCheck.result || undefined,
+        rigor_result: rigorCheck.result || undefined,
       });
 
       const taskProgress = result.task_progress;

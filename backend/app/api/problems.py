@@ -1050,6 +1050,8 @@ async def validate_and_save_problem(
     explanation: str = Form(...),
     include_difficulty: bool = Form(False),
     difficulty_result_json: Optional[str] = Form(None),  # 前端已完成的难度检测结果（JSON字符串）
+    originality_result_json: Optional[str] = Form(None),  # 前端已完成的原创性检测结果（JSON字符串）
+    rigor_result_json: Optional[str] = Form(None),  # 前端已完成的严谨性检测结果（JSON字符串）
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -1136,28 +1138,51 @@ async def validate_and_save_problem(
                 logger.warning(f"难度验证失败: {str(e)}")
                 difficulty_result = {"success": False, "error": str(e)}
         
-        # 4. 二维质检
-        try:
-            check_result = await quality_check_service.two_dimension_check(
-                problem=problem,
-                answer=answer,
-                explanation=explanation
-            )
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"质检失败: {str(e)}")
-            check_result = {
-                "success": False,
-                "all_passed": False,
-                "originality": {"success": False, "error": f"质检异常: {str(e)}"},
-                "rigor": {"success": False, "error": f"质检异常: {str(e)}"}
-            }
+        # 4. 二维质检（优先使用前端传递的结果）
+        originality_check = None
+        rigor_check = None
         
-        # 即使质检失败也保存，用于记录 AI 分析结果供参考
-        # 安全地获取质检结果，如果失败则使用空字典
-        originality_check = check_result.get("originality", {"success": False, "error": "质检异常"})
-        rigor_check = check_result.get("rigor", {"success": False, "error": "质检异常"})
+        # 优先使用前端传递的原创性检测结果
+        if originality_result_json:
+            try:
+                originality_check = json.loads(originality_result_json)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"解析前端传递的原创性检测结果失败: {str(e)}")
+                originality_check = None
+        
+        # 优先使用前端传递的严谨性检测结果
+        if rigor_result_json:
+            try:
+                rigor_check = json.loads(rigor_result_json)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"解析前端传递的严谨性检测结果失败: {str(e)}")
+                rigor_check = None
+        
+        # 如果前端没有传递结果，则调用后端检测
+        if originality_check is None or rigor_check is None:
+            try:
+                check_result = await quality_check_service.two_dimension_check(
+                    problem=problem,
+                    answer=answer,
+                    explanation=explanation
+                )
+                # 仅使用后端检测结果填充缺失的项
+                if originality_check is None:
+                    originality_check = check_result.get("originality", {"success": False, "error": "质检异常"})
+                if rigor_check is None:
+                    rigor_check = check_result.get("rigor", {"success": False, "error": "质检异常"})
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"质检失败: {str(e)}")
+                if originality_check is None:
+                    originality_check = {"success": False, "error": f"质检异常: {str(e)}"}
+                if rigor_check is None:
+                    rigor_check = {"success": False, "error": f"质检异常: {str(e)}"}
         
         # 5. 保存到导出列表
         validated_problem = ValidatedProblemExport(
@@ -1181,8 +1206,10 @@ async def validate_and_save_problem(
         await db.commit()
         await db.refresh(validated_problem)
         
-        # 安全地获取 all_passed 状态
-        all_passed = check_result.get("all_passed", False)
+        # 基于原创性和严谨性检测结果计算 all_passed
+        originality_passed = originality_check.get("is_original", False) if originality_check else False
+        rigor_passed = rigor_check.get("is_rigorous", False) if rigor_check else False
+        all_passed = originality_passed and rigor_passed
         
         return {
             "success": True,
@@ -1194,7 +1221,9 @@ async def validate_and_save_problem(
                 "total": task.total_count,
                 "remaining": task.total_count - task.completed_count
             },
-            **check_result
+            "originality": originality_check,
+            "rigor": rigor_check,
+            "difficulty": difficulty_result
         }
     
     except HTTPException:
