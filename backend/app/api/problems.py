@@ -1239,12 +1239,16 @@ async def export_validated_problems(
                     # 原创性检测
                     originality_passed = False
                     if p.originality_check and isinstance(p.originality_check, dict):
-                        originality_passed = _safe_bool(p.originality_check.get("is_original", False))
+                        # 检查是否有 is_original 字段
+                        if "is_original" in p.originality_check:
+                            originality_passed = _safe_bool(p.originality_check.get("is_original", False))
                     
                     # 严谨性检测
                     rigor_passed = False
                     if p.rigor_check and isinstance(p.rigor_check, dict):
-                        rigor_passed = _safe_bool(p.rigor_check.get("is_rigorous", False))
+                        # 检查是否有 is_rigorous 字段
+                        if "is_rigorous" in p.rigor_check:
+                            rigor_passed = _safe_bool(p.rigor_check.get("is_rigorous", False))
                     
                     # 三个检测都必须通过
                     all_passed = difficulty_passed and originality_passed and rigor_passed
@@ -1471,12 +1475,16 @@ async def get_export_list(
             # 原创性检测
             originality_passed = False
             if p.originality_check and isinstance(p.originality_check, dict):
-                originality_passed = _safe_bool(p.originality_check.get("is_original", False))
+                # 检查是否有 is_original 字段
+                if "is_original" in p.originality_check:
+                    originality_passed = _safe_bool(p.originality_check.get("is_original", False))
             
             # 严谨性检测
             rigor_passed = False
             if p.rigor_check and isinstance(p.rigor_check, dict):
-                rigor_passed = _safe_bool(p.rigor_check.get("is_rigorous", False))
+                # 检查是否有 is_rigorous 字段
+                if "is_rigorous" in p.rigor_check:
+                    rigor_passed = _safe_bool(p.rigor_check.get("is_rigorous", False))
             
             # 三个检测都通过才算通过
             if difficulty_passed and originality_passed and rigor_passed:
@@ -1492,14 +1500,34 @@ async def get_export_list(
                     difficulty_passed = _safe_bool(p.difficulty_validation.get("is_passed", None)) if p.difficulty_validation.get("is_passed") is not None else None
                 
                 # 安全地提取原创性检测结果
-                originality_passed = False
+                originality_passed = None
                 if p.originality_check and isinstance(p.originality_check, dict):
-                    originality_passed = _safe_bool(p.originality_check.get("is_original", False))
+                    # 检查是否有 is_original 字段
+                    if "is_original" in p.originality_check:
+                        originality_passed = _safe_bool(p.originality_check.get("is_original"))
+                    # 如果检测成功但没有 is_original 字段，可能是数据格式问题
+                    elif p.originality_check.get("success") is True:
+                        # 检测成功但缺少字段，记录警告
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"题目 {p.id} 原创性检测成功但缺少 is_original 字段，可用字段: {list(p.originality_check.keys())}")
+                        # 默认为未通过（因为无法确定）
+                        originality_passed = False
                 
                 # 安全地提取严谨性检测结果
-                rigor_passed = False
+                rigor_passed = None
                 if p.rigor_check and isinstance(p.rigor_check, dict):
-                    rigor_passed = _safe_bool(p.rigor_check.get("is_rigorous", False))
+                    # 检查是否有 is_rigorous 字段
+                    if "is_rigorous" in p.rigor_check:
+                        rigor_passed = _safe_bool(p.rigor_check.get("is_rigorous"))
+                    # 如果检测成功但没有 is_rigorous 字段，可能是数据格式问题
+                    elif p.rigor_check.get("success") is True:
+                        # 检测成功但缺少字段，记录警告
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"题目 {p.id} 严谨性检测成功但缺少 is_rigorous 字段，可用字段: {list(p.rigor_check.keys())}")
+                        # 默认为未通过（因为无法确定）
+                        rigor_passed = False
                 
                 # 安全地处理时间
                 created_at_str = None
