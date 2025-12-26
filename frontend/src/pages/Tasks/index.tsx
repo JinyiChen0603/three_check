@@ -39,6 +39,7 @@ export default function Tasks() {
 
   const [claimModalVisible, setClaimModalVisible] = useState(false);
   const [claimCount, setClaimCount] = useState(10);
+  const [claimLoading, setClaimLoading] = useState(false);
   const [currentTaskType, setCurrentTaskType] = useState<TaskType>(
     TaskType.PROBLEM_CREATION
   );
@@ -49,11 +50,14 @@ export default function Tasks() {
     }
 
     try {
+      setClaimLoading(true);
       await claimTasks(currentTaskType, claimCount);
       setClaimModalVisible(false);
       setClaimCount(10); // 重置数量
     } catch (error) {
       // 错误已在Hook中处理
+    } finally {
+      setClaimLoading(false);
     }
   };
 
@@ -176,6 +180,7 @@ export default function Tasks() {
         setClaimCount={setClaimCount}
         onOk={handleClaimTasks}
         onCancel={() => setClaimModalVisible(false)}
+        loading={claimLoading}
       />
     </div>
   );

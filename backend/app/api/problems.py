@@ -9,12 +9,14 @@
 
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from pydantic import BaseModel, Field
 import asyncio
 import json
+from urllib.parse import quote
 
 from app.database import get_db
 from app.models import (
@@ -34,7 +36,6 @@ from app.services.deep_transformer_service import deep_transformer_service
 from app.services.problem_storage import get_problem_storage_service
 from app.services.export_service import export_service
 from app.config import settings
-from fastapi.responses import StreamingResponse
 
 
 router = APIRouter()
@@ -1090,11 +1091,10 @@ async def validate_and_save_problem(
                 detail="任务已超时，请重新领取任务"
             )
         
-        # 2. 检查已保存的题目数量（未导出的）
+        # 2. 检查已保存的题目数量
         saved_count_result = await db.execute(
             select(func.count(ValidatedProblemExport.id)).where(
-                ValidatedProblemExport.user_id == current_user.id,
-                ValidatedProblemExport.is_exported == False
+                ValidatedProblemExport.user_id == current_user.id
             )
         )
         saved_count = saved_count_result.scalar() or 0
@@ -1153,8 +1153,7 @@ async def validate_and_save_problem(
             explanation=explanation,
             difficulty_validation=difficulty_result,
             originality_check=originality_check,
-            rigor_check=rigor_check,
-            is_exported=False
+            rigor_check=rigor_check
         )
         
         db.add(validated_problem)
@@ -1198,7 +1197,7 @@ async def validate_and_save_problem(
 
 @router.get("/export-validated", summary="导出已验证的题目到Excel")
 async def export_validated_problems(
-    only_passed: int = 1,
+    only_passed: int = Query(1, ge=0, le=1, description="是否只导出通过的题目 (0=全部, 1=仅通过的)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -1206,16 +1205,15 @@ async def export_validated_problems(
     导出当前用户验证过的题目到Excel
     
     Args:
-        only_passed: 是否只导出二维质检都通过的题目 (0=全部导出, 1=仅通过的)
+        only_passed: 是否只导出三个检测都通过的题目 (0=全部导出, 1=仅通过的)
     
     Returns:
         Excel文件下载
     """
     try:
-        # 查询待导出的题目
+        # 查询所有题目
         query = select(ValidatedProblemExport).where(
-            ValidatedProblemExport.user_id == current_user.id,
-            ValidatedProblemExport.is_exported == False
+            ValidatedProblemExport.user_id == current_user.id
         ).order_by(ValidatedProblemExport.created_at.asc())
         
         result = await db.execute(query)
@@ -1224,30 +1222,48 @@ async def export_validated_problems(
         if not validated_problems:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="没有待导出的题目"
+                detail="没有可导出的题目"
             )
         
         # 转换为字典列表
         problems_data = []
         for p in validated_problems:
             try:
-                # 判断是否通过 - 使用 _safe_bool 处理可能的字符串 "true"/"false"
-                originality_passed = _safe_bool(p.originality_check.get("is_original", False)) if p.originality_check else False
-                rigor_passed = _safe_bool(p.rigor_check.get("is_rigorous", False)) if p.rigor_check else False
-                all_passed = originality_passed and rigor_passed
+                if only_passed == 1:
+                    # 判断三个检测是否都通过
+                    # 难度检测
+                    difficulty_passed = False
+                    if p.difficulty_validation and isinstance(p.difficulty_validation, dict):
+                        difficulty_passed = _safe_bool(p.difficulty_validation.get("is_passed", False))
+                    
+                    # 原创性检测
+                    originality_passed = False
+                    if p.originality_check and isinstance(p.originality_check, dict):
+                        originality_passed = _safe_bool(p.originality_check.get("is_original", False))
+                    
+                    # 严谨性检测
+                    rigor_passed = False
+                    if p.rigor_check and isinstance(p.rigor_check, dict):
+                        rigor_passed = _safe_bool(p.rigor_check.get("is_rigorous", False))
+                    
+                    # 三个检测都必须通过
+                    all_passed = difficulty_passed and originality_passed and rigor_passed
+                    
+                    # 如果只导出通过的题目，跳过未通过的
+                    if not all_passed:
+                        continue
                 
-                # 如果只导出通过的题目，跳过未通过的 (only_passed: 1=仅通过, 0=全部)
-                if only_passed == 1 and not all_passed:
-                    continue
-                
+                # 导出所有列的所有内容（JSON全部导出）
                 problems_data.append({
+                    "id": p.id,
+                    "user_id": p.user_id,
                     "content": p.content,
                     "answer": p.answer,
                     "explanation": p.explanation,
-                    "difficulty_validation": p.difficulty_validation,
-                    "originality_check": p.originality_check,
-                    "rigor_check": p.rigor_check,
-                    "created_at": p.created_at.strftime("%Y-%m-%d %H:%M:%S") if p.created_at else None
+                    "difficulty_validation": p.difficulty_validation,  # JSON完整内容
+                    "originality_check": p.originality_check,  # JSON完整内容
+                    "rigor_check": p.rigor_check,  # JSON完整内容
+                    "created_at": p.created_at.isoformat() if p.created_at else None
                 })
             except Exception as e:
                 import logging
@@ -1258,25 +1274,23 @@ async def export_validated_problems(
         if not problems_data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="没有通过质检的题目可导出"
+                detail="没有通过质检的题目可导出" if only_passed == 1 else "没有可导出的题目"
             )
         
         # 生成Excel
         excel_file = export_service.export_to_excel(problems_data)
         
-        # 标记为已导出
-        for p in validated_problems:
-            p.is_exported = True
-            p.exported_at = datetime.utcnow()
-        await db.commit()
-        
         # 返回文件下载
         filename = f"验证题目_{current_user.username}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        # 使用 RFC 5987 格式编码文件名，支持中文
+        encoded_filename = quote(filename, safe='')
         
         return StreamingResponse(
             excel_file,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+            }
         )
     
     except HTTPException:
@@ -1307,8 +1321,7 @@ async def delete_validated_problem(
         result = await db.execute(
             select(ValidatedProblemExport).where(
                 ValidatedProblemExport.id == problem_id,
-                ValidatedProblemExport.user_id == current_user.id,
-                ValidatedProblemExport.is_exported == False
+                ValidatedProblemExport.user_id == current_user.id
             )
         )
         problem = result.scalar_one_or_none()
@@ -1316,7 +1329,7 @@ async def delete_validated_problem(
         if not problem:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="题目不存在或已导出"
+                detail="题目不存在"
             )
         
         # 删除题目
@@ -1378,8 +1391,7 @@ async def clear_export_list(
     try:
         result = await db.execute(
             select(ValidatedProblemExport).where(
-                ValidatedProblemExport.user_id == current_user.id,
-                ValidatedProblemExport.is_exported == False
+                ValidatedProblemExport.user_id == current_user.id
             )
         )
         problems = result.scalars().all()
@@ -1443,18 +1455,31 @@ async def get_export_list(
     try:
         result = await db.execute(
             select(ValidatedProblemExport).where(
-                ValidatedProblemExport.user_id == current_user.id,
-                ValidatedProblemExport.is_exported == False
+                ValidatedProblemExport.user_id == current_user.id
             ).order_by(ValidatedProblemExport.created_at.desc())
         )
         problems = result.scalars().all()
         
-        # 统计通过情况
+        # 统计通过情况（三个检测都通过才算通过）
         passed_count = 0
         for p in problems:
-            originality_passed = _safe_bool(p.originality_check.get("is_original", False)) if p.originality_check else False
-            rigor_passed = _safe_bool(p.rigor_check.get("is_rigorous", False)) if p.rigor_check else False
-            if originality_passed and rigor_passed:
+            # 难度检测
+            difficulty_passed = False
+            if p.difficulty_validation and isinstance(p.difficulty_validation, dict):
+                difficulty_passed = _safe_bool(p.difficulty_validation.get("is_passed", False))
+            
+            # 原创性检测
+            originality_passed = False
+            if p.originality_check and isinstance(p.originality_check, dict):
+                originality_passed = _safe_bool(p.originality_check.get("is_original", False))
+            
+            # 严谨性检测
+            rigor_passed = False
+            if p.rigor_check and isinstance(p.rigor_check, dict):
+                rigor_passed = _safe_bool(p.rigor_check.get("is_rigorous", False))
+            
+            # 三个检测都通过才算通过
+            if difficulty_passed and originality_passed and rigor_passed:
                 passed_count += 1
         
         # 构建返回数据，添加更安全的错误处理
@@ -1486,9 +1511,15 @@ async def get_export_list(
                 
                 problems_list.append({
                     "id": p.id,
+                    "content": p.content,  # 添加题目内容
+                    "answer": p.answer,  # 添加答案
+                    "explanation": p.explanation,  # 添加解析
                     "difficulty_passed": difficulty_passed,
                     "originality_passed": originality_passed,
                     "rigor_passed": rigor_passed,
+                    "difficulty_validation": p.difficulty_validation,  # 完整的难度检测结果
+                    "originality_check": p.originality_check,  # 完整的原创性检测结果
+                    "rigor_check": p.rigor_check,  # 完整的严谨性检测结果
                     "created_at": created_at_str
                 })
             except Exception as e:
@@ -1528,32 +1559,70 @@ async def get_problem(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """获取指定题目的详细信息（从PostgreSQL和MongoDB合并）"""
-    # 先检查权限
+    """获取指定题目的详细信息（仅从PostgreSQL查询）"""
+    # 查询题目
     result = await db.execute(
         select(Problem).where(Problem.id == problem_id)
     )
-    problem_meta = result.scalar_one_or_none()
+    problem = result.scalar_one_or_none()
     
-    if not problem_meta:
+    if not problem:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="题目不存在"
         )
     
     # 只有创建者或管理员可以查看题目详情
-    if problem_meta.creator_id != current_user.id and current_user.role.value != "admin":
+    if problem.creator_id != current_user.id and current_user.role.value != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权查看该题目"
         )
     
-    # 使用ProblemStorageService获取完整数据
-    try:
-        storage_service = get_problem_storage_service()
-        full_problem = await storage_service.get_problem(db, problem_id)
-        return full_problem
-    except RuntimeError:
-        # MongoDB未配置，返回PostgreSQL数据（兼容模式）
-        return problem_meta
+    # 从PostgreSQL直接返回，解析JSON字段
+    problem_dict = {
+        "id": problem.id,
+        "creator_id": problem.creator_id,
+        "parent_problem_id": problem.parent_problem_id,
+        "title": problem.title,
+        "category": problem.category.value if problem.category else None,
+        "source_type": problem.source_type.value if problem.source_type else None,
+        "ocr_image_url": problem.ocr_image_url,
+        "status": problem.status.value if problem.status else None,
+        "validation_status": problem.validation_status.value if problem.validation_status else None,
+        "human_review_status": problem.human_review_status.value if problem.human_review_status else None,
+        "variant_count": problem.variant_count,
+        "difficulty": problem.difficulty,
+        "validation_correct_count": problem.validation_correct_count,
+        "validation_completed_at": problem.validation_completed_at.isoformat() if problem.validation_completed_at else None,
+        "review_count": problem.review_count,
+        "avg_innovation_score": problem.avg_innovation_score,
+        "avg_rigor_score": problem.avg_rigor_score,
+        "created_at": problem.created_at.isoformat() if problem.created_at else None,
+        "updated_at": problem.updated_at.isoformat() if problem.updated_at else None,
+        "published_at": problem.published_at.isoformat() if problem.published_at else None,
+        "human_review_note": problem.human_review_note,
+        # JSON字段直接返回
+        "content": problem.content,
+        "explanation": problem.explanation,
+        "answer": problem.answer,
+        "validation_result": problem.validation_result,
+        "quality_check_details": problem.quality_check_details,
+        # quality_check字段：提取布尔值
+        "quality_check": problem.quality_check if problem.quality_check else None,
+    }
+    
+    # 如果quality_check_details存在，提取通过/不通过状态
+    if problem.quality_check_details:
+        qc_details = problem.quality_check_details
+        if isinstance(qc_details, dict):
+            # 提取三个维度的通过状态
+            quality_check = {
+                "difficulty_passed": qc_details.get("difficulty", {}).get("is_passed", False) if isinstance(qc_details.get("difficulty"), dict) else False,
+                "originality_passed": qc_details.get("originality", {}).get("is_original", False) if isinstance(qc_details.get("originality"), dict) else False,
+                "rigor_passed": qc_details.get("rigor", {}).get("is_rigorous", False) if isinstance(qc_details.get("rigor"), dict) else False,
+            }
+            problem_dict["quality_check"] = quality_check
+    
+    return problem_dict
 

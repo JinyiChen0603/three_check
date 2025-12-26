@@ -493,10 +493,6 @@ class ValidatedProblemExport(Base):
     originality_check = Column(JSON, nullable=False)  # 原创性检测结果
     rigor_check = Column(JSON, nullable=False)  # 严谨性检测结果
     
-    # 状态
-    is_exported = Column(Boolean, default=False)  # 是否已导出
-    exported_at = Column(DateTime, nullable=True)  # 导出时间
-    
     # 时间戳
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     
@@ -504,4 +500,4 @@ class ValidatedProblemExport(Base):
     user = relationship("User", backref="validated_exports")
     
     def __repr__(self):
-        return f"<ValidatedProblemExport(id={self.id}, is_exported={self.is_exported})>"
+        return f"<ValidatedProblemExport(id={self.id}, user_id={self.user_id})>"

@@ -236,7 +236,7 @@ export const problemApi = {
   // 导出验证题目到Excel
   exportValidated: async (onlyPassed: boolean = true) => {
     const response = await apiClient.get('/problems/export-validated', {
-      params: { only_passed: onlyPassed },
+      params: { only_passed: onlyPassed ? 1 : 0 }, // 将布尔值转换为整数
       responseType: 'blob',
     });
     return response.data;

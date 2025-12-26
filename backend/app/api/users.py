@@ -100,25 +100,57 @@ async def get_leaderboard(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    获取用户排行榜（按余额排序）
+    获取用户排行榜
+    
+    排序规则：
+    1. 总收入倒序
+    2. 出题数+评分数的总数倒序
+    3. 用户名正序
     
     只显示普通用户的排名
     """
-    query = (
-        select(User)
-        .where(
-            User.role == UserRole.USER,
-            User.is_active == True
-        )
-        .order_by(desc(User.balance))
-        .limit(limit)
+    # 查询所有普通用户
+    query = select(User).where(
+        User.role == UserRole.USER,
+        User.is_active == True
     )
     
     result = await db.execute(query)
     users = result.scalars().all()
     
+    # 计算每个用户的总收入和任务总数
+    leaderboard_data = []
+    for user in users:
+        # 计算总收入（已确认的交易金额之和）
+        earnings_result = await db.execute(
+            select(func.sum(Transaction.amount))
+            .where(
+                Transaction.user_id == user.id,
+                Transaction.status == TransactionStatus.CONFIRMED,
+                Transaction.amount > 0
+            )
+        )
+        total_earnings = earnings_result.scalar() or 0.0
+        
+        # 计算任务总数（出题数+评分数）
+        total_tasks = (user.problems_created_count or 0) + (user.reviews_completed_count or 0)
+        
+        leaderboard_data.append({
+            "user": user,
+            "total_earnings": float(total_earnings),
+            "total_tasks": total_tasks,
+            "username": user.username
+        })
+    
+    # 排序：总收入倒序，任务总数倒序，用户名正序
+    leaderboard_data.sort(
+        key=lambda x: (-x["total_earnings"], -x["total_tasks"], x["username"])
+    )
+    
+    # 构建返回数据
     leaderboard = []
-    for idx, user in enumerate(users, start=1):
+    for idx, item in enumerate(leaderboard_data[:limit], start=1):
+        user = item["user"]
         leaderboard.append({
             "rank": idx,
             "user_id": user.id,
@@ -126,7 +158,7 @@ async def get_leaderboard(
             "balance": user.balance,
             "problems_created": user.problems_created_count,
             "reviews_completed": user.reviews_completed_count,
-            "total_earnings": user.balance
+            "total_earnings": item["total_earnings"]
         })
     
     return leaderboard

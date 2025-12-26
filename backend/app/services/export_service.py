@@ -59,61 +59,32 @@ class ExportService:
         """
         导出题目列表到Excel
         
+        导出所有列的所有内容（JSON内容全部导出）
+        
         Args:
-            problems: 题目列表，每个题目包含：
-                - content: 题目内容
-                - answer: 答案
-                - explanation: 解析
-                - difficulty_validation: 难度验证结果
-                - originality_check: 原创性检测结果
-                - rigor_check: 严谨性检测结果
-                - created_at: 创建时间
-                
+            problems: 题目列表，每个题目包含所有字段的完整内容
+            
         Returns:
             BytesIO: Excel文件的字节流
         """
-        # 准备数据
+        # 准备数据，导出所有列的所有内容
         data = []
         for idx, p in enumerate(problems, 1):
-            # 提取原创性结果 - 使用 _safe_bool 处理可能的字符串 "true"/"false"
-            originality = p.get("originality_check", {})
-            originality_passed = _safe_bool(originality.get("is_original", False))
-            originality_reason = originality.get("reason", "")
-            originality_score = originality.get("originality_score", "N/A")
-            
-            # 提取严谨性结果 - 使用 _safe_bool 处理可能的字符串 "true"/"false"
-            rigor = p.get("rigor_check", {})
-            rigor_passed = _safe_bool(rigor.get("is_rigorous", False))
-            rigor_reason = rigor.get("reason", "")
-            rigor_score = rigor.get("rigor_score", "N/A")
-            
-            # 提取难度验证结果（如果有）- 使用 _safe_bool 处理可能的字符串 "true"/"false"
-            difficulty = p.get("difficulty_validation", {})
-            difficulty_passed_raw = difficulty.get("is_passed", "N/A")
-            difficulty_passed = _safe_bool(difficulty_passed_raw) if difficulty_passed_raw != "N/A" else "N/A"
-            difficulty_correct = difficulty.get("correct_count", "N/A")
-            difficulty_total = difficulty.get("total_attempts", "N/A")
+            # 将所有JSON字段序列化为字符串，保留完整内容
+            difficulty_validation_str = json.dumps(p.get("difficulty_validation"), ensure_ascii=False, indent=2) if p.get("difficulty_validation") else ""
+            originality_check_str = json.dumps(p.get("originality_check"), ensure_ascii=False, indent=2) if p.get("originality_check") else ""
+            rigor_check_str = json.dumps(p.get("rigor_check"), ensure_ascii=False, indent=2) if p.get("rigor_check") else ""
             
             data.append({
                 "序号": idx,
+                "ID": p.get("id", ""),
+                "用户ID": p.get("user_id", ""),
                 "题目内容": p.get("content", ""),
                 "标准答案": p.get("answer", ""),
                 "题目解析": p.get("explanation", ""),
-                
-                # 难度验证
-                "难度验证通过": ("是" if difficulty_passed else "否") if difficulty_passed != "N/A" else "未检测",
-                "难度-正确次数": f"{difficulty_correct}/{difficulty_total}" if difficulty_correct != "N/A" else "N/A",
-                
-                # 原创性检测
-                "原创性通过": "是" if originality_passed else "否",
-                "原创性分数": originality_score,
-                "原创性评价": originality_reason,
-                
-                # 严谨性检测
-                "严谨性通过": "是" if rigor_passed else "否",
-                "严谨性分数": rigor_score,
-                "严谨性评价": rigor_reason,
-                
+                "难度验证结果（完整JSON）": difficulty_validation_str,
+                "原创性检测结果（完整JSON）": originality_check_str,
+                "严谨性检测结果（完整JSON）": rigor_check_str,
                 "创建时间": p.get("created_at", ""),
             })
         
@@ -132,8 +103,8 @@ class ExportService:
                     df[col].astype(str).map(len).max(),
                     len(str(col))
                 )
-                # 限制最大宽度
-                adjusted_width = min(max_length + 2, 50)
+                # JSON列需要更宽的宽度
+                adjusted_width = min(max_length + 2, 100) if "JSON" in str(col) else min(max_length + 2, 50)
                 col_letter = chr(64 + idx) if idx <= 26 else f"A{chr(64 + idx - 26)}"
                 worksheet.column_dimensions[col_letter].width = adjusted_width
         
