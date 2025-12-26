@@ -81,6 +81,17 @@ async def health_check():
     }
 
 
+@app.get("/api/config")
+async def get_config():
+    """获取前端配置（公开接口，无需认证）"""
+    return {
+        "max_tasks_per_claim": settings.MAX_TASKS_PER_CLAIM,
+        "task_timeout_hours": settings.TASK_TIMEOUT_HOURS,
+        "reward_per_problem": settings.PROBLEM_REWARD,
+        "reward_per_review": settings.REVIEW_REWARD,
+    }
+
+
 # ==================== API 路由 ====================
 from app.api import auth, materials, problems, reviews, tasks, users, deep_transform
 

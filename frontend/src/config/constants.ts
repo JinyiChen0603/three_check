@@ -35,12 +35,14 @@ export const TaskStatus = {
 } as const;
 export type TaskStatus = (typeof TaskStatus)[keyof typeof TaskStatus];
 
-// 业务常量
+// 业务常量（部分值从后端API获取，这里保留默认值作为fallback）
+// 注意：MAX_TASKS_PER_CLAIM、TASK_TIMEOUT_HOURS、REWARD_PER_PROBLEM、REWARD_PER_REVIEW
+// 应该使用 useConfig hook 从后端获取，不要直接使用这里的值
 export const BUSINESS_CONSTANTS = {
-  MAX_TASKS_PER_CLAIM: 50,          // 每次最多领取任务数
-  TASK_TIMEOUT_HOURS: 12,            // 任务超时时间（小时）
-  REWARD_PER_PROBLEM: 50,            // 每个合格题目奖励（元）
-  REWARD_PER_REVIEW: 10,             // 每个评分任务奖励（元）
+  MAX_TASKS_PER_CLAIM: Number(import.meta.env.VITE_MAX_TASKS_PER_CLAIM) || 50,  // 从环境变量读取，默认50
+  TASK_TIMEOUT_HOURS: Number(import.meta.env.VITE_TASK_TIMEOUT_HOURS) || 12,     // 从环境变量读取，默认12
+  REWARD_PER_PROBLEM: Number(import.meta.env.VITE_REWARD_PER_PROBLEM) || 50,     // 从环境变量读取，默认50
+  REWARD_PER_REVIEW: Number(import.meta.env.VITE_REWARD_PER_REVIEW) || 10,       // 从环境变量读取，默认10
   MAX_VARIANTS_PER_PROBLEM: 10,     // 每个母题最多变形次数
   MAX_BATCH_VALIDATION: 10,          // 批量验证最多题目数
   VALIDATION_ATTEMPTS: 16,           // 每个模型AI验证尝试次数（双模型各16次）

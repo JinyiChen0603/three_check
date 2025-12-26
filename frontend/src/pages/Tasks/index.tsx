@@ -16,7 +16,8 @@ import {
   PlusOutlined,
 } from '@ant-design/icons';
 import { useTask } from '../../hooks/useTask';
-import { BUSINESS_CONSTANTS, TaskType } from '../../config/constants';
+import { useConfig } from '../../hooks/useConfig';
+import { TaskType, TaskStatus } from '../../config/constants';
 import { getUniqueBatchTasks } from '../../services/taskService';
 import { TaskStats } from './components/TaskStats';
 import { TaskList } from './components/TaskList';
@@ -25,6 +26,8 @@ import { ClaimTaskModal } from './components/ClaimTaskModal';
 const { Title, Text } = Typography;
 
 export default function Tasks() {
+  const config = useConfig();
+  
   // 使用自定义Hook管理任务状态
   const {
     tasks,
@@ -35,6 +38,7 @@ export default function Tasks() {
     problemReviewCompleted,
     claimTasks,
     abandonTask,
+    submitTask,
   } = useTask();
 
   const [claimModalVisible, setClaimModalVisible] = useState(false);
@@ -45,7 +49,7 @@ export default function Tasks() {
   );
 
   const handleClaimTasks = async () => {
-    if (claimCount < 1 || claimCount > BUSINESS_CONSTANTS.MAX_TASKS_PER_CLAIM) {
+    if (claimCount < 1 || claimCount > config.maxTasksPerClaim) {
       return;
     }
 
@@ -69,6 +73,11 @@ export default function Tasks() {
   );
   const problemReviewTasks = uniqueTasks.filter(
     (t) => t.task_type === TaskType.PROBLEM_REVIEW
+  );
+
+  // 检查是否有进行中的任务
+  const hasInProgressTasks = uniqueTasks.some(
+    (t) => t.status === TaskStatus.IN_PROGRESS
   );
 
   return (
@@ -106,11 +115,13 @@ export default function Tasks() {
                         setCurrentTaskType(TaskType.PROBLEM_CREATION);
                         setClaimModalVisible(true);
                       }}
+                      disabled={hasInProgressTasks}
                     >
                       领取出题任务
                     </Button>
                     <Text type="secondary">
-                      每个任务需在 {BUSINESS_CONSTANTS.TASK_TIMEOUT_HOURS} 小时内完成
+                      每个任务需在 {config.taskTimeoutHours} 小时内完成
+                      {hasInProgressTasks && '（请先完成或放弃当前任务）'}
                     </Text>
                   </Space>
                   
@@ -120,6 +131,13 @@ export default function Tasks() {
                     onAbandon={async (taskId) => {
                       try {
                         await abandonTask(taskId);
+                      } catch (error) {
+                        // 错误已在Hook中处理
+                      }
+                    }}
+                    onSubmit={async (taskId) => {
+                      try {
+                        await submitTask(taskId);
                       } catch (error) {
                         // 错误已在Hook中处理
                       }
@@ -146,11 +164,13 @@ export default function Tasks() {
                         setCurrentTaskType(TaskType.PROBLEM_REVIEW);
                         setClaimModalVisible(true);
                       }}
+                      disabled={hasInProgressTasks}
                     >
                       领取评分任务
                     </Button>
                     <Text type="secondary">
-                      每个任务需在 {BUSINESS_CONSTANTS.TASK_TIMEOUT_HOURS} 小时内完成
+                      每个任务需在 {config.taskTimeoutHours} 小时内完成
+                      {hasInProgressTasks && '（请先完成或放弃当前任务）'}
                     </Text>
                   </Space>
                   

@@ -5,6 +5,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   StarOutlined,
+  CheckOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -25,10 +26,12 @@ export function TaskList({
   tasks,
   loading,
   onAbandon,
+  onSubmit,
 }: {
   tasks: Task[];
   loading: boolean;
   onAbandon: (taskId: number) => Promise<void>;
+  onSubmit?: (taskId: number) => Promise<void>;
 }) {
   const navigate = useNavigate();
   const [navigatingTaskId, setNavigatingTaskId] = useState<number | null>(null);
@@ -79,6 +82,20 @@ export function TaskList({
       cancelText: '取消',
       onOk: async () => {
         await onAbandon(taskId);
+      },
+    });
+  };
+
+  const handleSubmitTask = (taskId: number) => {
+    Modal.confirm({
+      title: '确认提交任务',
+      content: '提交后任务将进入审核状态，您确定要提交吗？',
+      okText: '确定',
+      cancelText: '取消',
+      onOk: async () => {
+        if (onSubmit) {
+          await onSubmit(taskId);
+        }
       },
     });
   };
@@ -166,40 +183,59 @@ export function TaskList({
     {
       title: '操作',
       key: 'action',
-      width: 180,
-      render: (_: any, record: Task) => (
-        <Space>
-          {(record.status === TaskStatus.CLAIMED || record.status === TaskStatus.IN_PROGRESS) && (
-            <>
-              <Button 
-                type="primary" 
-                size="small"
-                icon={record.task_type === TaskType.PROBLEM_CREATION ? <EditOutlined /> : <StarOutlined />}
-                onClick={() => handleEnterTask(record)}
-                loading={navigatingTaskId === record.id}
-                disabled={navigatingTaskId !== null}
-              >
-                {record.task_type === TaskType.PROBLEM_CREATION ? '去出题' : '去评分'}
-              </Button>
-              <Button 
-                type="link" 
-                danger 
-                size="small"
-                icon={<DeleteOutlined />} 
-                onClick={() => handleAbandonTask(record.id)}
-              >
-                放弃
-              </Button>
-            </>
-          )}
-          {record.status === TaskStatus.SUBMITTED && (
-            <Tag color="green">已提交</Tag>
-          )}
-          {record.status === TaskStatus.COMPLETED && (
-            <Tag color="success">已完成</Tag>
-          )}
-        </Space>
-      ),
+      width: 250,
+      render: (_: any, record: Task) => {
+        const total = record.total_count || 0;
+        const completed = record.completed_count || 0;
+        const canSubmit = record.task_type === TaskType.PROBLEM_CREATION && 
+                          record.status === TaskStatus.IN_PROGRESS && 
+                          completed <= total && 
+                          completed > 0;
+        
+        return (
+          <Space>
+            {(record.status === TaskStatus.CLAIMED || record.status === TaskStatus.IN_PROGRESS) && (
+              <>
+                <Button 
+                  type="primary" 
+                  size="small"
+                  icon={record.task_type === TaskType.PROBLEM_CREATION ? <EditOutlined /> : <StarOutlined />}
+                  onClick={() => handleEnterTask(record)}
+                  loading={navigatingTaskId === record.id}
+                  disabled={navigatingTaskId !== null}
+                >
+                  {record.task_type === TaskType.PROBLEM_CREATION ? '去出题' : '去评分'}
+                </Button>
+                {canSubmit && onSubmit && (
+                  <Button 
+                    type="default" 
+                    size="small"
+                    icon={<CheckOutlined />}
+                    onClick={() => handleSubmitTask(record.id)}
+                  >
+                    提交
+                  </Button>
+                )}
+                <Button 
+                  type="link" 
+                  danger 
+                  size="small"
+                  icon={<DeleteOutlined />} 
+                  onClick={() => handleAbandonTask(record.id)}
+                >
+                  放弃
+                </Button>
+              </>
+            )}
+            {record.status === TaskStatus.SUBMITTED && (
+              <Tag color="green">已提交</Tag>
+            )}
+            {record.status === TaskStatus.COMPLETED && (
+              <Tag color="success">已完成</Tag>
+            )}
+          </Space>
+        );
+      },
     },
   ];
 
