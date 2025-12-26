@@ -51,6 +51,32 @@ import { useAuthStore } from '../../store/useAuthStore';
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
+/**
+ * 还原 JSON 转义字符
+ * 处理后端传输过程中被 JSON 序列化转义的字符
+ */
+function unescapeText(text: string | undefined | null): string {
+  if (!text) return '';
+  
+  return text
+    // 引号
+    .replace(/\\"/g, '"')
+    .replace(/\\'/g, "'")
+    // 空白字符
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\r/g, '\r')
+    // 括号
+    .replace(/\\\(/g, '(')
+    .replace(/\\\)/g, ')')
+    .replace(/\\\[/g, '[')
+    .replace(/\\\]/g, ']')
+    .replace(/\\\{/g, '{')
+    .replace(/\\\}/g, '}')
+    // 反斜杠（必须放在最后）
+    .replace(/\\\\/g, '\\');
+}
+
 interface CheckStatus {
   loading: boolean;
   result: any | null;
@@ -1092,7 +1118,7 @@ export default function TotalPage() {
                               description={
                                 <ul style={{ margin: 0, paddingLeft: 20 }}>
                                   {errorDetails.map((detail: any, index: number) => (
-                                    <li key={index}>{detail.error}</li>
+                                    <li key={index}><MathRenderer content={detail.error} /></li>
                                   ))}
                                 </ul>
                               }
@@ -1107,11 +1133,11 @@ export default function TotalPage() {
                       {viewModalContent.data.total_attempts || viewModalContent.data.attempts || 8}
                     </Descriptions.Item>
                     <Descriptions.Item label="结论">
-                      {viewModalContent.data.verdict || '未知'}
+                      <MathRenderer content={viewModalContent.data.verdict || '未知'} />
                     </Descriptions.Item>
                     {viewModalContent.data.recommendation && (
                       <Descriptions.Item label="建议">
-                        {viewModalContent.data.recommendation}
+                        <MathRenderer content={viewModalContent.data.recommendation} />
                       </Descriptions.Item>
                     )}
                   </Descriptions>
@@ -1136,19 +1162,11 @@ export default function TotalPage() {
                             title: 'AI回答',
                             dataIndex: 'ai_answer',
                             key: 'ai_answer',
-                            ellipsis: true,
                             render: (text: string, record: any) => {
                               if (record.error) {
-                                return <Text type="danger">{record.error}</Text>;
+                                return <MathRenderer content={record.error} style={{ color: '#ff4d4f' }} />;
                               }
-                              return (
-                                <Text 
-                                  ellipsis={{ tooltip: text }} 
-                                  style={{ maxWidth: 400 }}
-                                >
-                                  {text || '-'}
-                                </Text>
-                              );
+                              return <MathRenderer content={text || '-'} />;
                             },
                           },
                           {
@@ -1193,7 +1211,7 @@ export default function TotalPage() {
                     <Alert
                       type="error"
                       message="检测过程中出现错误"
-                      description={viewModalContent.data.error}
+                      description={unescapeText(viewModalContent.data.error)}
                     />
                   </Descriptions.Item>
                 )}
@@ -1203,11 +1221,11 @@ export default function TotalPage() {
                   </Descriptions.Item>
                 )}
                 <Descriptions.Item label="结论">
-                  {viewModalContent.data.verdict || '未知'}
+                  {unescapeText(viewModalContent.data.verdict) || '未知'}
                 </Descriptions.Item>
                 <Descriptions.Item label="AI评价">
                   <Paragraph style={{ whiteSpace: 'pre-wrap' }}>
-                    {viewModalContent.data.details || viewModalContent.data.reason || '无'}
+                    {unescapeText(viewModalContent.data.details || viewModalContent.data.reason) || '无'}
                   </Paragraph>
                 </Descriptions.Item>
               </Descriptions>
@@ -1229,7 +1247,7 @@ export default function TotalPage() {
                     <Alert
                       type="error"
                       message="检测过程中出现错误"
-                      description={viewModalContent.data.error}
+                      description={unescapeText(viewModalContent.data.error)}
                     />
                   </Descriptions.Item>
                 )}
@@ -1239,11 +1257,11 @@ export default function TotalPage() {
                   </Descriptions.Item>
                 )}
                 <Descriptions.Item label="结论">
-                  {viewModalContent.data.verdict || '未知'}
+                  {unescapeText(viewModalContent.data.verdict) || '未知'}
                 </Descriptions.Item>
                 <Descriptions.Item label="AI评价">
                   <Paragraph style={{ whiteSpace: 'pre-wrap' }}>
-                    {viewModalContent.data.details || viewModalContent.data.reason || '无'}
+                    {unescapeText(viewModalContent.data.details || viewModalContent.data.reason) || '无'}
                   </Paragraph>
                 </Descriptions.Item>
               </Descriptions>
