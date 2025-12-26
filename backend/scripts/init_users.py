@@ -71,6 +71,61 @@ INITIAL_USERS = [
         "password": "user123",  # 生产环境请修改
         "role": UserRole.USER,
     },
+        {
+        "username": "zhuyoupeng",
+        "email": "zhuyoupeng@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+        {
+        "username": "mayuzhong",
+        "email": "mayuzhong@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+                                {
+        "username": "kongyusu",
+        "email": "kongyusu@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+        {
+        "username": "gaokunyi",
+        "email": "gaokunyi@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+        {
+        "username": "zhujinhong",
+        "email": "zhujinhong@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+        {
+        "username": "xieshuhong",
+        "email": "xieshuhong@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+        {
+        "username": "sunjungxuan",
+        "email": "sunjungxuan@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+        {
+        "username": "lifanghe",
+        "email": "lifanghe@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+        {
+        "username": "gexinlin",
+        "email": "gexinlin@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+        
 ]
 
 
