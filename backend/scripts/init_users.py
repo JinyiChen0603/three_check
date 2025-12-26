@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sqlalchemy import select
 import bcrypt
 
-from app.database import AsyncSessionLocal
+from app.database import _get_session_local
 from app.models import User, UserRole
 
 
@@ -76,6 +76,8 @@ INITIAL_USERS = [
 
 async def create_initial_users():
     """创建初始用户"""
+    print("\n[Init] Creating initial users...")
+    AsyncSessionLocal = _get_session_local()
     async with AsyncSessionLocal() as session:
         try:
             for user_data in INITIAL_USERS:
