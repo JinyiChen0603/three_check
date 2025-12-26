@@ -5,20 +5,26 @@ OCR 服务模块
 
 import base64
 from typing import Optional, Dict, Any
-from pathlib import Path
-import httpx
 
-from app.config import settings
+from app.services.llm import gpt4o_vision, LLMClient
 
 
 class OCRService:
-    """OCR 识别服务 - 通过 OpenRouter"""
+    """
+    OCR 识别服务 - 使用 GPT-4o Vision
     
-    def __init__(self):
-        # 使用 OpenRouter API Key
-        self.api_key = settings.OPENROUTER_API_KEY
-        self.model = settings.OPENAI_OCR_MODEL  # 使用 OpenRouter 格式的模型名
-        self.base_url = "https://openrouter.ai/api/v1/chat/completions"
+    通过 OpenRouter 调用 GPT-4o 的 Vision 功能识别数学题目
+    """
+    
+    def __init__(self, client: LLMClient = None):
+        """
+        初始化 OCR 服务
+        
+        Args:
+            client: LLMClient 实例，默认使用 gpt4o_vision
+        """
+        self.client = client or gpt4o_vision
+        self.model_name = "gpt-4o-vision"
     
     async def recognize_image(
         self,
@@ -91,64 +97,28 @@ class OCRService:
 2. 如果有多个小题，请分别列出
 3. 使用LaTeX格式表示数学公式（用$...$包裹）"""
             
-            # 构建请求
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt}
-                    ]
-                }
-            ]
+            # 调用 Vision API
+            response = await self.client.chat_with_image(
+                prompt=prompt,
+                image_url=image_url,
+                image_base64=image_data,
+                temperature=0.2,
+                max_tokens=2000
+            )
             
-            # 添加图片
-            if image_url:
-                messages[0]["content"].append({
-                    "type": "image_url",
-                    "image_url": {"url": image_url}
-                })
-            else:
-                messages[0]["content"].append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}
-                })
+            # 解析返回结果
+            raw_text = LLMClient.extract_content(response)
             
-            # 调用OpenAI API
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    self.base_url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": messages,
-                        "max_tokens": 2000,
-                        "temperature": 0.2,  # 低温度以提高准确性
-                    }
-                )
-                
-                response.raise_for_status()
-                result = response.json()
-                
-                # 解析返回结果
-                raw_text = result["choices"][0]["message"]["content"]
-                
-                # 简单解析（实际应用中可能需要更复杂的解析逻辑）
-                parsed_result = self._parse_ocr_result(raw_text, extract_answer)
-                
-                return {
-                    "success": True,
-                    "raw_text": raw_text,
-                    **parsed_result
-                }
-        
-        except httpx.HTTPError as e:
+            # 简单解析
+            parsed_result = self._parse_ocr_result(raw_text, extract_answer)
+            
             return {
-                "success": False,
-                "error": f"HTTP请求失败: {str(e)}"
+                "success": True,
+                "raw_text": raw_text,
+                "ai_model": self.model_name,
+                **parsed_result
             }
+        
         except Exception as e:
             return {
                 "success": False,
@@ -172,13 +142,12 @@ class OCRService:
             "explanation": ""
         }
         
-        # 简单的解析逻辑（使用标记分割）
+        # 使用标记分割
         sections = raw_text.split("【")
         
         for section in sections:
             if section.startswith("题目】"):
                 content = section.replace("题目】", "").strip()
-                # 提取到下一个【之前的内容
                 if "【" in content:
                     content = content.split("【")[0].strip()
                 result["problem"] = content
@@ -204,4 +173,3 @@ class OCRService:
 
 # 全局OCR服务实例
 ocr_service = OCRService()
-

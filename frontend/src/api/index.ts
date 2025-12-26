@@ -132,6 +132,36 @@ export const problemApi = {
     return response.data;
   },
 
+  // 单独检测难度
+  checkDifficulty: async (content: any, answer: string, explanation?: string) => {
+    const response = await apiClient.post('/problems/check-difficulty', {
+      content: typeof content === 'string' ? content : JSON.stringify(content),
+      answer,
+      explanation,
+    });
+    return response.data;
+  },
+
+  // 单独检测原创性
+  checkOriginality: async (content: any, answer: string, explanation?: string) => {
+    const response = await apiClient.post('/problems/check-originality', {
+      content: typeof content === 'string' ? content : JSON.stringify(content),
+      answer,
+      explanation,
+    });
+    return response.data;
+  },
+
+  // 单独检测严谨性
+  checkRigor: async (content: any, answer: string, explanation?: string) => {
+    const response = await apiClient.post('/problems/check-rigor', {
+      content: typeof content === 'string' ? content : JSON.stringify(content),
+      answer,
+      explanation,
+    });
+    return response.data;
+  },
+
   // 获取我的题目列表
   getMyProblems: async (status?: string) => {
     const response = await apiClient.get('/problems/my-problems', {
@@ -171,6 +201,56 @@ export const problemApi = {
   // 获取单个题目详情（包含完整内容）
   getProblemDetail: async (problemId: number) => {
     const response = await apiClient.get(`/problems/${problemId}`);
+    return response.data;
+  },
+
+  // ==================== 新增：题目验证和导出相关API ====================
+  
+  // 验证并保存题目到导出列表
+  validateAndSave: async (data: {
+    problem: string;
+    answer: string;
+    explanation: string;
+    include_difficulty?: boolean;
+  }) => {
+    const formData = new FormData();
+    formData.append('problem', data.problem);
+    formData.append('answer', data.answer);
+    formData.append('explanation', data.explanation);
+    formData.append('include_difficulty', data.include_difficulty ? 'true' : 'false');
+    
+    const response = await apiClient.post('/problems/validate-and-save', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  // 获取待导出列表
+  getExportList: async () => {
+    const response = await apiClient.get('/problems/export-list');
+    return response.data;
+  },
+
+  // 导出验证题目到Excel
+  exportValidated: async (onlyPassed: boolean = true) => {
+    const response = await apiClient.get('/problems/export-validated', {
+      params: { only_passed: onlyPassed },
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  // 清空导出列表
+  clearExportList: async () => {
+    const response = await apiClient.delete('/problems/clear-export-list');
+    return response.data;
+  },
+
+  // 删除单个已验证题目
+  deleteValidatedProblem: async (problemId: number) => {
+    const response = await apiClient.delete(`/problems/export-list/${problemId}`);
     return response.data;
   },
 };

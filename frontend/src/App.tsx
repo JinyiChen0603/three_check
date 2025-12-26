@@ -22,6 +22,7 @@ import Review from './pages/Review';
 import ReviewHistory from './pages/ReviewHistory';
 import Problem from './pages/Problem';
 import MyVariants from './pages/MyVariants';
+import TotalPage from './pages/totalpage';
 
 // 创建 React Query 客户端
 const queryClient = new QueryClient({
@@ -68,22 +69,23 @@ function App() {
                 path="tasks" 
                 element={<Tasks />} 
               />
-              <Route 
+              {/* 以下4个页面已隐藏，但保留路由代码以便将来恢复 */}
+              {/* <Route 
                 path="problem" 
                 element={<Problem />} 
-              />
-              <Route 
+              /> */}
+              {/* <Route 
                 path="my-variants" 
                 element={<MyVariants />} 
-              />
-              <Route 
+              /> */}
+              {/* <Route 
                 path="review" 
                 element={<Review />} 
-              />
-              <Route 
+              /> */}
+              {/* <Route 
                 path="review-history" 
                 element={<ReviewHistory />} 
-              />
+              /> */}
               <Route 
                 path="materials" 
                 element={<Materials />} 
@@ -91,6 +93,10 @@ function App() {
               <Route 
                 path="admin" 
                 element={<Admin />} 
+              />
+              <Route 
+                path="totalpage" 
+                element={<TotalPage />} 
               />
             </Route>
 

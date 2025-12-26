@@ -1,6 +1,11 @@
 """
 验证服务模块（协调器）
 整合三个独立的检测服务：难度、原创性、严谨性
+
+检测流程：
+1. 难度检测：豆包对抗验证（16次，≤8次正确）+ GPT-4o 答案校验
+2. 原创性检测：GPT-5.2 Responses API + web_search
+3. 严谨性检测：GPT-5.2（专注于竞赛题目的命题严谨性）
 """
 
 import asyncio
@@ -14,7 +19,7 @@ from app.services.rigor_check_service import rigor_check_service
 
 class ValidationService:
     """
-    题目验证服务（对抗验证）- 使用 Doubao Seed Thinking
+    题目验证服务（对抗验证）- 使用智谱 GLM-4.6
     
     这是一个兼容层，实际调用 difficulty_check_service
     """
@@ -47,9 +52,9 @@ class QualityCheckService:
     质量检查协调服务（三维度）
     
     整合三个独立的检测服务：
-    1. 难度检测 - DifficultyCheckService (Doubao)
-    2. 原创性检测 - OriginalityCheckService (GPT-4o)
-    3. 严谨性检测 - RigorCheckService (GPT-4o)
+    1. 难度检测 - DifficultyCheckService (豆包 + GPT-4o 答案校验)
+    2. 原创性检测 - OriginalityCheckService (GPT-5.2 Responses API + web_search)
+    3. 严谨性检测 - RigorCheckService (GPT-5.2，专注于竞赛题目命题严谨性)
     """
     
     def __init__(self):
@@ -57,6 +62,73 @@ class QualityCheckService:
         self.difficulty_service = difficulty_check_service
         self.originality_service = originality_check_service
         self.rigor_service = rigor_check_service
+    
+    async def two_dimension_check(
+        self,
+        problem: str,
+        answer: str,
+        explanation: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        二维质检（原创性 + 严谨性）
+        不包括难度检测
+        
+        Args:
+            problem: 题目内容
+            answer: 标准答案
+            explanation: 解析
+            
+        Returns:
+            Dict: {
+                "success": bool,
+                "all_passed": bool,  # 两个维度是否都通过
+                "originality": Dict,  # 原创性检测结果
+                "rigor": Dict,  # 严谨性检测结果
+            }
+        """
+        try:
+            # 并发执行原创性和严谨性检测
+            originality_result, rigor_result = await asyncio.gather(
+                self.originality_service.check_originality(problem),
+                self.rigor_service.check_rigor(problem, answer, explanation),
+                return_exceptions=True
+            )
+            
+            # 处理异常
+            if isinstance(originality_result, Exception):
+                originality_result = {"success": False, "error": str(originality_result)}
+            if isinstance(rigor_result, Exception):
+                rigor_result = {"success": False, "error": str(rigor_result)}
+            
+            # 检查两项是否都通过
+            originality_passed = (
+                originality_result.get("success", False) and 
+                originality_result.get("is_original", False)
+            )
+            rigor_passed = (
+                rigor_result.get("success", False) and 
+                rigor_result.get("is_rigorous", False)
+            )
+            
+            # 判断是否全部通过
+            all_passed = originality_passed and rigor_passed
+            
+            return {
+                "success": True,
+                "all_passed": all_passed,
+                "originality": originality_result,
+                "rigor": rigor_result,
+                "summary": {
+                    "originality_passed": originality_passed,
+                    "rigor_passed": rigor_passed,
+                }
+            }
+        
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"二维质检失败: {str(e)}"
+            }
     
     async def full_quality_check(
         self,
@@ -67,9 +139,9 @@ class QualityCheckService:
         """
         完整的质量检查（三个维度）
         
-        1. 难度检测：Doubao对抗验证（8次，≤4次正确）
-        2. 原创性检测：GPT-4o Research联网搜索
-        3. 数学严谨性检测：GPT-4o判断
+        1. 难度检测：豆包对抗验证（16次，≤8次正确）+ GPT-4o 答案校验
+        2. 原创性检测：GPT-5.2 Responses API + web_search 联网搜索
+        3. 严谨性检测：GPT-5.2（专注于竞赛题目的命题严谨性）
         
         Args:
             problem: 题目内容
@@ -139,8 +211,9 @@ class QualityCheckService:
         """
         顺序执行质量检查（三个维度）
         
-        1. 先检查创新性和严谨性（并发）
-        2. 只有两项都通过后，才检查难度（豆包对抗验证）
+        执行顺序（优化成本）：
+        1. 先检查原创性和严谨性（并发）
+        2. 只有两项都通过后，才执行难度检测（智谱对抗验证，成本较高）
         
         这样可以节省成本，如果基础检测不通过就不调用昂贵的难度检测
         
@@ -156,7 +229,7 @@ class QualityCheckService:
             }
         """
         try:
-            # 第一步：先检查创新性和严谨性（并发执行这两项）
+            # 第一步：先检查原创性和严谨性（并发执行）
             originality_result, rigor_result = await asyncio.gather(
                 self.originality_service.check_originality(problem),
                 self.rigor_service.check_rigor(problem, answer, explanation),
@@ -169,7 +242,7 @@ class QualityCheckService:
             if isinstance(rigor_result, Exception):
                 rigor_result = {"success": False, "error": str(rigor_result)}
             
-            # 检查创新性和严谨性是否都通过
+            # 检查两项是否都通过
             originality_passed = (
                 originality_result.get("success", False) and 
                 originality_result.get("is_original", False)
@@ -179,11 +252,11 @@ class QualityCheckService:
                 rigor_result.get("is_rigorous", False)
             )
             
-            # 如果创新性或严谨性未通过，提前终止
+            # 如果任一项未通过，提前终止
             if not (originality_passed and rigor_passed):
                 early_stop_reasons = []
                 if not originality_passed:
-                    early_stop_reasons.append("创新性检测未通过")
+                    early_stop_reasons.append("原创性检测未通过")
                 if not rigor_passed:
                     early_stop_reasons.append("严谨性检测未通过")
                 
@@ -202,7 +275,7 @@ class QualityCheckService:
                     }
                 }
             
-            # 第二步：创新性和严谨性都通过，执行难度检测
+            # 第二步：前置检测都通过，执行难度检测
             difficulty_result = await self.difficulty_service.validate_difficulty(
                 problem, answer, explanation
             )
