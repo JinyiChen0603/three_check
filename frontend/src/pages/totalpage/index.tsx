@@ -42,6 +42,9 @@ import {
 import { problemApi } from '../../api';
 import { MATERIAL_CATEGORIES } from '../../config/constants';
 import MathRenderer from '../../components/MathRenderer';
+import { useTask } from '../../hooks/useTask';
+import { TaskType } from '../../config/constants';
+import { useAuthStore } from '../../store/useAuthStore';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -68,6 +71,12 @@ interface ExportListItem {
 
 export default function TotalPage() {
   const [form] = Form.useForm<ProblemFormData>();
+  
+  // 任务管理Hook
+  const { tasks, refreshTasks, problemCreationTotal, problemCreationCompleted } = useTask();
+  
+  // 用户信息刷新
+  const fetchCurrentUser = useAuthStore((state) => state.fetchCurrentUser);
 
   // 三个检测状态
   const [difficultyCheck, setDifficultyCheck] = useState<CheckStatus>({
@@ -91,6 +100,11 @@ export default function TotalPage() {
   const [exportStats, setExportStats] = useState({ total: 0, passed: 0, failed: 0 });
   const [loadingList, setLoadingList] = useState(false);
   const [exporting, setExporting] = useState(false);
+  
+  // 获取进行中的出题任务
+  const inProgressTask = tasks.find(
+    (t) => t.task_type === TaskType.PROBLEM_CREATION && t.status === 'in_progress'
+  );
 
   // Modal状态
   const [viewModalVisible, setViewModalVisible] = useState(false);
@@ -253,16 +267,24 @@ export default function TotalPage() {
         include_difficulty: false,
       });
 
-      message.success('✅ 题目已保存到导出列表');
+      const taskProgress = result.task_progress;
+      const progressMsg = taskProgress 
+        ? `（进度：${taskProgress.completed}/${taskProgress.total}，剩余：${taskProgress.remaining}）`
+        : '';
       
-      // 刷新列表
-      await loadExportList();
-      
-      // 重置表单和检测状态
-      handleReset();
-    } catch (error) {
+          message.success(`✅ 题目已保存到导出列表${progressMsg}`);
+          
+          // 刷新列表、任务和用户信息（用于更新仪表盘）
+          await loadExportList();
+          await refreshTasks();
+          await fetchCurrentUser();
+          
+          // 重置表单和检测状态
+          handleReset();
+    } catch (error: any) {
       console.error('保存失败:', error);
-      message.error('保存失败，请重试');
+      const errorMsg = error.response?.data?.detail || error.message || '保存失败，请重试';
+      message.error(errorMsg);
     }
   };
 
@@ -342,27 +364,63 @@ export default function TotalPage() {
   const handleClearList = () => {
     Modal.confirm({
       title: '确认清空',
-      content: '确定要清空待导出列表吗？此操作不可恢复。',
+      content: '确定要清空待导出列表吗？清空后任务进度会重置，可以重新出题。',
       okText: '确认',
       cancelText: '取消',
       okType: 'danger',
       onOk: async () => {
         try {
           await problemApi.clearExportList();
-          message.success('✅ 列表已清空');
+          message.success('✅ 列表已清空，任务进度已重置');
+          // 刷新列表、任务和用户信息（用于更新仪表盘）
           await loadExportList();
-        } catch (error) {
+          await refreshTasks();
+          await fetchCurrentUser();
+        } catch (error: any) {
           console.error('清空失败:', error);
-          message.error('清空失败，请重试');
+          const errorMsg = error.response?.data?.detail || error.message || '清空失败，请重试';
+          message.error(errorMsg);
         }
       },
     });
   };
 
-  // 初始化加载列表
+  // 初始化加载列表和任务
   useEffect(() => {
     loadExportList();
+    refreshTasks();
   }, []);
+
+  // 删除单个题目
+  const handleDeleteProblem = async (problemId: number) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: '确定要删除这道题目吗？删除后可以继续出题。',
+      okText: '确认',
+      cancelText: '取消',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          const result = await problemApi.deleteValidatedProblem(problemId);
+          const taskProgress = result.task_progress;
+          const progressMsg = taskProgress 
+            ? `（进度：${taskProgress.completed}/${taskProgress.total}，剩余：${taskProgress.remaining}）`
+            : '';
+          
+          message.success(`✅ 题目已删除${progressMsg}`);
+          
+          // 刷新列表、任务和用户信息（用于更新仪表盘）
+          await loadExportList();
+          await refreshTasks();
+          await fetchCurrentUser();
+        } catch (error: any) {
+          console.error('删除失败:', error);
+          const errorMsg = error.response?.data?.detail || error.message || '删除失败，请重试';
+          message.error(errorMsg);
+        }
+      },
+    });
+  };
 
   // 表格列定义
   const columns = [
@@ -446,6 +504,21 @@ export default function TotalPage() {
       width: 180,
       render: (time: string) => new Date(time).toLocaleString('zh-CN'),
     },
+    {
+      title: '操作',
+      key: 'action',
+      width: 100,
+      render: (_: any, record: ExportListItem) => (
+        <Button
+          danger
+          size="small"
+          icon={<DeleteOutlined />}
+          onClick={() => handleDeleteProblem(record.id)}
+        >
+          删除
+        </Button>
+      ),
+    },
   ];
 
   // 渲染检测按钮
@@ -498,6 +571,25 @@ export default function TotalPage() {
         <Paragraph type="secondary">
           填写题目信息 → 三重检测（难度+原创性+严谨性）→ 保存到列表 → 批量导出Excel
         </Paragraph>
+        
+        {/* 任务状态提示 */}
+        {inProgressTask ? (
+          <Alert
+            message={`出题任务进度：${inProgressTask.completed_count || 0} / ${inProgressTask.total_count || 0}`}
+            description={`您已领取 ${inProgressTask.total_count || 0} 道出题任务，已保存 ${inProgressTask.completed_count || 0} 道题目，还可保存 ${(inProgressTask.total_count || 0) - (inProgressTask.completed_count || 0)} 道题目。`}
+            type="info"
+            showIcon
+            style={{ marginTop: 16 }}
+          />
+        ) : (
+          <Alert
+            message="请先在任务管理中领取出题任务"
+            description="您需要先领取出题任务才能保存题目。请前往任务管理页面领取任务。"
+            type="warning"
+            showIcon
+            style={{ marginTop: 16 }}
+          />
+        )}
       </Card>
 
       {/* 题目输入区 */}

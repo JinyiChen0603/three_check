@@ -247,6 +247,12 @@ export const problemApi = {
     const response = await apiClient.delete('/problems/clear-export-list');
     return response.data;
   },
+
+  // 删除单个已验证题目
+  deleteValidatedProblem: async (problemId: number) => {
+    const response = await apiClient.delete(`/problems/export-list/${problemId}`);
+    return response.data;
+  },
 };
 
 // 评分相关 API

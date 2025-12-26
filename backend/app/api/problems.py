@@ -11,7 +11,7 @@ from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from pydantic import BaseModel, Field
 import asyncio
 import json
@@ -1055,14 +1055,58 @@ async def validate_and_save_problem(
     验证题目并保存到导出列表
     
     流程：
-    1. 可选：验证难度
-    2. 二维质检（原创性 + 严谨性）
-    3. 保存到待导出列表
+    1. 检查用户是否有进行中的出题任务
+    2. 检查已保存题目数量是否超过任务数量
+    3. 可选：验证难度
+    4. 二维质检（原创性 + 严谨性）
+    5. 保存到待导出列表并更新任务进度
     
     不会创建正式的Problem记录，只保存到ValidatedProblemExport表
     """
     try:
-        # 1. 验证难度（可选）
+        # 1. 检查用户是否有进行中的出题任务
+        now = datetime.utcnow()
+        task_result = await db.execute(
+            select(Task).where(
+                Task.user_id == current_user.id,
+                Task.task_type == TaskType.CREATE_PROBLEM,
+                Task.status == TaskStatus.IN_PROGRESS
+            ).order_by(Task.claimed_at.asc())
+        )
+        task = task_result.scalar_one_or_none()
+        
+        if not task:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="请先在任务管理中领取出题任务"
+            )
+        
+        # 检查任务是否过期
+        if task.expires_at and now > task.expires_at:
+            task.status = TaskStatus.TIMEOUT
+            await db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="任务已超时，请重新领取任务"
+            )
+        
+        # 2. 检查已保存的题目数量（未导出的）
+        saved_count_result = await db.execute(
+            select(func.count(ValidatedProblemExport.id)).where(
+                ValidatedProblemExport.user_id == current_user.id,
+                ValidatedProblemExport.is_exported == False
+            )
+        )
+        saved_count = saved_count_result.scalar() or 0
+        
+        # 检查是否超过任务数量
+        if saved_count >= task.total_count:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"已保存 {saved_count} 道题目，已达到任务上限 {task.total_count} 道。如需继续出题，请先删除已保存的题目或领取新任务"
+            )
+        
+        # 3. 验证难度（可选）
         difficulty_result = None
         if include_difficulty:
             try:
@@ -1078,7 +1122,7 @@ async def validate_and_save_problem(
                 logger.warning(f"难度验证失败: {str(e)}")
                 difficulty_result = {"success": False, "error": str(e)}
         
-        # 2. 二维质检
+        # 4. 二维质检
         try:
             check_result = await quality_check_service.two_dimension_check(
                 problem=problem,
@@ -1101,7 +1145,7 @@ async def validate_and_save_problem(
         originality_check = check_result.get("originality", {"success": False, "error": "质检异常"})
         rigor_check = check_result.get("rigor", {"success": False, "error": "质检异常"})
         
-        # 3. 保存到导出列表
+        # 5. 保存到导出列表
         validated_problem = ValidatedProblemExport(
             user_id=current_user.id,
             content=problem,
@@ -1114,6 +1158,13 @@ async def validate_and_save_problem(
         )
         
         db.add(validated_problem)
+        
+        # 6. 更新任务进度
+        task.completed_count = (task.completed_count or 0) + 1
+        
+        # 7. 更新用户的出题数统计（用于仪表盘显示）
+        current_user.problems_created_count = (current_user.problems_created_count or 0) + 1
+        
         await db.commit()
         await db.refresh(validated_problem)
         
@@ -1125,9 +1176,16 @@ async def validate_and_save_problem(
             "id": validated_problem.id,
             "all_passed": all_passed,
             "message": "题目已保存到导出列表" if all_passed else "题目未通过质检但已保存",
+            "task_progress": {
+                "completed": task.completed_count,
+                "total": task.total_count,
+                "remaining": task.total_count - task.completed_count
+            },
             **check_result
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
@@ -1233,6 +1291,80 @@ async def export_validated_problems(
         )
 
 
+@router.delete("/export-list/{problem_id}", summary="删除单个已验证题目")
+async def delete_validated_problem(
+    problem_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    删除单个已验证题目
+    
+    删除后，任务的completed_count会减1，用户可以继续出题
+    """
+    try:
+        # 查找题目
+        result = await db.execute(
+            select(ValidatedProblemExport).where(
+                ValidatedProblemExport.id == problem_id,
+                ValidatedProblemExport.user_id == current_user.id,
+                ValidatedProblemExport.is_exported == False
+            )
+        )
+        problem = result.scalar_one_or_none()
+        
+        if not problem:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="题目不存在或已导出"
+            )
+        
+        # 删除题目
+        await db.delete(problem)
+        
+        # 更新任务进度（减1）
+        now = datetime.utcnow()
+        task_result = await db.execute(
+            select(Task).where(
+                Task.user_id == current_user.id,
+                Task.task_type == TaskType.CREATE_PROBLEM,
+                Task.status == TaskStatus.IN_PROGRESS
+            ).order_by(Task.claimed_at.asc())
+        )
+        task = task_result.scalar_one_or_none()
+        
+        if task and task.completed_count > 0:
+            task.completed_count = task.completed_count - 1
+        
+        # 更新用户的出题数统计（用于仪表盘显示）
+        if current_user.problems_created_count > 0:
+            current_user.problems_created_count = current_user.problems_created_count - 1
+        
+        await db.commit()
+        
+        return {
+            "success": True,
+            "message": "题目已删除",
+            "task_progress": {
+                "completed": task.completed_count if task else 0,
+                "total": task.total_count if task else 0,
+                "remaining": (task.total_count - task.completed_count) if task else 0
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"删除题目失败: {str(e)}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"删除题目失败: {str(e)}"
+        )
+
+
 @router.delete("/clear-export-list", summary="清空导出列表")
 async def clear_export_list(
     current_user: User = Depends(get_current_user),
@@ -1240,6 +1372,8 @@ async def clear_export_list(
 ):
     """
     清空当前用户的待导出列表
+    
+    清空后，任务的completed_count会重置为0
     """
     try:
         result = await db.execute(
@@ -1250,14 +1384,41 @@ async def clear_export_list(
         )
         problems = result.scalars().all()
         
+        deleted_count = len(problems)
+        
+        # 删除所有题目
         for p in problems:
             await db.delete(p)
+        
+        # 更新任务进度（重置为0）
+        now = datetime.utcnow()
+        task_result = await db.execute(
+            select(Task).where(
+                Task.user_id == current_user.id,
+                Task.task_type == TaskType.CREATE_PROBLEM,
+                Task.status == TaskStatus.IN_PROGRESS
+            ).order_by(Task.claimed_at.asc())
+        )
+        task = task_result.scalar_one_or_none()
+        
+        if task:
+            task.completed_count = 0
+        
+        # 更新用户的出题数统计（用于仪表盘显示）
+        # 注意：这里只减少待导出列表中的题目数，不影响已导出的题目
+        # 如果用户之前已经导出过题目，那些题目的统计不会减少
+        # 这里只减少当前待导出列表中的题目数
+        if current_user.problems_created_count >= deleted_count:
+            current_user.problems_created_count = current_user.problems_created_count - deleted_count
+        else:
+            # 如果统计数小于删除数，说明可能有些题目已经导出过了，只减少到0
+            current_user.problems_created_count = 0
         
         await db.commit()
         
         return {
             "success": True,
-            "message": f"已清空 {len(problems)} 道题目"
+            "message": f"已清空 {deleted_count} 道题目"
         }
     
     except Exception as e:
