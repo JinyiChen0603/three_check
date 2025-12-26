@@ -1049,6 +1049,7 @@ async def validate_and_save_problem(
     answer: str = Form(...),
     explanation: str = Form(...),
     include_difficulty: bool = Form(False),
+    difficulty_result_json: Optional[str] = Form(None),  # 前端已完成的难度检测结果（JSON字符串）
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -1108,7 +1109,20 @@ async def validate_and_save_problem(
         
         # 3. 验证难度（可选）
         difficulty_result = None
-        if include_difficulty:
+        # 优先使用前端传递的检测结果
+        if difficulty_result_json:
+            try:
+                import json
+                difficulty_result = json.loads(difficulty_result_json)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"解析前端传递的难度检测结果失败: {str(e)}")
+                # 如果解析失败，继续执行后端检测
+                difficulty_result = None
+        
+        # 如果前端没有传递结果，且需要检测，则执行后端检测
+        if difficulty_result is None and include_difficulty:
             try:
                 difficulty_result = await validation_service.validate_difficulty(
                     problem=problem,

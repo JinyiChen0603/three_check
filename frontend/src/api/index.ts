@@ -212,12 +212,17 @@ export const problemApi = {
     answer: string;
     explanation: string;
     include_difficulty?: boolean;
+    difficulty_result?: any;  // 前端已完成的难度检测结果
   }) => {
     const formData = new FormData();
     formData.append('problem', data.problem);
     formData.append('answer', data.answer);
     formData.append('explanation', data.explanation);
     formData.append('include_difficulty', data.include_difficulty ? 'true' : 'false');
+    // 如果前端已经进行了难度检测，传递检测结果
+    if (data.difficulty_result) {
+      formData.append('difficulty_result_json', JSON.stringify(data.difficulty_result));
+    }
     
     const response = await apiClient.post('/problems/validate-and-save', formData, {
       headers: {
