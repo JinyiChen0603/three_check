@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, Field
 import asyncio
 import json
@@ -1225,10 +1226,13 @@ async def export_validated_problems(
         Excel文件下载
     """
     try:
-        # 查询所有题目
-        query = select(ValidatedProblemExport).where(
-            ValidatedProblemExport.user_id == current_user.id
-        ).order_by(ValidatedProblemExport.created_at.asc())
+        # 查询所有题目，并加载用户信息
+        query = (
+            select(ValidatedProblemExport)
+            .options(selectinload(ValidatedProblemExport.user))
+            .where(ValidatedProblemExport.user_id == current_user.id)
+            .order_by(ValidatedProblemExport.created_at.asc())
+        )
         
         result = await db.execute(query)
         validated_problems = result.scalars().all()
@@ -1275,6 +1279,7 @@ async def export_validated_problems(
                 problems_data.append({
                     "id": p.id,
                     "user_id": p.user_id,
+                    "username": p.user.username if p.user else "",  # 添加用户名
                     "content": p.content,
                     "answer": p.answer,
                     "explanation": p.explanation,

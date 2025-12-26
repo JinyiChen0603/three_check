@@ -79,6 +79,7 @@ class ExportService:
                 "序号": idx,
                 "ID": p.get("id", ""),
                 "用户ID": p.get("user_id", ""),
+                "用户名称": p.get("username", ""),  # 添加用户名列
                 "题目内容": p.get("content", ""),
                 "标准答案": p.get("answer", ""),
                 "题目解析": p.get("explanation", ""),
