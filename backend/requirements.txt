@@ -32,6 +32,7 @@ python-dotenv>=1.0.0
 # 数据处理
 pandas>=2.2.0
 numpy>=2.0.0
+openpyxl>=3.1.2  # Excel导出支持
 
 # 日期时间
 python-dateutil>=2.8.2

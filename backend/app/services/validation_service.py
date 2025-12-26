@@ -63,6 +63,73 @@ class QualityCheckService:
         self.originality_service = originality_check_service
         self.rigor_service = rigor_check_service
     
+    async def two_dimension_check(
+        self,
+        problem: str,
+        answer: str,
+        explanation: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        二维质检（原创性 + 严谨性）
+        不包括难度检测
+        
+        Args:
+            problem: 题目内容
+            answer: 标准答案
+            explanation: 解析
+            
+        Returns:
+            Dict: {
+                "success": bool,
+                "all_passed": bool,  # 两个维度是否都通过
+                "originality": Dict,  # 原创性检测结果
+                "rigor": Dict,  # 严谨性检测结果
+            }
+        """
+        try:
+            # 并发执行原创性和严谨性检测
+            originality_result, rigor_result = await asyncio.gather(
+                self.originality_service.check_originality(problem),
+                self.rigor_service.check_rigor(problem, answer, explanation),
+                return_exceptions=True
+            )
+            
+            # 处理异常
+            if isinstance(originality_result, Exception):
+                originality_result = {"success": False, "error": str(originality_result)}
+            if isinstance(rigor_result, Exception):
+                rigor_result = {"success": False, "error": str(rigor_result)}
+            
+            # 检查两项是否都通过
+            originality_passed = (
+                originality_result.get("success", False) and 
+                originality_result.get("is_original", False)
+            )
+            rigor_passed = (
+                rigor_result.get("success", False) and 
+                rigor_result.get("is_rigorous", False)
+            )
+            
+            # 判断是否全部通过
+            all_passed = originality_passed and rigor_passed
+            
+            return {
+                "success": True,
+                "all_passed": all_passed,
+                "originality": originality_result,
+                "rigor": rigor_result,
+                "summary": {
+                    "originality_passed": originality_passed,
+                    "rigor_passed": rigor_passed,
+                }
+            }
+        
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"二维质检失败: {str(e)}"
+            }
+    
     async def full_quality_check(
         self,
         problem: str,
