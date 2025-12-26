@@ -95,6 +95,13 @@ export default function TotalPage() {
     passed: null,
   });
 
+  // 用于取消请求的控制器
+  const [abortControllers, setAbortControllers] = useState<{
+    difficulty?: AbortController;
+    originality?: AbortController;
+    rigor?: AbortController;
+  }>({});
+
   // 导出列表
   const [exportList, setExportList] = useState<ExportListItem[]>([]);
   const [exportStats, setExportStats] = useState({ total: 0, passed: 0, failed: 0 });
@@ -113,6 +120,19 @@ export default function TotalPage() {
     data: any;
   } | null>(null);
 
+  // 计算是否有任何检测正在进行
+  const isAnyCheckRunning =
+    difficultyCheck.loading || originalityCheck.loading || rigorCheck.loading;
+
+  // 计算是否有任何检测已完成
+  const hasAnyCheckCompleted =
+    difficultyCheck.result !== null ||
+    originalityCheck.result !== null ||
+    rigorCheck.result !== null;
+
+  // 表单字段是否应该被禁用（检测中或检测完成后）
+  const formFieldsDisabled = isAnyCheckRunning || hasAnyCheckCompleted;
+
   // 是否可以保存到列表（三个检测都完成即可，无论是否通过）
   const canSaveToList =
     difficultyCheck.result !== null &&
@@ -125,23 +145,43 @@ export default function TotalPage() {
       await form.validateFields(['problem', 'answer']);
       const values = form.getFieldsValue();
 
+      // 创建 AbortController
+      const controller = new AbortController();
+      setAbortControllers(prev => ({ ...prev, difficulty: controller }));
+
       setDifficultyCheck({ loading: true, result: null, passed: null });
-      const result = await problemApi.validateSingle(
-        values.problem,
-        values.answer,
-        values.explanation
-      );
+      
+      try {
+        const result = await problemApi.validateSingle(
+          values.problem,
+          values.answer,
+          values.explanation
+        );
 
-      setDifficultyCheck({
-        loading: false,
-        result: result,
-        passed: result.is_passed || false,
-      });
+        // 检查是否已被取消
+        if (controller.signal.aborted) {
+          return;
+        }
 
-      if (result.is_passed) {
-        message.success('✅ 难度检测通过');
-      } else {
-        message.warning('⚠️ 难度检测未通过');
+        setDifficultyCheck({
+          loading: false,
+          result: result,
+          passed: result.is_passed || false,
+        });
+
+        if (result.is_passed) {
+          message.success('✅ 难度检测通过');
+        } else {
+          message.warning('⚠️ 难度检测未通过');
+        }
+      } catch (error: any) {
+        // 如果是取消操作，不显示错误
+        if (controller.signal.aborted) {
+          return;
+        }
+        throw error;
+      } finally {
+        setAbortControllers(prev => ({ ...prev, difficulty: undefined }));
       }
     } catch (error: any) {
       console.error('难度检测失败:', error);
@@ -158,24 +198,44 @@ export default function TotalPage() {
       await form.validateFields(['problem', 'answer']);
       const values = form.getFieldsValue();
 
+      // 创建 AbortController
+      const controller = new AbortController();
+      setAbortControllers(prev => ({ ...prev, originality: controller }));
+
       setOriginalityCheck({ loading: true, result: null, passed: null });
-      const result = await problemApi.checkOriginality(
-        values.problem,
-        values.answer,
-        values.explanation
-      );
+      
+      try {
+        const result = await problemApi.checkOriginality(
+          values.problem,
+          values.answer,
+          values.explanation
+        );
 
-      const passed = result.originality?.is_original || false;
-      setOriginalityCheck({
-        loading: false,
-        result: result.originality,
-        passed: passed,
-      });
+        // 检查是否已被取消
+        if (controller.signal.aborted) {
+          return;
+        }
 
-      if (passed) {
-        message.success('✅ 原创性检测通过');
-      } else {
-        message.warning('⚠️ 原创性检测未通过');
+        const passed = result.originality?.is_original || false;
+        setOriginalityCheck({
+          loading: false,
+          result: result.originality,
+          passed: passed,
+        });
+
+        if (passed) {
+          message.success('✅ 原创性检测通过');
+        } else {
+          message.warning('⚠️ 原创性检测未通过');
+        }
+      } catch (error: any) {
+        // 如果是取消操作，不显示错误
+        if (controller.signal.aborted) {
+          return;
+        }
+        throw error;
+      } finally {
+        setAbortControllers(prev => ({ ...prev, originality: undefined }));
       }
     } catch (error: any) {
       console.error('原创性检测失败:', error);
@@ -192,24 +252,44 @@ export default function TotalPage() {
       await form.validateFields(['problem', 'answer']);
       const values = form.getFieldsValue();
 
+      // 创建 AbortController
+      const controller = new AbortController();
+      setAbortControllers(prev => ({ ...prev, rigor: controller }));
+
       setRigorCheck({ loading: true, result: null, passed: null });
-      const result = await problemApi.checkRigor(
-        values.problem,
-        values.answer,
-        values.explanation
-      );
+      
+      try {
+        const result = await problemApi.checkRigor(
+          values.problem,
+          values.answer,
+          values.explanation
+        );
 
-      const passed = result.rigor?.is_rigorous || false;
-      setRigorCheck({
-        loading: false,
-        result: result.rigor,
-        passed: passed,
-      });
+        // 检查是否已被取消
+        if (controller.signal.aborted) {
+          return;
+        }
 
-      if (passed) {
-        message.success('✅ 严谨性检测通过');
-      } else {
-        message.warning('⚠️ 严谨性检测未通过');
+        const passed = result.rigor?.is_rigorous || false;
+        setRigorCheck({
+          loading: false,
+          result: result.rigor,
+          passed: passed,
+        });
+
+        if (passed) {
+          message.success('✅ 严谨性检测通过');
+        } else {
+          message.warning('⚠️ 严谨性检测未通过');
+        }
+      } catch (error: any) {
+        // 如果是取消操作，不显示错误
+        if (controller.signal.aborted) {
+          return;
+        }
+        throw error;
+      } finally {
+        setAbortControllers(prev => ({ ...prev, rigor: undefined }));
       }
     } catch (error: any) {
       console.error('严谨性检测失败:', error);
@@ -308,12 +388,29 @@ export default function TotalPage() {
     setRigorCheck({ loading: false, result: null, passed: null });
   };
 
-  // 修改（仅重置检测状态）
+  // 修改题目（增强版：停止检测并清除报告）
   const handleModify = () => {
+    // 如果有检测正在进行，取消所有检测
+    if (isAnyCheckRunning) {
+      // 取消所有正在进行的请求
+      Object.values(abortControllers).forEach(controller => {
+        if (controller) {
+          controller.abort();
+        }
+      });
+      
+      message.warning('已停止所有正在进行的检测');
+    }
+
+    // 重置所有检测状态和报告
     setDifficultyCheck({ loading: false, result: null, passed: null });
     setOriginalityCheck({ loading: false, result: null, passed: null });
     setRigorCheck({ loading: false, result: null, passed: null });
-    message.info('已清除检测结果，请修改题目后重新检测');
+    
+    // 清空 AbortController
+    setAbortControllers({});
+    
+    message.info('已清除所有检测结果，可以修改题目');
   };
 
   // 加载导出列表
@@ -603,6 +700,7 @@ export default function TotalPage() {
             <TextArea
               rows={6}
               placeholder="请输入题目内容（支持LaTeX公式，如 $x^2$）"
+              disabled={formFieldsDisabled}
             />
           </Form.Item>
 
@@ -613,7 +711,7 @@ export default function TotalPage() {
                 name="answer"
                 rules={[{ required: true, message: '请输入标准答案' }]}
               >
-                <Input placeholder="请输入标准答案" />
+                <Input placeholder="请输入标准答案" disabled={formFieldsDisabled} />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -622,7 +720,7 @@ export default function TotalPage() {
                 name="explanation"
                 rules={[{ required: true, message: '请输入题目解析' }]}
               >
-                <Input placeholder="请输入题目解析" />
+                <Input placeholder="请输入题目解析" disabled={formFieldsDisabled} />
               </Form.Item>
             </Col>
           </Row>
@@ -630,11 +728,14 @@ export default function TotalPage() {
 
         {/* 操作按钮 */}
         <Space style={{ marginTop: 16 }}>
-          <Button icon={<EditOutlined />} onClick={handleModify}>
-            修改题目
-          </Button>
-          <Button danger icon={<DeleteOutlined />} onClick={handleDelete}>
-            删除题目
+          <Button 
+            icon={<EditOutlined />} 
+            onClick={handleModify}
+            disabled={!formFieldsDisabled}
+            type={isAnyCheckRunning ? 'primary' : 'default'}
+            danger={isAnyCheckRunning}
+          >
+            {isAnyCheckRunning ? '停止检测并修改' : '修改题目'}
           </Button>
         </Space>
       </Card>
