@@ -23,6 +23,7 @@ import {
   Col,
   Descriptions,
   Alert,
+  Upload,
 } from 'antd';
 import {
   CheckCircleOutlined,
@@ -38,6 +39,7 @@ import {
   EditOutlined,
   SaveOutlined,
   RadarChartOutlined,
+  PictureOutlined,
 } from '@ant-design/icons';
 import { problemApi } from '../../api';
 import { MATERIAL_CATEGORIES } from '../../config/constants';
@@ -449,6 +451,66 @@ export default function TotalPage() {
     message.info('已清除所有检测结果，可以修改题目');
   };
 
+  // 图片识别处理
+  const [recognizing, setRecognizing] = useState(false);
+
+  const handleImageRecognize = async (file: File) => {
+    // 检查文件类型
+    const isImage = file.type.startsWith('image/');
+    if (!isImage) {
+      message.error('只能上传图片文件！');
+      return false;
+    }
+
+    // 检查文件大小（限制为5MB）
+    const isLt5M = file.size / 1024 / 1024 < 5;
+    if (!isLt5M) {
+      message.error('图片大小不能超过 5MB！');
+      return false;
+    }
+
+    try {
+      setRecognizing(true);
+      message.loading('正在识别图片...', 0);
+      
+      const result = await problemApi.ocrImage(file);
+      
+      message.destroy(); // 清除loading消息
+      
+      if (result.success) {
+        // 填充表单
+        const formData: any = {};
+        
+        if (result.problem) {
+          formData.problem = result.problem;
+        }
+        
+        if (result.answer) {
+          formData.answer = result.answer;
+        }
+        
+        // 如果有解析也填充（根据OCR服务返回的字段调整）
+        if (result.explanation) {
+          formData.explanation = result.explanation;
+        }
+        
+        form.setFieldsValue(formData);
+        
+        message.success('✅ 图片识别成功！已自动填充表单');
+      } else {
+        message.error(result.error || '识别失败，请重试');
+      }
+    } catch (error: any) {
+      console.error('图片识别失败:', error);
+      message.destroy();
+      message.error('图片识别失败，请重试');
+    } finally {
+      setRecognizing(false);
+    }
+    
+    return false; // 阻止默认上传行为
+  };
+
   // 加载导出列表
   const loadExportList = async () => {
     setLoadingList(true);
@@ -829,6 +891,21 @@ export default function TotalPage() {
           >
             {isAnyCheckRunning ? '停止检测并修改' : '修改题目'}
           </Button>
+          
+          <Upload
+            accept="image/*"
+            showUploadList={false}
+            beforeUpload={handleImageRecognize}
+            disabled={formFieldsDisabled}
+          >
+            <Button 
+              icon={<PictureOutlined />}
+              loading={recognizing}
+              disabled={formFieldsDisabled}
+            >
+              {recognizing ? '识别中...' : '图片识别'}
+            </Button>
+          </Upload>
         </Space>
       </Card>
 
