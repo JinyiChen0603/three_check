@@ -18,11 +18,12 @@ import Dashboard from './pages/Dashboard';
 import Materials from './pages/Materials';
 import Admin from './pages/Admin';
 import Tasks from './pages/Tasks';  // 使用完整版任务管理页面
-import Review from './pages/Review';
-import ReviewHistory from './pages/ReviewHistory';
-import Problem from './pages/Problem';
-import MyVariants from './pages/MyVariants';
 import TotalPage from './pages/totalpage';
+// 以下页面已隐藏，但保留导入以便将来恢复
+// import Review from './pages/Review';
+// import ReviewHistory from './pages/ReviewHistory';
+// import Problem from './pages/Problem';
+// import MyVariants from './pages/MyVariants';
 
 // 创建 React Query 客户端
 const queryClient = new QueryClient({

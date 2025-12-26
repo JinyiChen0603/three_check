@@ -11,6 +11,7 @@ export function ClaimTaskModal({
   setClaimCount,
   onOk,
   onCancel,
+  loading,
 }: {
   open: boolean;
   currentTaskType: TaskType;
@@ -18,6 +19,7 @@ export function ClaimTaskModal({
   setClaimCount: (v: number) => void;
   onOk: () => void;
   onCancel: () => void;
+  loading?: boolean;
 }) {
   return (
     <Modal
@@ -27,6 +29,8 @@ export function ClaimTaskModal({
       onCancel={onCancel}
       okText="确认领取"
       cancelText="取消"
+      confirmLoading={loading}
+      okButtonProps={{ disabled: loading }}
     >
       <Space orientation="vertical" style={{ width: '100%' }} size="large">
         <div>

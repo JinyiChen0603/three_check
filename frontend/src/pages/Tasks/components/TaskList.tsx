@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Button, Modal, Space, Table, Tag, Typography, Progress } from 'antd';
 import {
   ClockCircleOutlined,
@@ -30,6 +31,7 @@ export function TaskList({
   onAbandon: (taskId: number) => Promise<void>;
 }) {
   const navigate = useNavigate();
+  const [navigatingTaskId, setNavigatingTaskId] = useState<number | null>(null);
   const getTimeRemaining = (expiresAt?: string) => {
     if (!expiresAt) return null;
 
@@ -81,11 +83,19 @@ export function TaskList({
     });
   };
 
-  const handleEnterTask = (task: Task) => {
-    if (task.task_type === TaskType.PROBLEM_CREATION) {
-      navigate('/problem');
-    } else {
-      navigate('/review');
+  const handleEnterTask = async (task: Task) => {
+    if (navigatingTaskId !== null) return; // 防止重复点击
+    
+    setNavigatingTaskId(task.id);
+    try {
+      if (task.task_type === TaskType.PROBLEM_CREATION) {
+        navigate('/totalpage');
+      } else {
+        navigate('/review');
+      }
+    } finally {
+      // 延迟重置，确保导航完成
+      setTimeout(() => setNavigatingTaskId(null), 500);
     }
   };
 
@@ -166,6 +176,8 @@ export function TaskList({
                 size="small"
                 icon={record.task_type === TaskType.PROBLEM_CREATION ? <EditOutlined /> : <StarOutlined />}
                 onClick={() => handleEnterTask(record)}
+                loading={navigatingTaskId === record.id}
+                disabled={navigatingTaskId !== null}
               >
                 {record.task_type === TaskType.PROBLEM_CREATION ? '去出题' : '去评分'}
               </Button>

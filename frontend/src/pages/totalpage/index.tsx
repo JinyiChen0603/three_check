@@ -63,9 +63,15 @@ interface ProblemFormData {
 
 interface ExportListItem {
   id: number;
+  content?: string;  // 题目内容
+  answer?: string;  // 答案
+  explanation?: string;  // 解析
   difficulty_passed: boolean | null;
   originality_passed: boolean;
   rigor_passed: boolean;
+  difficulty_validation?: any;  // 完整的难度检测结果
+  originality_check?: any;  // 完整的原创性检测结果
+  rigor_check?: any;  // 完整的严谨性检测结果
   created_at: string;
 }
 
@@ -106,7 +112,8 @@ export default function TotalPage() {
   const [exportList, setExportList] = useState<ExportListItem[]>([]);
   const [exportStats, setExportStats] = useState({ total: 0, passed: 0, failed: 0 });
   const [loadingList, setLoadingList] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<'passed' | 'all' | null>(null);
+  const [savingToList, setSavingToList] = useState(false);
   
   // 获取进行中的出题任务
   const inProgressTask = tasks.find(
@@ -119,6 +126,10 @@ export default function TotalPage() {
     title: string;
     data: any;
   } | null>(null);
+  
+  // 查看题目Modal状态
+  const [viewProblemModalVisible, setViewProblemModalVisible] = useState(false);
+  const [viewProblemData, setViewProblemData] = useState<ExportListItem | null>(null);
 
   // 计算是否有任何检测正在进行
   const isAnyCheckRunning =
@@ -163,13 +174,21 @@ export default function TotalPage() {
           return;
         }
 
+        // 检查attempts_details中是否有error
+        const hasError = result.attempts_details?.some(
+          (detail: any) => detail.error
+        );
+        
         setDifficultyCheck({
           loading: false,
           result: result,
-          passed: result.is_passed || false,
+          passed: hasError ? false : (result.is_passed || false),
         });
 
-        if (result.is_passed) {
+        if (hasError) {
+          const errorMsg = result.attempts_details?.find((d: any) => d.error)?.error || '检测出错';
+          message.error(`❌ 难度检测出错: ${errorMsg}`);
+        } else if (result.is_passed) {
           message.success('✅ 难度检测通过');
         } else {
           message.warning('⚠️ 难度检测未通过');
@@ -216,14 +235,20 @@ export default function TotalPage() {
           return;
         }
 
-        const passed = result.originality?.is_original || false;
+        // 检查是否有error
+        const hasError = !result.success || result.originality?.error;
+        
+        const passed = hasError ? false : (result.originality?.is_original || false);
         setOriginalityCheck({
           loading: false,
           result: result.originality,
           passed: passed,
         });
 
-        if (passed) {
+        if (hasError) {
+          const errorMsg = result.originality?.error || result.error || '检测出错';
+          message.error(`❌ 原创性检测出错: ${errorMsg}`);
+        } else if (passed) {
           message.success('✅ 原创性检测通过');
         } else {
           message.warning('⚠️ 原创性检测未通过');
@@ -270,14 +295,20 @@ export default function TotalPage() {
           return;
         }
 
-        const passed = result.rigor?.is_rigorous || false;
+        // 检查是否有error
+        const hasError = !result.success || result.rigor?.error;
+        
+        const passed = hasError ? false : (result.rigor?.is_rigorous || false);
         setRigorCheck({
           loading: false,
           result: result.rigor,
           passed: passed,
         });
 
-        if (passed) {
+        if (hasError) {
+          const errorMsg = result.rigor?.error || result.error || '检测出错';
+          message.error(`❌ 严谨性检测出错: ${errorMsg}`);
+        } else if (passed) {
           message.success('✅ 严谨性检测通过');
         } else {
           message.warning('⚠️ 严谨性检测未通过');
@@ -331,12 +362,15 @@ export default function TotalPage() {
 
   // 保存到列表
   const handleSaveToList = async () => {
-    if (!canSaveToList) {
-      message.warning('请先完成所有检测');
+    if (!canSaveToList || savingToList) {
+      if (!canSaveToList) {
+        message.warning('请先完成所有检测');
+      }
       return;
     }
 
     try {
+      setSavingToList(true);
       await form.validateFields();
       const values = form.getFieldsValue();
 
@@ -365,6 +399,8 @@ export default function TotalPage() {
       console.error('保存失败:', error);
       const errorMsg = error.response?.data?.detail || error.message || '保存失败，请重试';
       message.error(errorMsg);
+    } finally {
+      setSavingToList(false);
     }
   };
 
@@ -434,7 +470,7 @@ export default function TotalPage() {
 
   // 导出Excel
   const handleExport = async (onlyPassed: boolean = true) => {
-    setExporting(true);
+    setExporting(onlyPassed ? 'passed' : 'all');
     try {
       const blob = await problemApi.exportValidated(onlyPassed);
 
@@ -453,7 +489,7 @@ export default function TotalPage() {
       console.error('导出失败:', error);
       message.error('导出失败，请重试');
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   };
 
@@ -487,6 +523,12 @@ export default function TotalPage() {
     loadExportList();
     refreshTasks();
   }, []);
+
+  // 查看题目详情
+  const handleViewProblem = (record: ExportListItem) => {
+    setViewProblemData(record);
+    setViewProblemModalVisible(true);
+  };
 
   // 删除单个题目
   const handleDeleteProblem = async (problemId: number) => {
@@ -526,6 +568,30 @@ export default function TotalPage() {
       key: 'index',
       width: 80,
       render: (_: any, __: any, index: number) => index + 1,
+    },
+    {
+      title: '题目内容',
+      dataIndex: 'content',
+      key: 'content',
+      width: 300,
+      ellipsis: true,
+      render: (text: string) => (
+        <Text ellipsis={{ tooltip: text }} style={{ maxWidth: 300 }}>
+          {text || '-'}
+        </Text>
+      ),
+    },
+    {
+      title: '标准答案',
+      dataIndex: 'answer',
+      key: 'answer',
+      width: 200,
+      ellipsis: true,
+      render: (text: string) => (
+        <Text ellipsis={{ tooltip: text }} style={{ maxWidth: 200 }}>
+          {text || '-'}
+        </Text>
+      ),
     },
     {
       title: '难度',
@@ -604,16 +670,25 @@ export default function TotalPage() {
     {
       title: '操作',
       key: 'action',
-      width: 100,
+      width: 150,
       render: (_: any, record: ExportListItem) => (
-        <Button
-          danger
-          size="small"
-          icon={<DeleteOutlined />}
-          onClick={() => handleDeleteProblem(record.id)}
-        >
-          删除
-        </Button>
+        <Space>
+          <Button
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => handleViewProblem(record)}
+          >
+            查看
+          </Button>
+          <Button
+            danger
+            size="small"
+            icon={<DeleteOutlined />}
+            onClick={() => handleDeleteProblem(record.id)}
+          >
+            删除
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -642,6 +717,8 @@ export default function TotalPage() {
             ? '检测中...'
             : check.passed === null
             ? label
+            : check.result?.error || (check.result?.attempts_details?.some((d: any) => d.error))
+            ? `${label}出错`
             : check.passed
             ? `${label}通过`
             : `${label}未通过`}
@@ -790,11 +867,12 @@ export default function TotalPage() {
           size="large"
           icon={<SaveOutlined />}
           onClick={handleSaveToList}
-          disabled={!canSaveToList}
+          disabled={!canSaveToList || savingToList}
+          loading={savingToList}
           block
           style={{ height: 56, fontSize: 16 }}
         >
-          {canSaveToList ? '保存到导出列表' : '请完成所有检测后保存'}
+          {savingToList ? '保存中...' : canSaveToList ? '保存到导出列表' : '请完成所有检测后保存'}
         </Button>
       </Card>
 
@@ -830,17 +908,17 @@ export default function TotalPage() {
           <Button
             type="primary"
             icon={<DownloadOutlined />}
-            loading={exporting}
+            loading={exporting === 'passed'}
             onClick={() => handleExport(true)}
-            disabled={exportStats.passed === 0}
+            disabled={exportStats.passed === 0 || exporting !== null}
           >
             导出通过的题目
           </Button>
           <Button
             icon={<DownloadOutlined />}
-            loading={exporting}
+            loading={exporting === 'all'}
             onClick={() => handleExport(false)}
-            disabled={exportStats.total === 0}
+            disabled={exportStats.total === 0 || exporting !== null}
           >
             导出全部题目
           </Button>
@@ -884,12 +962,48 @@ export default function TotalPage() {
             {viewModalContent.title === '难度检测报告' && (
               <Descriptions bordered column={1}>
                 <Descriptions.Item label="检测结果">
-                  {viewModalContent.data.is_passed ? (
-                    <Tag color="success">通过</Tag>
-                  ) : (
-                    <Tag color="error">未通过</Tag>
-                  )}
+                  {(() => {
+                    // 检查attempts_details中是否有error
+                    const hasError = viewModalContent.data.attempts_details?.some(
+                      (detail: any) => detail.error
+                    );
+                    
+                    if (hasError) {
+                      return <Tag color="error">检测出错</Tag>;
+                    }
+                    
+                    return viewModalContent.data.is_passed ? (
+                      <Tag color="success">通过</Tag>
+                    ) : (
+                      <Tag color="error">未通过</Tag>
+                    );
+                  })()}
                 </Descriptions.Item>
+                {(() => {
+                  // 检查是否有错误详情
+                  const errorDetails = viewModalContent.data.attempts_details?.filter(
+                    (detail: any) => detail.error
+                  );
+                  
+                  if (errorDetails && errorDetails.length > 0) {
+                    return (
+                      <Descriptions.Item label="错误信息">
+                        <Alert
+                          type="error"
+                          message="检测过程中出现错误"
+                          description={
+                            <ul style={{ margin: 0, paddingLeft: 20 }}>
+                              {errorDetails.map((detail: any, index: number) => (
+                                <li key={index}>{detail.error}</li>
+                              ))}
+                            </ul>
+                          }
+                        />
+                      </Descriptions.Item>
+                    );
+                  }
+                  return null;
+                })()}
                 <Descriptions.Item label="正确次数">
                   {viewModalContent.data.correct_count || 0} /{' '}
                   {viewModalContent.data.total_attempts || viewModalContent.data.attempts || 8}
@@ -908,12 +1022,23 @@ export default function TotalPage() {
             {viewModalContent.title === '原创性检测报告' && (
               <Descriptions bordered column={1}>
                 <Descriptions.Item label="检测结果">
-                  {viewModalContent.data.is_original ? (
+                  {viewModalContent.data.error ? (
+                    <Tag color="error">检测出错</Tag>
+                  ) : viewModalContent.data.is_original ? (
                     <Tag color="success">原创</Tag>
                   ) : (
                     <Tag color="error">非原创</Tag>
                   )}
                 </Descriptions.Item>
+                {viewModalContent.data.error && (
+                  <Descriptions.Item label="错误信息">
+                    <Alert
+                      type="error"
+                      message="检测过程中出现错误"
+                      description={viewModalContent.data.error}
+                    />
+                  </Descriptions.Item>
+                )}
                 {viewModalContent.data.originality_score && (
                   <Descriptions.Item label="原创性分数">
                     {viewModalContent.data.originality_score}
@@ -933,12 +1058,23 @@ export default function TotalPage() {
             {viewModalContent.title === '严谨性检测报告' && (
               <Descriptions bordered column={1}>
                 <Descriptions.Item label="检测结果">
-                  {viewModalContent.data.is_rigorous ? (
+                  {viewModalContent.data.error ? (
+                    <Tag color="error">检测出错</Tag>
+                  ) : viewModalContent.data.is_rigorous ? (
                     <Tag color="success">严谨</Tag>
                   ) : (
                     <Tag color="error">不严谨</Tag>
                   )}
                 </Descriptions.Item>
+                {viewModalContent.data.error && (
+                  <Descriptions.Item label="错误信息">
+                    <Alert
+                      type="error"
+                      message="检测过程中出现错误"
+                      description={viewModalContent.data.error}
+                    />
+                  </Descriptions.Item>
+                )}
                 {viewModalContent.data.rigor_score && (
                   <Descriptions.Item label="严谨性分数">
                     {viewModalContent.data.rigor_score}
@@ -955,6 +1091,186 @@ export default function TotalPage() {
               </Descriptions>
             )}
           </div>
+        )}
+      </Modal>
+
+      {/* 查看题目Modal */}
+      <Modal
+        title="题目详情"
+        open={viewProblemModalVisible}
+        onCancel={() => setViewProblemModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setViewProblemModalVisible(false)}>
+            关闭
+          </Button>,
+        ]}
+        width={800}
+      >
+        {viewProblemData && (
+          <Descriptions bordered column={1}>
+            <Descriptions.Item label="题目内容">
+              <MathRenderer content={viewProblemData.content || ''} />
+            </Descriptions.Item>
+            <Descriptions.Item label="标准答案">
+              <MathRenderer content={viewProblemData.answer || ''} />
+            </Descriptions.Item>
+            <Descriptions.Item label="题目解析">
+              <MathRenderer content={viewProblemData.explanation || ''} />
+            </Descriptions.Item>
+            <Descriptions.Item label="难度检测">
+              {(() => {
+                const data = viewProblemData.difficulty_validation;
+                if (!data) {
+                  return <Tag color="default">未检测</Tag>;
+                }
+                
+                const hasError = data.attempts_details?.some((detail: any) => detail.error);
+                if (hasError) {
+                  return <Tag color="error">检测出错</Tag>;
+                }
+                
+                return data.is_passed ? (
+                  <Tag color="success">通过</Tag>
+                ) : (
+                  <Tag color="error">未通过</Tag>
+                );
+              })()}
+              {viewProblemData.difficulty_validation && (
+                <div style={{ marginTop: 8 }}>
+                  {viewProblemData.difficulty_validation.attempts_details?.some((detail: any) => detail.error) && (
+                    <Alert
+                      type="error"
+                      message="检测过程中出现错误"
+                      description={
+                        <ul style={{ margin: 0, paddingLeft: 20 }}>
+                          {viewProblemData.difficulty_validation.attempts_details
+                            ?.filter((detail: any) => detail.error)
+                            .map((detail: any, index: number) => (
+                              <li key={index}>{detail.error}</li>
+                            ))}
+                        </ul>
+                      }
+                      style={{ marginTop: 8 }}
+                    />
+                  )}
+                  <div style={{ marginTop: 8 }}>
+                    <Text strong>正确次数：</Text>
+                    {viewProblemData.difficulty_validation.correct_count || 0} /{' '}
+                    {viewProblemData.difficulty_validation.attempts || 8}
+                  </div>
+                  {viewProblemData.difficulty_validation.verdict && (
+                    <div style={{ marginTop: 4 }}>
+                      <Text strong>结论：</Text> {viewProblemData.difficulty_validation.verdict}
+                    </div>
+                  )}
+                  {viewProblemData.difficulty_validation.recommendation && (
+                    <div style={{ marginTop: 4 }}>
+                      <Text strong>建议：</Text> {viewProblemData.difficulty_validation.recommendation}
+                    </div>
+                  )}
+                </div>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="原创性检测">
+              {(() => {
+                const data = viewProblemData.originality_check;
+                if (!data) {
+                  return <Tag color="default">未检测</Tag>;
+                }
+                
+                if (data.error) {
+                  return <Tag color="error">检测出错</Tag>;
+                }
+                
+                return data.is_original ? (
+                  <Tag color="success">原创</Tag>
+                ) : (
+                  <Tag color="error">非原创</Tag>
+                );
+              })()}
+              {viewProblemData.originality_check && (
+                <div style={{ marginTop: 8 }}>
+                  {viewProblemData.originality_check.error && (
+                    <Alert
+                      type="error"
+                      message="检测过程中出现错误"
+                      description={viewProblemData.originality_check.error}
+                      style={{ marginTop: 8 }}
+                    />
+                  )}
+                  {viewProblemData.originality_check.originality_score && (
+                    <div style={{ marginTop: 8 }}>
+                      <Text strong>原创性分数：</Text> {viewProblemData.originality_check.originality_score}
+                    </div>
+                  )}
+                  {viewProblemData.originality_check.verdict && (
+                    <div style={{ marginTop: 4 }}>
+                      <Text strong>结论：</Text> {viewProblemData.originality_check.verdict}
+                    </div>
+                  )}
+                  {(viewProblemData.originality_check.details || viewProblemData.originality_check.reason) && (
+                    <div style={{ marginTop: 4 }}>
+                      <Text strong>AI评价：</Text>
+                      <Paragraph style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>
+                        {viewProblemData.originality_check.details || viewProblemData.originality_check.reason || '无'}
+                      </Paragraph>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="严谨性检测">
+              {(() => {
+                const data = viewProblemData.rigor_check;
+                if (!data) {
+                  return <Tag color="default">未检测</Tag>;
+                }
+                
+                if (data.error) {
+                  return <Tag color="error">检测出错</Tag>;
+                }
+                
+                return data.is_rigorous ? (
+                  <Tag color="success">严谨</Tag>
+                ) : (
+                  <Tag color="error">不严谨</Tag>
+                );
+              })()}
+              {viewProblemData.rigor_check && (
+                <div style={{ marginTop: 8 }}>
+                  {viewProblemData.rigor_check.error && (
+                    <Alert
+                      type="error"
+                      message="检测过程中出现错误"
+                      description={viewProblemData.rigor_check.error}
+                      style={{ marginTop: 8 }}
+                    />
+                  )}
+                  {viewProblemData.rigor_check.rigor_score && (
+                    <div style={{ marginTop: 8 }}>
+                      <Text strong>严谨性分数：</Text> {viewProblemData.rigor_check.rigor_score}
+                    </div>
+                  )}
+                  {viewProblemData.rigor_check.verdict && (
+                    <div style={{ marginTop: 4 }}>
+                      <Text strong>结论：</Text> {viewProblemData.rigor_check.verdict}
+                    </div>
+                  )}
+                  {(viewProblemData.rigor_check.details || viewProblemData.rigor_check.reason) && (
+                    <div style={{ marginTop: 4 }}>
+                      <Text strong>AI评价：</Text>
+                      <Paragraph style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>
+                        {viewProblemData.rigor_check.details || viewProblemData.rigor_check.reason || '无'}
+                      </Paragraph>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="创建时间">
+              {new Date(viewProblemData.created_at).toLocaleString('zh-CN')}
+            </Descriptions.Item>
+          </Descriptions>
         )}
       </Modal>
     </div>
