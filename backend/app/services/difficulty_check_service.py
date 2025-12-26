@@ -1,6 +1,6 @@
 """
 难度检测服务模块
-使用豆包进行 16 次对抗验证
+使用豆包进行 8 次对抗验证
 使用 GPT-4o 进行答案校验
 """
 
@@ -17,7 +17,7 @@ class DifficultyCheckService:
     题目难度检测服务
     
     使用豆包进行对抗验证：
-    - 16 次验证，正确次数 ≤8 才算合格
+    - 8 次验证，正确次数 ≤4 才算合格
     - 使用 GPT-4o 进行答案对比
     """
     
@@ -33,7 +33,7 @@ class DifficultyCheckService:
         Args:
             validation_client: 用于对抗验证的客户端，默认使用豆包
             answer_check_client: 用于答案校验的客户端，默认使用 gpt4o
-            max_concurrent: 最大并发数（16次验证中同时执行的最大数量），默认4
+            max_concurrent: 最大并发数（8次验证中同时执行的最大数量），默认4
         """
         self.validation_client = validation_client or doubao
         self.answer_check_client = answer_check_client or gpt4o
@@ -60,7 +60,7 @@ class DifficultyCheckService:
             problem: 题目内容
             answer: 标准答案
             explanation: 解析（可选）
-            attempts: 尝试次数（默认16）
+            attempts: 尝试次数（默认8）
             
         Returns:
             Dict: 验证结果
