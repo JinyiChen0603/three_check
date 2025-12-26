@@ -1,7 +1,7 @@
 """
 数据库初始化脚本
-1. 清空所有数据表（除了 users 表）
-2. 运行数据库迁移（确保表结构是最新的）
+1. 运行数据库迁移（确保表结构是最新的，如果表不存在则创建）
+2. 清空所有数据表（除了 users 表）
 
 ⚠️ 警告：此脚本会清空所有数据（除了 users 表），请谨慎使用！
 """
@@ -52,9 +52,11 @@ async def clear_all_tables():
                     await session.execute(text(f'TRUNCATE TABLE "{table_name}" CASCADE;'))
                     print(f"  [OK] Cleared table: {table_name}")
                 except OperationalError as e:
-                    # 如果表不存在，跳过（可能是首次运行，表还未创建）
+                    # 如果表不存在，说明迁移可能没有正确创建表，这是一个错误
                     if "does not exist" in str(e) or "不存在" in str(e):
-                        print(f"  [Skip] Table {table_name} does not exist, skipping")
+                        print(f"  [Error] Table {table_name} does not exist! Migration may have failed.")
+                        print(f"  [Info] Please check if migrations ran successfully.")
+                        raise RuntimeError(f"Table {table_name} does not exist. Please run migrations first.")
                     else:
                         print(f"  [Warning] Failed to clear table {table_name}: {e}")
                 except Exception as e:
@@ -114,8 +116,8 @@ async def main():
     print("="*60)
     print("\n⚠️  警告：此脚本会清空所有数据表（除了 users 表）！")
     print("\n[Info] This script will:")
-    print("  1. Clear all data tables (except users)")
-    print("  2. Run database migrations")
+    print("  1. Run database migrations (create/update tables)")
+    print("  2. Clear all data tables (except users)")
     print("="*60)
     
     # 确认操作
@@ -129,11 +131,11 @@ async def main():
         sys.exit(0)
     
     try:
-        # 1. 清空所有表（除了 users）
-        await clear_all_tables()
-        
-        # 2. 运行数据库迁移
+        # 1. 先运行数据库迁移（确保表存在且结构是最新的）
         await run_migrations()
+        
+        # 2. 然后清空所有表（除了 users）
+        await clear_all_tables()
         
         print("\n" + "="*60)
         print("[Success] Database initialization completed!")
