@@ -170,7 +170,7 @@ class DifficultyCheckService:
             
             return {
                 "success": True,
-                "ai_answer": ai_answer[:500] if ai_answer else "",
+                "ai_answer": ai_answer[-200:] if ai_answer else "",
                 "is_correct": is_correct
             }
         
