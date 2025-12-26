@@ -949,7 +949,7 @@ export default function TotalPage() {
         {canSaveToList && (
           <Alert
             message="✅ 所有检测已完成！"
-            description={`难度检测：${difficultyCheck.passed ? '通过' : '未通过'} | 原创性检测：${originalityCheck.passed ? '通过' : '未通过'} | 严谨性检测：${rigorCheck.passed ? '通过' : '未通过'} - 非最终采纳结果`}
+            description={`难度检测：${difficultyCheck.passed ? '通过' : '未通过'} | 原创性检测：${originalityCheck.passed ? '通过' : '未通过'} | 严谨性检测：${rigorCheck.passed ? '通过' : '未通过'} - AI建议仅供参考，非最终采纳结果`}
             type="info"
             showIcon
             style={{ marginTop: 16 }}

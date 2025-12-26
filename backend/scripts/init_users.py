@@ -114,14 +114,14 @@ INITIAL_USERS = [
         "role": UserRole.USER,
     },
         {
-        "username": "lifanghe",
-        "email": "lifanghe@mathtasks.com",
+        "username": "lifanghe123",
+        "email": "lifanghe123@mathtasks.com",
         "password": "user123",  # 生产环境请修改
         "role": UserRole.USER,
     },
         {
-        "username": "gexinlin",
-        "email": "gexinlin@mathtasks.com",
+        "username": "gexinlin123",
+        "email": "gexinlin123@mathtasks.com",
         "password": "user123",  # 生产环境请修改
         "role": UserRole.USER,
     },
