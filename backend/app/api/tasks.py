@@ -197,49 +197,14 @@ async def claim_tasks(
         }
     
     else:  # CREATE_PROBLEM
-        # 出题任务：创建一个批次任务记录
-        # 先查询该用户已创建但未关联任务的题目（DRAFT状态，且没有关联到任何进行中的任务）
-        existing_problems_result = await db.execute(
-            select(func.count(Problem.id))
-            .where(
-                and_(
-                    Problem.creator_id == current_user.id,
-                    Problem.status == ProblemStatus.DRAFT,
-                    Problem.parent_problem_id.is_(None)  # 只统计母题，不包括变体
-                )
-            )
-            .outerjoin(
-                Task,
-                and_(
-                    Task.problem_id == Problem.id,
-                    Task.task_type == TaskType.CREATE_PROBLEM,
-                    Task.status == TaskStatus.IN_PROGRESS
-                )
-            )
-            .where(Task.id.is_(None))  # 没有关联到进行中的任务
-        )
-        existing_problems_count = existing_problems_result.scalar() or 0
-        
-        # 查询该用户在导出列表中已保存的题目数量（这些题目也应该计入新任务进度）
-        existing_exported_result = await db.execute(
-            select(func.count(ValidatedProblemExport.id))
-            .where(ValidatedProblemExport.user_id == current_user.id)
-        )
-        existing_exported_count = existing_exported_result.scalar() or 0
-        
-        # 总已创建题目数 = Problem表中的题目 + ValidatedProblemExport表中的题目
-        existing_count = existing_problems_count + existing_exported_count
-        
-        # 将已出的题目并入新任务进度（但不能超过总数）
-        initial_completed = min(existing_count, request.count)
-        
+        # 出题任务：创建一个批次任务记录，从0开始计数
         task = Task(
             problem_id=None,  # 出题任务没有关联的problem
             user_id=current_user.id,
             task_type=task_type_enum,
             batch_id=batch_id,
             total_count=request.count,
-            completed_count=initial_completed,
+            completed_count=0,
             status=TaskStatus.IN_PROGRESS,
             claimed_at=claimed_at,
             expires_at=expires_at
@@ -248,18 +213,12 @@ async def claim_tasks(
         db.add(task)
         await db.commit()
         
-        message = f"成功领取 {request.count} 个出题任务"
-        if initial_completed > 0:
-            message += f"。已将您之前创建的 {initial_completed} 道题目并入当前任务进度"
-            if existing_exported_count > 0:
-                message += f"（包括导出列表中的 {existing_exported_count} 道题目）"
-        
         return {
             "success": True,
-            "message": message,
+            "message": f"成功领取 {request.count} 个出题任务",
             "batch_id": batch_id,
             "task_count": request.count,
-            "completed_count": initial_completed,
+            "completed_count": 0,
             "expires_at": expires_at,
             "expires_in_hours": settings.TASK_TIMEOUT_HOURS,
             "note": "请开始出题，每完成一个题目会自动更新进度"
