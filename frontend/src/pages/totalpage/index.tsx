@@ -67,8 +67,8 @@ interface ExportListItem {
   answer?: string;  // 答案
   explanation?: string;  // 解析
   difficulty_passed: boolean | null;
-  originality_passed: boolean;
-  rigor_passed: boolean;
+  originality_passed: boolean | null;
+  rigor_passed: boolean | null;
   difficulty_validation?: any;  // 完整的难度检测结果
   originality_check?: any;  // 完整的原创性检测结果
   rigor_check?: any;  // 完整的严谨性检测结果
@@ -616,8 +616,10 @@ export default function TotalPage() {
       dataIndex: 'originality_passed',
       key: 'originality_passed',
       width: 100,
-      render: (passed: boolean) =>
-        passed ? (
+      render: (passed: boolean | null) =>
+        passed === null ? (
+          <Tag color="default">未检测</Tag>
+        ) : passed ? (
           <Tag icon={<CheckCircleOutlined />} color="success">
             通过
           </Tag>
@@ -632,8 +634,10 @@ export default function TotalPage() {
       dataIndex: 'rigor_passed',
       key: 'rigor_passed',
       width: 100,
-      render: (passed: boolean) =>
-        passed ? (
+      render: (passed: boolean | null) =>
+        passed === null ? (
+          <Tag color="default">未检测</Tag>
+        ) : passed ? (
           <Tag icon={<CheckCircleOutlined />} color="success">
             通过
           </Tag>
@@ -648,7 +652,18 @@ export default function TotalPage() {
       key: 'result',
       width: 100,
       render: (_: any, record: ExportListItem) => {
-        const allPassed = record.originality_passed && record.rigor_passed;
+        // 只有当两个检测都完成且都通过时，才显示合格
+        const originalityPassed = record.originality_passed === true;
+        const rigorPassed = record.rigor_passed === true;
+        const allPassed = originalityPassed && rigorPassed;
+        
+        // 如果任一检测未完成（null），显示未完成
+        if (record.originality_passed === null || record.rigor_passed === null) {
+          return (
+            <Tag color="default">未完成</Tag>
+          );
+        }
+        
         return allPassed ? (
           <Tag icon={<CheckCircleOutlined />} color="success">
             合格
