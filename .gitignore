@@ -1,3 +1,9 @@
+# 环境变量（敏感信息）
+.env
+
+# 开发者个性化 Docker 配置
+docker-compose.dev.override.yml
+
 # Python
 __pycache__/
 *.py[cod]
@@ -20,65 +26,40 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual Environment
+# 虚拟环境
+.venv/
 venv/
-env/
 ENV/
-.venv
+env/
 
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
-.DS_Store
 
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Logs
+# 测试
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
 *.log
-logs/
-
-# Docker
-docker-compose.override.yml
-
-# Node (Frontend)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# Frontend build
-frontend/dist/
-frontend/build/
-frontend/.vite/
-
-# Backend migrations (keep versioned)
-# backend/alembic/versions/*.py
 
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# pytest
-.pytest_cache/
-.coverage
-htmlcov/
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
-# macOS
+# 系统文件
 .DS_Store
-.AppleDouble
-.LSOverride
-
-# Thumbnails
-._*
-
+Thumbs.db
+.env.dev
