@@ -287,6 +287,53 @@ export const problemApi = {
   },
 };
 
+// 深度变形相关 API（独立的变体生成，不依赖母题）
+export const variantApi = {
+  // 生成单个变体（不依赖母题）
+  generateVariantDirect: async (data: {
+    original_content: string;
+    original_explanation: string;
+    original_answer: string;
+    modification_requirement?: string;
+    max_tokens?: number;
+    temperature?: number;
+  }) => {
+    const response = await apiClient.post('/deep-transform/generate-variant', {
+      original_content: data.original_content,
+      original_explanation: data.original_explanation,
+      original_answer: data.original_answer,
+      modification_requirement: data.modification_requirement || '',
+      max_tokens: data.max_tokens || 10000,
+      temperature: data.temperature || 1.5,
+      use_stream: true,
+    });
+    return response.data;
+  },
+
+  // 批量生成变体
+  generateMultipleVariants: async (data: {
+    original_content: string;
+    original_explanation: string;
+    original_answer: string;
+    modification_requirement?: string;
+    count: number;
+    max_tokens?: number;
+    temperature?: number;
+  }) => {
+    const response = await apiClient.post('/deep-transform/generate-multiple-variants', {
+      original_content: data.original_content,
+      original_explanation: data.original_explanation,
+      original_answer: data.original_answer,
+      modification_requirement: data.modification_requirement || '',
+      count: data.count,
+      max_tokens: data.max_tokens || 10000,
+      temperature: data.temperature || 1.5,
+      use_stream: true,
+    });
+    return response.data;
+  },
+};
+
 // 评分相关 API
 export const reviewApi = {
   // 获取4选1选项（正确性验证）

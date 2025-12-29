@@ -105,7 +105,8 @@ class DeepTransformerService:
         modification_requirement: str = "",
         max_tokens: int = None,
         temperature: float = 1.5,
-        max_rounds: int = 20
+        max_rounds: int = 20,
+        use_stream: bool = True  # 接受但不使用（为了兼容API调用）
     ) -> Dict[str, Any]:
         """
         生成题目变体（包含题目、解析、答案）
@@ -222,7 +223,8 @@ class DeepTransformerService:
         count: int = 1,
         max_tokens: int = None,
         temperature: float = 0.7,
-        max_rounds: int = 20
+        max_rounds: int = 20,
+        use_stream: bool = True  # 接受但不使用（为了兼容API调用）
     ) -> Dict[str, Any]:
         """
         批量生成多个变体题目
