@@ -480,6 +480,7 @@ class ValidatedProblemExport(Base):
     # 基础字段
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True, index=True)  # 关联任务ID
     
     # 题目信息
     content = Column(Text, nullable=False)  # 题目内容
@@ -498,6 +499,7 @@ class ValidatedProblemExport(Base):
     
     # 关系
     user = relationship("User", backref="validated_exports")
+    task = relationship("Task", backref="validated_exports")
     
     def __repr__(self):
         return f"<ValidatedProblemExport(id={self.id}, user_id={self.user_id})>"
