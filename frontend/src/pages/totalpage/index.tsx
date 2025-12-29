@@ -47,7 +47,12 @@ import MathRenderer from '../../components/MathRenderer';
 import { useTask } from '../../hooks/useTask';
 import { TaskType } from '../../config/constants';
 import { useAuthStore } from '../../store/useAuthStore';
-import { useValidationStore } from '../../store/useValidationStore';
+import { 
+  useValidationStore,
+  type ProblemQueueItem,
+  type ExportListItem,
+  type CheckTaskStatus,
+} from '../../store/useValidationStore';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -84,50 +89,9 @@ interface ProblemFormData {
   explanation: string;
 }
 
-interface ExportListItem {
-  id: number;
-  content?: string;  // 题目内容
-  answer?: string;  // 答案
-  explanation?: string;  // 解析
-  difficulty_passed: boolean | null;
-  originality_passed: boolean | null;
-  rigor_passed: boolean | null;
-  difficulty_validation?: any;  // 完整的难度检测结果
-  originality_check?: any;  // 完整的原创性检测结果
-  rigor_check?: any;  // 完整的严谨性检测结果
-  created_at: string;
-}
-
-// 检测任务状态类型
-type CheckTaskStatus = 'idle' | 'running' | 'completed' | 'error';
-
-// 单项检测任务状态
-interface CheckTaskState {
-  status: CheckTaskStatus;
-  progress: number;              // 0-100
-  result: any | null;
-  passed: boolean | null;
-  taskId?: string;               // SSE任务ID（仅难度检测）
-}
-
-// 多题目队列项类型
-interface ProblemQueueItem {
-  id: string;                    // UUID
-  problem: string;               // 题目内容
-  answer: string;                // 答案
-  explanation: string;           // 解析
-  checks: {
-    difficulty: CheckTaskState;
-    originality: CheckTaskState;
-    rigor: CheckTaskState;
-  };
-  allCompleted: boolean;         // 三项检测是否全部完成
-  saved: boolean;                // 是否已保存到导出列表
-}
-
 // 创建初始检测状态
-const createInitialCheckState = (): CheckTaskState => ({
-  status: 'idle',
+const createInitialCheckState = () => ({
+  status: 'idle' as const,
   progress: 0,
   result: null,
   passed: null,
@@ -144,19 +108,22 @@ export default function TotalPage() {
 
   // 使用全局store替代本地state
   const {
-    difficultyCheck,
-    originalityCheck,
-    rigorCheck,
     formData,
-    setDifficultyCheck,
-    setOriginalityCheck,
-    setRigorCheck,
-    setFormData,
     clearAllChecks,
+    // 新增：从 store 获取检测队列和导出列表
+    problemQueue,
+    exportList,
+    exportStats,
+    loadingList,
+    addToProblemQueue,
+    updateProblemCheck,
+    removeFromProblemQueue,
+    clearProblemQueue,
+    markProblemAsSaved,
+    setExportList,
+    setExportStats,
+    setLoadingList,
   } = useValidationStore();
-
-  // 题目检测队列（本地状态，用于多题目并行检测）
-  const [problemQueue, setProblemQueue] = useState<ProblemQueueItem[]>([]);
 
   // AbortController引用（用于取消HTTP请求）
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -168,10 +135,7 @@ export default function TotalPage() {
     rigor?: AbortController;
   }>({});
 
-  // 导出列表
-  const [exportList, setExportList] = useState<ExportListItem[]>([]);
-  const [exportStats, setExportStats] = useState({ total: 0, passed: 0, failed: 0 });
-  const [loadingList, setLoadingList] = useState(false);
+  // 其他本地状态
   const [exporting, setExporting] = useState<'passed' | 'all' | null>(null);
   const [savingToList, setSavingToList] = useState(false);
   
@@ -197,29 +161,7 @@ export default function TotalPage() {
   // 标记难度检测是否已完成（按题目ID存储，用于区分 SSE 正常关闭和真正的错误）
   const difficultyCompletedRef = useRef<Map<string, boolean>>(new Map());
 
-  // 更新单个题目的单项检测状态
-  const updateProblemCheck = useCallback((
-    problemId: string,
-    checkType: 'difficulty' | 'originality' | 'rigor',
-    updates: Partial<CheckTaskState>
-  ) => {
-    setProblemQueue(prev => prev.map(item => {
-      if (item.id !== problemId) return item;
-      
-      const newChecks = {
-        ...item.checks,
-        [checkType]: { ...item.checks[checkType], ...updates }
-      };
-      
-      // 计算是否所有检测都完成
-      const allCompleted = 
-        (newChecks.difficulty.status === 'completed' || newChecks.difficulty.status === 'error') &&
-        (newChecks.originality.status === 'completed' || newChecks.originality.status === 'error') &&
-        (newChecks.rigor.status === 'completed' || newChecks.rigor.status === 'error');
-      
-      return { ...item, checks: newChecks, allCompleted };
-    }));
-  }, []);
+  // updateProblemCheck 现在直接从 store 获取，不需要本地定义
 
   // 清理单个题目的SSE连接
   const cleanupSSE = useCallback((problemId: string) => {
@@ -489,8 +431,8 @@ export default function TotalPage() {
         saved: false,
       };
 
-      // 添加到队列
-      setProblemQueue(prev => [...prev, newItem]);
+      // 添加到队列（使用 store 方法）
+      addToProblemQueue(newItem);
 
       // 清空表单，允许继续输入
       form.resetFields();
@@ -607,10 +549,8 @@ export default function TotalPage() {
       
       message.success(`✅ 题目已保存到导出列表${progressMsg}`);
       
-      // 标记为已保存
-      setProblemQueue(prev => prev.map(p => 
-        p.id === problemId ? { ...p, saved: true } : p
-      ));
+      // 标记为已保存（使用 store 方法）
+      markProblemAsSaved(problemId);
       
       // 刷新列表、任务和用户信息
       await loadExportList();
@@ -640,8 +580,8 @@ export default function TotalPage() {
     // 清理SSE连接
     cleanupSSE(problemId);
     
-    // 从队列中移除
-    setProblemQueue(prev => prev.filter(p => p.id !== problemId));
+    // 从队列中移除（使用 store 方法）
+    removeFromProblemQueue(problemId);
   };
 
   // 清空整个检测队列
@@ -665,8 +605,8 @@ export default function TotalPage() {
         // 清理所有SSE连接
         cleanupAllSSE();
         
-        // 清空队列
-        setProblemQueue([]);
+        // 清空队列（使用 store 方法）
+        clearProblemQueue();
         
         message.success('队列已清空');
       },
@@ -757,7 +697,7 @@ export default function TotalPage() {
     return false; // 阻止默认上传行为
   };
 
-  // 加载导出列表
+  // 加载导出列表（现在使用 store 方法）
   const loadExportList = async () => {
     setLoadingList(true);
     try {
@@ -826,9 +766,11 @@ export default function TotalPage() {
     });
   };
 
-  // 初始化加载列表和任务
+  // 初始化加载列表和任务（只在列表为空时加载）
   useEffect(() => {
-    loadExportList();
+    if (exportList.length === 0) {
+      loadExportList();
+    }
     refreshTasks();
   }, []);
 

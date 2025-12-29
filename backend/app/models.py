@@ -133,7 +133,7 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     email = Column(String(100), unique=True, nullable=True, index=True)
     password_hash = Column(String(255), nullable=False)
-    role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
+    role = Column(Enum(UserRole, values_callable=lambda x: [e.value for e in x]), default=UserRole.USER, nullable=False)
     
     # 财务字段
     balance = Column(Float, default=0.0, nullable=False)
@@ -181,17 +181,17 @@ class Problem(Base):
     explanation = Column(Text, nullable=True)  # 题目解析 - 已迁移到MongoDB
     answer = Column(Text, nullable=True)   # 标准答案 - 已迁移到MongoDB
     difficulty = Column(Integer, nullable=True)  # 难度等级 1-5
-    category = Column(Enum(MaterialCategory), nullable=True, index=True)  # 题目分类
+    category = Column(Enum(MaterialCategory, values_callable=lambda x: [e.value for e in x]), nullable=True, index=True)  # 题目分类
     
     # 溯源字段
-    source_type = Column(Enum(ProblemSourceType), default=ProblemSourceType.MANUAL, nullable=False)
+    source_type = Column(Enum(ProblemSourceType, values_callable=lambda x: [e.value for e in x]), default=ProblemSourceType.MANUAL, nullable=False)
     ocr_image_url = Column(String(500), nullable=True)  # OCR图片URL
     version = Column(Integer, default=1, nullable=False)  # 版本号
     variant_count = Column(Integer, default=0, nullable=False)  # 变形次数（限制≤10）
     
     # 验证字段
     validation_status = Column(
-        Enum(ProblemValidationStatus),
+        Enum(ProblemValidationStatus, values_callable=lambda x: [e.value for e in x]),
         default=ProblemValidationStatus.NOT_VALIDATED,
         nullable=False,
         index=True
@@ -259,7 +259,7 @@ class Task(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     
     # 任务类型
-    task_type = Column(Enum(TaskType), default=TaskType.REVIEW_PROBLEM, nullable=False)
+    task_type = Column(Enum(TaskType, values_callable=lambda x: [e.value for e in x]), default=TaskType.REVIEW_PROBLEM, nullable=False)
     
     # 批量任务信息
     batch_id = Column(String(50), nullable=True, index=True)  # 批次ID，同一批领取的任务有相同的batch_id
@@ -268,7 +268,7 @@ class Task(Base):
     abandoned_count = Column(Integer, default=0, nullable=False)  # 已放弃数
     
     # 状态
-    status = Column(Enum(TaskStatus), default=TaskStatus.PENDING, nullable=False, index=True)
+    status = Column(Enum(TaskStatus, values_callable=lambda x: [e.value for e in x]), default=TaskStatus.PENDING, nullable=False, index=True)
     
     # 时间控制
     claimed_at = Column(DateTime, nullable=True)
@@ -330,7 +330,7 @@ class Review(Base):
     veto_reason = Column(Text, nullable=True)  # 否决理由
     
     # 状态
-    status = Column(Enum(ReviewStatus), default=ReviewStatus.PENDING, nullable=False, index=True)
+    status = Column(Enum(ReviewStatus, values_callable=lambda x: [e.value for e in x]), default=ReviewStatus.PENDING, nullable=False, index=True)
     
     # 审核信息
     admin_note = Column(Text, nullable=True)  # 管理员备注
@@ -367,7 +367,7 @@ class Transaction(Base):
     amount = Column(Float, nullable=False)  # 金额（可正可负）
     
     # 交易类型
-    transaction_type = Column(Enum(TransactionType), nullable=False, index=True)
+    transaction_type = Column(Enum(TransactionType, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
     
     # 关联信息
     related_problem_id = Column(Integer, ForeignKey("problems.id"), nullable=True)
@@ -375,7 +375,7 @@ class Transaction(Base):
     
     # 状态
     status = Column(
-        Enum(TransactionStatus),
+        Enum(TransactionStatus, values_callable=lambda x: [e.value for e in x]),
         default=TransactionStatus.PENDING,
         nullable=False,
         index=True
@@ -413,8 +413,8 @@ class MaterialLibrary(Base):
     # 基础字段
     id = Column(Integer, primary_key=True, index=True)
     
-    # 分类
-    category = Column(Enum(MaterialCategory), nullable=False, index=True)
+    # 分类（使用枚举值而不是名称）
+    category = Column(Enum(MaterialCategory, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
     
     # 资料信息
     title = Column(String(200), nullable=False)
