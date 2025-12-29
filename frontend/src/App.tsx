@@ -19,6 +19,7 @@ import Materials from './pages/Materials';
 import Admin from './pages/Admin';
 import Tasks from './pages/Tasks';  // 使用完整版任务管理页面
 import TotalPage from './pages/totalpage';
+import VariantGenerator from './pages/VariantGenerator';  // 变体生成器
 // 以下页面已隐藏，但保留导入以便将来恢复
 // import Review from './pages/Review';
 // import ReviewHistory from './pages/ReviewHistory';
@@ -98,6 +99,10 @@ function App() {
               <Route 
                 path="totalpage" 
                 element={<TotalPage />} 
+              />
+              <Route 
+                path="variant-generator" 
+                element={<VariantGenerator />} 
               />
             </Route>
 
