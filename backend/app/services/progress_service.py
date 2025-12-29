@@ -100,19 +100,23 @@ class ProgressService:
         last_progress = -1
         elapsed = 0.0
         
+        last_had_result = False
+        
         while elapsed < timeout:
             data = await self.get_progress(task_id)
             
             if data:
                 current_progress = data.get("progress", 0)
+                has_result = "result" in data
                 
-                # 只在进度变化时 yield
-                if current_progress != last_progress:
+                # 在进度变化时 yield，或者首次收到 result 时也要 yield
+                if current_progress != last_progress or (has_result and not last_had_result):
                     last_progress = current_progress
+                    last_had_result = has_result
                     yield data
                 
-                # 任务完成，退出循环
-                if current_progress >= 100 or "result" in data:
+                # 任务完成（有result），退出循环
+                if has_result:
                     break
             
             await asyncio.sleep(poll_interval)

@@ -99,9 +99,8 @@ class DifficultyCheckService:
             
             attempt_results = await asyncio.gather(*tasks, return_exceptions=True)
             
-            # 兜底确保发送 100% 进度
-            if progress_callback:
-                progress_callback({"progress": 100})
+            # 注意：不在这里发送 100% 进度，由调用方在存储最终结果时发送
+            # 避免异步回调与最终结果写入产生竞态条件
             
             # 统计结果
             correct_count = 0
