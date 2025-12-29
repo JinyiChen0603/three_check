@@ -47,6 +47,7 @@ import MathRenderer from '../../components/MathRenderer';
 import { useTask } from '../../hooks/useTask';
 import { TaskType } from '../../config/constants';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useValidationStore } from '../../store/useValidationStore';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -75,12 +76,6 @@ function unescapeText(text: string | undefined | null): string {
     .replace(/\\\}/g, '}')
     // 反斜杠（必须放在最后）
     .replace(/\\\\/g, '\\');
-}
-
-interface CheckStatus {
-  loading: boolean;
-  result: any | null;
-  passed: boolean | null;
 }
 
 interface ProblemFormData {
@@ -112,22 +107,18 @@ export default function TotalPage() {
   // 用户信息刷新
   const fetchCurrentUser = useAuthStore((state) => state.fetchCurrentUser);
 
-  // 三个检测状态
-  const [difficultyCheck, setDifficultyCheck] = useState<CheckStatus>({
-    loading: false,
-    result: null,
-    passed: null,
-  });
-  const [originalityCheck, setOriginalityCheck] = useState<CheckStatus>({
-    loading: false,
-    result: null,
-    passed: null,
-  });
-  const [rigorCheck, setRigorCheck] = useState<CheckStatus>({
-    loading: false,
-    result: null,
-    passed: null,
-  });
+  // 使用全局store替代本地state
+  const {
+    difficultyCheck,
+    originalityCheck,
+    rigorCheck,
+    formData,
+    setDifficultyCheck,
+    setOriginalityCheck,
+    setRigorCheck,
+    setFormData,
+    clearAllChecks,
+  } = useValidationStore();
 
   // 用于取消请求的控制器
   const [abortControllers, setAbortControllers] = useState<{
@@ -183,6 +174,9 @@ export default function TotalPage() {
     try {
       await form.validateFields(['problem', 'answer']);
       const values = form.getFieldsValue();
+
+      // 保存表单数据到全局store
+      setFormData(values);
 
       // 创建 AbortController
       const controller = new AbortController();
@@ -245,6 +239,9 @@ export default function TotalPage() {
       await form.validateFields(['problem', 'answer']);
       const values = form.getFieldsValue();
 
+      // 保存表单数据到全局store
+      setFormData(values);
+
       // 创建 AbortController
       const controller = new AbortController();
       setAbortControllers(prev => ({ ...prev, originality: controller }));
@@ -304,6 +301,9 @@ export default function TotalPage() {
     try {
       await form.validateFields(['problem', 'answer']);
       const values = form.getFieldsValue();
+
+      // 保存表单数据到全局store
+      setFormData(values);
 
       // 创建 AbortController
       const controller = new AbortController();
@@ -451,9 +451,7 @@ export default function TotalPage() {
   // 重置表单和状态
   const handleReset = () => {
     form.resetFields();
-    setDifficultyCheck({ loading: false, result: null, passed: null });
-    setOriginalityCheck({ loading: false, result: null, passed: null });
-    setRigorCheck({ loading: false, result: null, passed: null });
+    clearAllChecks();
   };
 
   // 修改题目（增强版：停止检测并清除报告）
@@ -470,10 +468,8 @@ export default function TotalPage() {
       message.warning('已停止所有正在进行的检测');
     }
 
-    // 重置所有检测状态和报告
-    setDifficultyCheck({ loading: false, result: null, passed: null });
-    setOriginalityCheck({ loading: false, result: null, passed: null });
-    setRigorCheck({ loading: false, result: null, passed: null });
+    // 重置所有检测状态和报告（使用全局store）
+    clearAllChecks();
     
     // 清空 AbortController
     setAbortControllers({});
@@ -615,6 +611,13 @@ export default function TotalPage() {
     loadExportList();
     refreshTasks();
   }, []);
+
+  // 恢复表单数据（从全局store）
+  useEffect(() => {
+    if (formData) {
+      form.setFieldsValue(formData);
+    }
+  }, [formData, form]);
 
   // 查看题目详情
   const handleViewProblem = (record: ExportListItem) => {
