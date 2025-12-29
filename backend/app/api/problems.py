@@ -1095,19 +1095,19 @@ async def validate_and_save_problem(
                 detail="任务已超时，请重新领取任务"
             )
         
-        # 2. 检查已保存的题目数量
+        # 2. 检查当前任务已保存的题目数量（只统计当前进行中任务的题目）
         saved_count_result = await db.execute(
             select(func.count(ValidatedProblemExport.id)).where(
-                ValidatedProblemExport.user_id == current_user.id
+                ValidatedProblemExport.task_id == task.id  # 只统计当前任务的题目
             )
         )
         saved_count = saved_count_result.scalar() or 0
         
-        # 检查是否超过任务数量
+        # 检查是否超过当前任务数量
         if saved_count >= task.total_count:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"已保存 {saved_count} 道题目，已达到任务上限 {task.total_count} 道。如需继续出题，请先删除已保存的题目或领取新任务"
+                detail=f"当前任务已保存 {saved_count} 道题目，已达到任务上限 {task.total_count} 道。如需继续出题，请先删除已保存的题目或提交当前任务后领取新任务"
             )
         
         # 3. 验证难度（可选）
@@ -1188,6 +1188,7 @@ async def validate_and_save_problem(
         # 5. 保存到导出列表
         validated_problem = ValidatedProblemExport(
             user_id=current_user.id,
+            task_id=task.id,  # 关联任务ID
             content=problem,
             answer=answer,
             explanation=explanation,
@@ -1197,15 +1198,22 @@ async def validate_and_save_problem(
         )
         
         db.add(validated_problem)
+        await db.commit()
+        await db.refresh(validated_problem)
         
-        # 6. 更新任务进度
-        task.completed_count = (task.completed_count or 0) + 1
+        # 6. 实时统计当前任务的题目数量，更新任务进度
+        saved_count_result = await db.execute(
+            select(func.count(ValidatedProblemExport.id)).where(
+                ValidatedProblemExport.task_id == task.id
+            )
+        )
+        current_saved_count = saved_count_result.scalar() or 0
+        task.completed_count = current_saved_count
         
         # 7. 更新用户的出题数统计（用于仪表盘显示）
         current_user.problems_created_count = (current_user.problems_created_count or 0) + 1
         
         await db.commit()
-        await db.refresh(validated_problem)
         
         # 基于原创性和严谨性检测结果计算 all_passed
         originality_passed = originality_check.get("is_original", False) if originality_check else False
@@ -1384,23 +1392,34 @@ async def delete_validated_problem(
                 detail="题目不存在"
             )
         
+        # 获取题目关联的任务
+        task = None
+        if problem.task_id:
+            task_result = await db.execute(
+                select(Task).where(Task.id == problem.task_id)
+            )
+            task = task_result.scalar_one_or_none()
+        
         # 删除题目
         await db.delete(problem)
+        await db.commit()
         
-        # 更新任务进度（减1），支持IN_PROGRESS和SUBMITTED状态
-        # 使用统一的回退函数，如果任务状态是SUBMITTED，会自动改回IN_PROGRESS
-        await _rollback_create_task_progress(db, current_user.id)
-        
-        # 获取更新后的任务信息用于返回
-        task_result = await db.execute(
-            select(Task).where(
-                Task.user_id == current_user.id,
-                Task.task_type == TaskType.CREATE_PROBLEM,
-                Task.status.in_([TaskStatus.IN_PROGRESS, TaskStatus.SUBMITTED]),
-                Task.completed_count > 0
-            ).order_by(Task.claimed_at.desc())
-        )
-        task = task_result.scalar_one_or_none()
+        # 更新任务进度：实时统计该任务的题目数量
+        if task:
+            saved_count_result = await db.execute(
+                select(func.count(ValidatedProblemExport.id)).where(
+                    ValidatedProblemExport.task_id == task.id
+                )
+            )
+            current_saved_count = saved_count_result.scalar() or 0
+            task.completed_count = current_saved_count
+            
+            # 如果任务是SUBMITTED状态且题目数量小于总数，改回IN_PROGRESS
+            if task.status == TaskStatus.SUBMITTED and task.completed_count < task.total_count:
+                task.status = TaskStatus.IN_PROGRESS
+                task.submitted_at = None
+            
+            await db.commit()
         
         # 更新用户的出题数统计（用于仪表盘显示）
         if current_user.problems_created_count > 0:
@@ -1451,22 +1470,48 @@ async def clear_export_list(
         
         deleted_count = len(problems)
         
+        # 收集所有受影响的任务ID
+        affected_task_ids = set()
+        for p in problems:
+            if p.task_id:
+                affected_task_ids.add(p.task_id)
+        
         # 删除所有题目
         for p in problems:
             await db.delete(p)
         
-        # 更新任务进度（按删除数量回退），支持IN_PROGRESS和SUBMITTED状态
-        # 循环调用回退函数，每次减1
-        for _ in range(deleted_count):
-            await _rollback_create_task_progress(db, current_user.id)
+        await db.commit()
         
-        # 获取更新后的任务信息
+        # 更新所有受影响任务的进度：实时统计每个任务的题目数量
+        for task_id in affected_task_ids:
+            task_result = await db.execute(
+                select(Task).where(Task.id == task_id)
+            )
+            task = task_result.scalar_one_or_none()
+            
+            if task:
+                # 统计该任务的题目数量
+                saved_count_result = await db.execute(
+                    select(func.count(ValidatedProblemExport.id)).where(
+                        ValidatedProblemExport.task_id == task_id
+                    )
+                )
+                current_saved_count = saved_count_result.scalar() or 0
+                task.completed_count = current_saved_count
+                
+                # 如果任务是SUBMITTED状态且题目数量小于总数，改回IN_PROGRESS
+                if task.status == TaskStatus.SUBMITTED and task.completed_count < task.total_count:
+                    task.status = TaskStatus.IN_PROGRESS
+                    task.submitted_at = None
+        
+        await db.commit()
+        
+        # 获取最近的任务信息用于返回
         task_result = await db.execute(
             select(Task).where(
                 Task.user_id == current_user.id,
                 Task.task_type == TaskType.CREATE_PROBLEM,
-                Task.status.in_([TaskStatus.IN_PROGRESS, TaskStatus.SUBMITTED]),
-                Task.completed_count >= 0
+                Task.status.in_([TaskStatus.IN_PROGRESS, TaskStatus.SUBMITTED])
             ).order_by(Task.claimed_at.desc())
         )
         task = task_result.scalar_one_or_none()
