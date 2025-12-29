@@ -125,7 +125,26 @@ INITIAL_USERS = [
         "password": "user123",  # 生产环境请修改
         "role": UserRole.USER,
     },
-        
+        {"username": "penghaihang",
+        "email": "penghaihang@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+        {"username": "wangzihe",
+        "email": "wangzihe@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+        {"username": "zhangyilian",
+        "email": "zhangyilian@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+        {"username": "chenbosheng",
+        "email": "chenbosheng@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
 ]
 
 
