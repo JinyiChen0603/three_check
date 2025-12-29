@@ -87,7 +87,45 @@ IMPORTANT: Always respond in Chinese (中文), as the reviewers are Chinese teac
                 user_prompt += f"""
 
 [Solution/Explanation]
-{explanation}"""
+{explanation}
+
+**⚠️ CRITICAL WARNING ⚠️**: 
+The provided explanation may contain SERIOUS ERRORS (wrong reasoning, calculation mistakes, or logical gaps). 
+Your job is to find these errors, not to assume the explanation is correct.
+
+**MANDATORY VERIFICATION PROCESS** (Strictly follow this order):
+
+1. **Independent Verification FIRST** (Most Important):
+   - Solve the problem YOURSELF using your own mathematical reasoning
+   - Do NOT rely on or reference the explanation yet
+   - Calculate/prove the answer independently
+   - Record your own answer before comparing
+
+2. **Critical Comparison**:
+   - Compare YOUR answer with the PROVIDED answer
+   - If they DIFFER → This is a MAJOR ISSUE - clearly state: "My independent verification gives [X], but the provided answer is [Y]"
+   - If your reasoning contradicts the explanation → TRUST YOUR REASONING, not the explanation
+   - Finding contradictions is GOOD - it means you found an error
+
+3. **Explanation Critique** (Only after your independent verification):
+   - Review the explanation with a CRITICAL eye
+   - Actively look for: logical gaps, calculation errors, invalid steps, missing cases
+   - Check if it correctly derives the given answer
+   - If you find errors, explicitly state them
+
+4. **Final Consistency Check**:
+   - Are the problem, answer, and explanation all mutually consistent?
+   - If not, identify which component has the error
+
+**REMEMBER**: 
+- Do NOT try to "make it work" if you find contradictions
+- Do NOT assume the explanation is correct just because it's provided
+- Your independent judgment is MORE important than agreeing with the explanation
+- Be HARSH in your evaluation - competition-level standards require perfection"""
+            else:
+                user_prompt += """
+
+**Note**: No solution/explanation provided. You must independently verify the answer's correctness through your own mathematical reasoning."""
             
             user_prompt += """
 
@@ -106,8 +144,17 @@ Please provide your review in Chinese using the following format:
 - 符号规范：（分析数学符号是否规范）
 
 【答案验证】
-- 正确性：（验证答案是否正确）
-- 完整性：（是否有遗漏的解）
+- 我的独立验证：（在不依赖解析的情况下，你通过独立推理得到的答案是什么？简述推理过程）
+- 与给定答案对比：你的答案与给定答案是否一致？
+  * 如果一致 → 说明答案可能正确
+  * ⚠️ 如果不一致 → 这是严重问题！明确说明："我的验证得出[X]，但给定答案是[Y]，差异原因是..."
+- 完整性检查：是否有遗漏的解或特殊情况？
+
+【解析检查】（如提供了解析）
+- 解析正确性：解析的推理是否正确？有无计算错误、逻辑错误？
+- 逻辑严密性：推理是否严密？有无跳步、逻辑漏洞、未证明的断言？
+- 与答案一致性：解析最终是否正确推导出给定答案？
+- ⚠️ 矛盾检测：你的独立验证与解析是否有矛盾？如有，是解析错了还是你的推理有误？
 
 【发现的问题】（如果有问题，逐条列出；如果没有问题，写"无"）
 

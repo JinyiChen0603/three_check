@@ -18,9 +18,13 @@ export function TaskStats({
 }) {
   const config = useConfig();
   
-  // 0/50页面：始终显示已提交的题目总数/配置的最大任务数（从后端获取）
-  const creationPercent = Math.round((problemCreationCompleted / config.maxTasksPerClaim) * 100);
-  const reviewPercent = Math.round((problemReviewCompleted / config.maxTasksPerClaim) * 100);
+  // 计算进度百分比（基于当前显示的 total）
+  const creationPercent = problemCreationTotal > 0 
+    ? Math.round((problemCreationCompleted / problemCreationTotal) * 100) 
+    : 0;
+  const reviewPercent = problemReviewTotal > 0 
+    ? Math.round((problemReviewCompleted / problemReviewTotal) * 100) 
+    : 0;
 
   return (
     <Row gutter={16} style={{ marginBottom: 24 }}>
@@ -31,7 +35,7 @@ export function TaskStats({
             <Statistic
               title="出题任务"
               value={problemCreationCompleted}
-              suffix={`/ ${config.maxTasksPerClaim}`}
+              suffix={`/ ${problemCreationTotal}`}
             />
             <Progress 
               percent={creationPercent} 
@@ -40,7 +44,7 @@ export function TaskStats({
               style={{ marginTop: 8 }}
             />
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
-              已提交题目数
+              当前进度
             </Text>
           </div>
         </Card>
@@ -52,7 +56,7 @@ export function TaskStats({
             <Statistic
               title="评分任务"
               value={problemReviewCompleted}
-              suffix={`/ ${config.maxTasksPerClaim}`}
+              suffix={`/ ${problemReviewTotal}`}
             />
             <Progress 
               percent={reviewPercent} 
@@ -62,7 +66,7 @@ export function TaskStats({
               style={{ marginTop: 8 }}
             />
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
-              已提交题目数
+              当前进度
             </Text>
           </div>
         </Card>

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.models import (
-    User, Problem, Task, TaskType, TaskStatus, ProblemStatus, ValidatedProblemExport
+    User, Problem, Task, TaskType, TaskStatus, ProblemStatus, ValidatedProblemExport, Review
 )
 from app.api.deps import get_current_user
 from app.config import settings
@@ -235,6 +235,13 @@ async def get_my_tasks(
     查看当前用户的任务列表
     
     可按状态筛选
+    
+    注意：对于出题任务，completed_count 从数据库实时查询（ValidatedProblemExport）
+    
+    返回数据中包含：
+    - batches: 任务批次列表
+    - total_problems_created: 用户的累计出题总数（所有题目，不限任务状态）
+    - total_reviews_completed: 用户的累计评分总数
     """
     query = select(Task).where(Task.user_id == current_user.id)
     
@@ -255,12 +262,24 @@ async def get_my_tasks(
     for task in tasks:
         if task.batch_id:
             if task.batch_id not in batches:
+                # 对于出题任务，从数据库查询真实题目数
+                if task.task_type == TaskType.CREATE_PROBLEM:
+                    # 查询该任务关联的实际题目数
+                    count_result = await db.execute(
+                        select(func.count(ValidatedProblemExport.id))
+                        .where(ValidatedProblemExport.task_id == task.id)
+                    )
+                    real_completed_count = count_result.scalar() or 0
+                else:
+                    # 评分任务使用原来的 completed_count
+                    real_completed_count = task.completed_count or 0
+                
                 batches[task.batch_id] = {
                     "batch_id": task.batch_id,
                     "task_type": task.task_type.value,
                     "status": task.status.value,
                     "total_count": task.total_count,
-                    "completed_count": task.completed_count,
+                    "completed_count": real_completed_count,  # 使用真实查询的数据
                     "claimed_at": task.claimed_at,
                     "expires_at": task.expires_at,
                     "submitted_at": task.submitted_at,
@@ -270,13 +289,36 @@ async def get_my_tasks(
                 "task_id": task.id,
                 "problem_id": task.problem_id
             })
-            # 确保使用最大的completed_count（对于同一批次的多条记录，取最大值）
-            if task.completed_count is not None and task.completed_count > batches[task.batch_id]["completed_count"]:
-                batches[task.batch_id]["completed_count"] = task.completed_count
+            
+            # 对于同一批次的多条记录，重新计算 completed_count
+            if task.task_type == TaskType.CREATE_PROBLEM:
+                count_result = await db.execute(
+                    select(func.count(ValidatedProblemExport.id))
+                    .where(ValidatedProblemExport.task_id == task.id)
+                )
+                task_completed = count_result.scalar() or 0
+                if task_completed > batches[task.batch_id]["completed_count"]:
+                    batches[task.batch_id]["completed_count"] = task_completed
+    
+    # 查询用户的累计出题总数（所有题目，不限任务状态）
+    problems_count_result = await db.execute(
+        select(func.count(ValidatedProblemExport.id))
+        .where(ValidatedProblemExport.user_id == current_user.id)
+    )
+    total_problems_created = problems_count_result.scalar() or 0
+    
+    # 查询用户的累计评分总数
+    reviews_count_result = await db.execute(
+        select(func.count(Review.id))
+        .where(Review.reviewer_id == current_user.id)
+    )
+    total_reviews_completed = reviews_count_result.scalar() or 0
     
     return {
         "total_batches": len(batches),
-        "batches": list(batches.values())
+        "batches": list(batches.values()),
+        "total_problems_created": total_problems_created,  # 用户累计出题总数
+        "total_reviews_completed": total_reviews_completed  # 用户累计评分总数
     }
 
 
@@ -355,13 +397,17 @@ async def submit_task(
 @router.post("/{task_id}/abandon", summary="放弃任务")
 async def abandon_task(
     task_id: int,
+    confirmed: bool = False,  # 是否已确认放弃（前端通过query参数传递）
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     放弃任务
     
-    可以放弃单个任务或整个批次
+    规则：
+    1. 如果任务下有已完成的题目，会一并删除
+    2. 首次调用时如果有题目，返回警告要求确认
+    3. 确认后再次调用（confirmed=true）才真正执行
     """
     result = await db.execute(
         select(Task).where(Task.id == task_id)
@@ -386,7 +432,40 @@ async def abandon_task(
             detail=f"任务状态为 {task.status.value}，无法放弃"
         )
     
-    # 更新状态
+    # 检查是否有关联的已完成题目（只对出题任务检查）
+    problem_count = 0
+    if task.task_type == TaskType.CREATE_PROBLEM:
+        count_result = await db.execute(
+            select(func.count(ValidatedProblemExport.id)).where(
+                ValidatedProblemExport.task_id == task_id
+            )
+        )
+        problem_count = count_result.scalar() or 0
+    
+    # 如果有题目且未确认，返回警告
+    if problem_count > 0 and not confirmed:
+        return {
+            "success": False,
+            "requires_confirmation": True,
+            "problem_count": problem_count,
+            "message": f"该任务下有 {problem_count} 道已完成的题目，放弃任务将会删除这些题目。是否确认放弃？",
+            "warning": "⚠️ 此操作不可撤销！题目一旦删除将无法恢复。"
+        }
+    
+    # 确认后执行放弃操作
+    # 1. 删除关联的题目
+    if problem_count > 0:
+        problems_result = await db.execute(
+            select(ValidatedProblemExport).where(
+                ValidatedProblemExport.task_id == task_id
+            )
+        )
+        problems = problems_result.scalars().all()
+        
+        for problem in problems:
+            await db.delete(problem)
+    
+    # 2. 更新任务状态
     task.status = TaskStatus.REJECTED  # 使用REJECTED表示主动放弃
     task.abandoned_count = 1
     
@@ -394,8 +473,9 @@ async def abandon_task(
     
     return {
         "success": True,
-        "message": "任务已放弃",
-        "task_id": task.id
+        "message": "任务已放弃" + (f"，已删除 {problem_count} 道题目" if problem_count > 0 else ""),
+        "task_id": task.id,
+        "deleted_problem_count": problem_count
     }
 
 

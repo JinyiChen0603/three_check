@@ -48,6 +48,8 @@ export interface TaskBatch {
 export interface TaskBatchesResponse {
   total_batches: number;
   batches: TaskBatch[];
+  total_problems_created: number;  // 用户累计出题总数
+  total_reviews_completed: number;  // 用户累计评分总数
 }
 
 // 任务（前端使用的格式）

@@ -11,6 +11,7 @@ interface AppConfig {
   taskTimeoutHours: number;
   rewardPerProblem: number;
   rewardPerReview: number;
+  maxProblemsTotal: number;  // 用户总出题数上限
 }
 
 let cachedConfig: AppConfig | null = null;
@@ -28,6 +29,7 @@ export function useConfig(): AppConfig {
       taskTimeoutHours: 12,
       rewardPerProblem: 50,
       rewardPerReview: 10,
+      maxProblemsTotal: 50,  // 默认总出题数上限
     };
   });
 
@@ -52,6 +54,7 @@ export function useConfig(): AppConfig {
         taskTimeoutHours: data.task_timeout_hours,
         rewardPerProblem: data.reward_per_problem,
         rewardPerReview: data.reward_per_review,
+        maxProblemsTotal: data.max_problems_total,  // 从后端获取
       };
       cachedConfig = appConfig;
       setConfig(appConfig);
