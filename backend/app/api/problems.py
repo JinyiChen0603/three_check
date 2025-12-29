@@ -381,10 +381,11 @@ async def create_problem(
         )
         await _mark_create_task_progress(db, current_user.id, problem_id)
         
-        # 如果是变体，更新母题的变形次数和用户的出题计数
+        # 如果是变体，更新母题的变形次数
         if parent_problem:
             parent_problem.variant_count += 1
-            current_user.problems_created_count += 1
+            # 注意：不再更新 problems_created_count，该字段已废弃
+            # API 会从 ValidatedProblemExport 表实时查询真实数据
             await db.commit()
         
         # 获取完整题目数据返回
@@ -414,7 +415,8 @@ async def create_problem(
         
         if parent_problem:
             parent_problem.variant_count += 1
-            current_user.problems_created_count += 1
+            # 注意：不再更新 problems_created_count，该字段已废弃
+            # API 会从 ValidatedProblemExport 表实时查询真实数据
         
         await db.commit()
         await db.refresh(new_problem)
@@ -1210,8 +1212,8 @@ async def validate_and_save_problem(
         current_saved_count = saved_count_result.scalar() or 0
         task.completed_count = current_saved_count
         
-        # 7. 更新用户的出题数统计（用于仪表盘显示）
-        current_user.problems_created_count = (current_user.problems_created_count or 0) + 1
+        # 注意：不再更新 problems_created_count，该字段已废弃
+        # API 会从 ValidatedProblemExport 表实时查询真实数据
         
         await db.commit()
         
@@ -1421,11 +1423,8 @@ async def delete_validated_problem(
             
             await db.commit()
         
-        # 更新用户的出题数统计（用于仪表盘显示）
-        if current_user.problems_created_count > 0:
-            current_user.problems_created_count = current_user.problems_created_count - 1
-        
-        await db.commit()
+        # 注意：不再更新 problems_created_count，该字段已废弃
+        # API 会从 ValidatedProblemExport 表实时查询真实数据
         
         return {
             "success": True,
@@ -1516,15 +1515,8 @@ async def clear_export_list(
         )
         task = task_result.scalar_one_or_none()
         
-        # 更新用户的出题数统计（用于仪表盘显示）
-        # 注意：这里只减少待导出列表中的题目数，不影响已导出的题目
-        # 如果用户之前已经导出过题目，那些题目的统计不会减少
-        # 这里只减少当前待导出列表中的题目数
-        if current_user.problems_created_count >= deleted_count:
-            current_user.problems_created_count = current_user.problems_created_count - deleted_count
-        else:
-            # 如果统计数小于删除数，说明可能有些题目已经导出过了，只减少到0
-            current_user.problems_created_count = 0
+        # 注意：不再更新 problems_created_count，该字段已废弃
+        # API 会从 ValidatedProblemExport 表实时查询真实数据
         
         await db.commit()
         

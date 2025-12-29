@@ -89,6 +89,7 @@ async def get_config():
         "task_timeout_hours": settings.TASK_TIMEOUT_HOURS,
         "reward_per_problem": settings.PROBLEM_REWARD,
         "reward_per_review": settings.REVIEW_REWARD,
+        "max_problems_total": settings.MAX_PROBLEMS_TOTAL,  # 用户总出题数上限
     }
 
 

@@ -8,7 +8,8 @@ import { message } from 'antd';
 import type { Task, TaskBatchesResponse } from '../types';
 import { TaskType } from '../config/constants';
 import { taskApi } from '../api';
-import { convertBatchesToTasks, calculateTotalTaskCount, calculateCompletedTaskCount } from '../services/taskService';
+import { convertBatchesToTasks, getCurrentTaskStats } from '../services/taskService';
+import { useConfig } from './useConfig';
 
 interface UseTaskReturn {
   // 任务列表
@@ -34,8 +35,11 @@ interface UseTaskReturn {
 }
 
 export function useTask(): UseTaskReturn {
+  const config = useConfig();  // 获取配置
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
+  const [totalProblemsCreated, setTotalProblemsCreated] = useState(0);
+  const [totalReviewsCompleted, setTotalReviewsCompleted] = useState(0);
 
   // 获取任务列表
   const fetchTasks = useCallback(async () => {
@@ -53,6 +57,10 @@ export function useTask(): UseTaskReturn {
         const convertedTasks = convertBatchesToTasks(batchesResponse);
         console.log('转换后的任务:', convertedTasks);
         setTasks(convertedTasks);
+        
+        // 保存累计总数
+        setTotalProblemsCreated(batchesResponse.total_problems_created || 0);
+        setTotalReviewsCompleted(batchesResponse.total_reviews_completed || 0);
       } else if (Array.isArray(response)) {
         // 如果返回的是数组格式（兼容处理）
         console.log('数组格式数据:', response);
@@ -98,13 +106,25 @@ export function useTask(): UseTaskReturn {
   }, [fetchTasks]);
 
   // 放弃任务
-  const abandonTask = useCallback(async (taskId: number) => {
+  const abandonTask = useCallback(async (taskId: number, confirmed: boolean = false) => {
     try {
-      await taskApi.abandonTask(taskId);
-      message.success('已放弃任务');
+      const response = await taskApi.abandonTask(taskId, confirmed);
+      
+      // 检查是否需要确认
+      if (response.requires_confirmation) {
+        // 返回需要确认的信息，由调用方处理
+        return response;
+      }
+      
+      // 已确认或无需确认，放弃成功
+      const successMsg = response.deleted_problem_count > 0 
+        ? `任务已放弃，已删除 ${response.deleted_problem_count} 道题目`
+        : '任务已放弃';
+      message.success(successMsg);
       
       // 放弃成功后刷新列表
       await fetchTasks();
+      return response;
     } catch (error: any) {
       const errorMsg = error.response?.data?.detail || '放弃任务失败';
       message.error(errorMsg);
@@ -133,18 +153,27 @@ export function useTask(): UseTaskReturn {
   }, [fetchTasks]);
 
   // 计算统计数据
-  const problemCreationTotal = calculateTotalTaskCount(tasks, TaskType.PROBLEM_CREATION);
-  const problemCreationCompleted = calculateCompletedTaskCount(tasks, TaskType.PROBLEM_CREATION);
-  const problemReviewTotal = calculateTotalTaskCount(tasks, TaskType.PROBLEM_REVIEW);
-  const problemReviewCompleted = calculateCompletedTaskCount(tasks, TaskType.PROBLEM_REVIEW);
+  // 使用新的逻辑：如果有进行中的任务显示当前任务进度，否则显示累计进度（从后端获取）
+  const problemCreationStats = getCurrentTaskStats(
+    tasks, 
+    TaskType.PROBLEM_CREATION, 
+    totalProblemsCreated, 
+    config.maxProblemsTotal  // 从配置获取最大值
+  );
+  const problemReviewStats = getCurrentTaskStats(
+    tasks, 
+    TaskType.PROBLEM_REVIEW, 
+    totalReviewsCompleted,
+    config.maxProblemsTotal  // 从配置获取最大值
+  );
 
   return {
     tasks,
     loading,
-    problemCreationTotal,
-    problemCreationCompleted,
-    problemReviewTotal,
-    problemReviewCompleted,
+    problemCreationTotal: problemCreationStats.total,
+    problemCreationCompleted: problemCreationStats.completed,
+    problemReviewTotal: problemReviewStats.total,
+    problemReviewCompleted: problemReviewStats.completed,
     refreshTasks: fetchTasks,
     claimTasks,
     abandonTask,

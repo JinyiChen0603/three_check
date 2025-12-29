@@ -9,11 +9,13 @@ import {
   Tabs,
   Typography,
   Card,
+  Modal,
 } from 'antd';
 import {
   FileTextOutlined,
   CheckCircleOutlined,
   PlusOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { useTask } from '../../hooks/useTask';
 import { useConfig } from '../../hooks/useConfig';
@@ -65,6 +67,40 @@ export default function Tasks() {
     }
   };
 
+  // 处理放弃任务（带确认对话框）
+  const handleAbandonTask = async (taskId: number) => {
+    try {
+      // 第一次调用：检查是否需要确认
+      const response = await abandonTask(taskId, false);
+      
+      // 如果需要确认
+      if (response?.requires_confirmation) {
+        Modal.confirm({
+          title: '确认放弃任务',
+          icon: <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />,
+          content: (
+            <div>
+              <p>{response.message}</p>
+              <p style={{ color: '#ff4d4f', marginTop: 8 }}>
+                {response.warning}
+              </p>
+            </div>
+          ),
+          okText: '确认放弃',
+          okType: 'danger',
+          cancelText: '取消',
+          onOk: async () => {
+            // 第二次调用：确认放弃
+            await abandonTask(taskId, true);
+          }
+        });
+      }
+      // 如果不需要确认，abandonTask 会直接成功并刷新列表
+    } catch (error) {
+      // 错误已在Hook中处理
+    }
+  };
+
   // 按批次去重后的任务列表（避免评分任务显示多条重复记录）
   const uniqueTasks = getUniqueBatchTasks(tasks);
   
@@ -102,7 +138,7 @@ export default function Tasks() {
               label: (
                 <span>
                   <FileTextOutlined />
-                  出题任务 ({problemCreationTotal})
+                  出题任务
                 </span>
               ),
               children: (
@@ -128,13 +164,7 @@ export default function Tasks() {
                   <TaskList
                     tasks={problemCreationTasks}
                     loading={loading}
-                    onAbandon={async (taskId) => {
-                      try {
-                        await abandonTask(taskId);
-                      } catch (error) {
-                        // 错误已在Hook中处理
-                      }
-                    }}
+                    onAbandon={handleAbandonTask}
                     onSubmit={async (taskId) => {
                       try {
                         await submitTask(taskId);
@@ -151,7 +181,7 @@ export default function Tasks() {
               label: (
                 <span>
                   <CheckCircleOutlined />
-                  评分任务 ({problemReviewTotal})
+                  评分任务
                 </span>
               ),
               children: (
@@ -177,13 +207,7 @@ export default function Tasks() {
                   <TaskList
                     tasks={problemReviewTasks}
                     loading={loading}
-                    onAbandon={async (taskId) => {
-                      try {
-                        await abandonTask(taskId);
-                      } catch (error) {
-                        // 错误已在Hook中处理
-                      }
-                    }}
+                    onAbandon={handleAbandonTask}
                   />
                 </>
               ),

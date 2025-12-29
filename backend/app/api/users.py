@@ -10,7 +10,7 @@ from sqlalchemy import select, func, desc
 from pydantic import BaseModel
 
 from app.database import get_db
-from app.models import User, UserRole, Transaction, TransactionStatus
+from app.models import User, UserRole, Transaction, TransactionStatus, ValidatedProblemExport, Review
 from app.api.deps import get_current_user, get_current_admin_user
 
 
@@ -69,6 +69,8 @@ async def get_my_stats(
     获取当前用户的统计信息
     
     包括：余额、出题数、评分数、排名等
+    
+    注意：出题数和评分数直接从数据库查询真实记录数，而不是使用累加字段
     """
     # 计算排名
     result = await db.execute(
@@ -82,13 +84,27 @@ async def get_my_stats(
     better_users = result.scalar()
     rank = better_users + 1 if current_user.role == UserRole.USER else None
     
+    # 从数据库查询真实的出题数（ValidatedProblemExport 表）
+    problems_result = await db.execute(
+        select(func.count(ValidatedProblemExport.id))
+        .where(ValidatedProblemExport.user_id == current_user.id)
+    )
+    problems_created_count = problems_result.scalar() or 0
+    
+    # 从数据库查询真实的评分数（Review 表）
+    reviews_result = await db.execute(
+        select(func.count(Review.id))
+        .where(Review.reviewer_id == current_user.id)
+    )
+    reviews_completed_count = reviews_result.scalar() or 0
+    
     return {
         "id": current_user.id,
         "username": current_user.username,
         "role": current_user.role.value,
         "balance": current_user.balance,
-        "problems_created_count": current_user.problems_created_count,
-        "reviews_completed_count": current_user.reviews_completed_count,
+        "problems_created_count": problems_created_count,  # 从数据库查询
+        "reviews_completed_count": reviews_completed_count,  # 从数据库查询
         "rank": rank
     }
 
