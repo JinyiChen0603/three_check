@@ -32,10 +32,10 @@ def upgrade() -> None:
     # 将 category 字段改为可空
     op.alter_column('validated_problem_exports', 'category',
                     existing_type=postgresql.ENUM(
-                        'HIGH_SCHOOL_COMPREHENSIVE', 'COLLEGE_COMPREHENSIVE', 'HIGH_SCHOOL_ALGEBRA', 
-                        'HIGH_SCHOOL_GEOMETRY', 'HIGH_SCHOOL_NUMBER_THEORY', 'HIGH_SCHOOL_COMBINATORICS', 
-                        'COLLEGE_ALGEBRA', 'COLLEGE_NUMBER_THEORY', 'COLLEGE_ANALYSIS', 'COLLEGE_COMBINATORICS', 
-                        'COLLEGE_GEOMETRY', 'COLLEGE_OPTIMIZATION', 
+                        'high_school_comprehensive', 'college_comprehensive', 'high_school_algebra', 
+                        'high_school_geometry', 'high_school_number_theory', 'high_school_combinatorics', 
+                        'college_algebra', 'college_number_theory', 'college_analysis', 'college_combinatorics', 
+                        'college_geometry', 'college_optimization', 
                         name='materialcategory'
                     ),
                     nullable=True)
@@ -45,10 +45,10 @@ def downgrade() -> None:
     # 将 category 字段改回非空（注意：如果有NULL值，回滚会失败）
     op.alter_column('validated_problem_exports', 'category',
                     existing_type=postgresql.ENUM(
-                        'HIGH_SCHOOL_COMPREHENSIVE', 'COLLEGE_COMPREHENSIVE', 'HIGH_SCHOOL_ALGEBRA', 
-                        'HIGH_SCHOOL_GEOMETRY', 'HIGH_SCHOOL_NUMBER_THEORY', 'HIGH_SCHOOL_COMBINATORICS', 
-                        'COLLEGE_ALGEBRA', 'COLLEGE_NUMBER_THEORY', 'COLLEGE_ANALYSIS', 'COLLEGE_COMBINATORICS', 
-                        'COLLEGE_GEOMETRY', 'COLLEGE_OPTIMIZATION', 
+                        'high_school_comprehensive', 'college_comprehensive', 'high_school_algebra', 
+                        'high_school_geometry', 'high_school_number_theory', 'high_school_combinatorics', 
+                        'college_algebra', 'college_number_theory', 'college_analysis', 'college_combinatorics', 
+                        'college_geometry', 'college_optimization', 
                         name='materialcategory'
                     ),
                     nullable=False)

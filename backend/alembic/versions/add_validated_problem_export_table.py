@@ -31,10 +31,10 @@ def upgrade() -> None:
     
     # 使用已存在的materialcategory枚举类型，不创建新的
     materialcategory_enum = postgresql.ENUM(
-        'HIGH_SCHOOL_COMPREHENSIVE', 'COLLEGE_COMPREHENSIVE', 'HIGH_SCHOOL_ALGEBRA', 
-        'HIGH_SCHOOL_GEOMETRY', 'HIGH_SCHOOL_NUMBER_THEORY', 'HIGH_SCHOOL_COMBINATORICS', 
-        'COLLEGE_ALGEBRA', 'COLLEGE_NUMBER_THEORY', 'COLLEGE_ANALYSIS', 'COLLEGE_COMBINATORICS', 
-        'COLLEGE_GEOMETRY', 'COLLEGE_OPTIMIZATION', 
+        'high_school_comprehensive', 'college_comprehensive', 'high_school_algebra', 
+        'high_school_geometry', 'high_school_number_theory', 'high_school_combinatorics', 
+        'college_algebra', 'college_number_theory', 'college_analysis', 'college_combinatorics', 
+        'college_geometry', 'college_optimization', 
         name='materialcategory', 
         create_type=False
     )
