@@ -28,6 +28,7 @@ import {
   HistoryOutlined,
   CopyOutlined,
   FileExcelOutlined,
+  FireOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/useAuthStore';
 import { UserRole } from '../config/constants';
@@ -104,6 +105,11 @@ export default function MainLayout() {
       key: '/totalpage',
       icon: <FileExcelOutlined />,
       label: '题目验证导出',
+    },
+    {
+      key: '/variant-generator',
+      icon: <FireOutlined />,
+      label: '变体生成',
     },
     // {
     //   key: '/review',
