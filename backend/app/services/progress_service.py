@@ -81,26 +81,28 @@ class ProgressService:
         self,
         task_id: str,
         poll_interval: float = 0.3,
-        timeout: float = 300.0
+        timeout: float = 600.0,
+        heartbeat_interval: float = 15.0
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         订阅进度变化（异步生成器）
         
-        使用轮询实现，适合短时任务（<5分钟）
+        使用轮询实现，适合长时任务（<10分钟）
         比 Pub/Sub 简单，避免连接管理复杂度
         
         Args:
             task_id: 任务唯一标识
             poll_interval: 轮询间隔（秒），默认 0.3s
-            timeout: 超时时间（秒），默认 300s（5分钟）
+            timeout: 超时时间（秒），默认 600s（10分钟）
+            heartbeat_interval: 心跳间隔（秒），默认 15s，防止连接被浏览器/代理断开
             
         Yields:
-            进度数据字典
+            进度数据字典，心跳消息包含 {"heartbeat": True, "progress": int}
         """
         last_progress = -1
         elapsed = 0.0
-        
         last_had_result = False
+        last_send_time = 0.0  # 上次发送数据的时间
         
         while elapsed < timeout:
             data = await self.get_progress(task_id)
@@ -113,11 +115,17 @@ class ProgressService:
                 if current_progress != last_progress or (has_result and not last_had_result):
                     last_progress = current_progress
                     last_had_result = has_result
+                    last_send_time = elapsed
                     yield data
                 
                 # 任务完成（有result），退出循环
                 if has_result:
                     break
+            
+            # 发送心跳消息（防止连接超时）
+            if elapsed - last_send_time >= heartbeat_interval:
+                last_send_time = elapsed
+                yield {"heartbeat": True, "progress": last_progress if last_progress >= 0 else 0}
             
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval

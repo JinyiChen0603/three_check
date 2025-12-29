@@ -90,7 +90,9 @@ class DifficultyCheckService:
                     # 无论成功或异常，都更新进度
                     async with lock:
                         completed_attempts += 1
-                        if progress_callback:
+                        # 只发送 0-99% 的进度，100% 由调用方在存储最终结果时发送
+                        # 避免异步回调与最终结果写入产生竞态条件
+                        if progress_callback and completed_attempts < attempts:
                             progress = int(completed_attempts / attempts * 100)
                             progress_callback({"progress": progress})
             

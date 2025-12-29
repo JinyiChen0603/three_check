@@ -268,6 +268,13 @@ export default function TotalPage() {
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          
+          // 忽略心跳消息（仅用于保持连接活跃）
+          if (data.heartbeat) {
+            console.log('收到心跳，连接正常');
+            return;
+          }
+          
           const progress = data.progress || 0;
           
           // 更新进度
