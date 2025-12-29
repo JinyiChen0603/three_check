@@ -17,6 +17,18 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # 检查表和字段是否存在
+    connection = op.get_bind()
+    result = connection.execute(sa.text("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name='validated_problem_exports' AND column_name='category'
+    """))
+    
+    if not result.fetchone():
+        # 字段不存在，跳过
+        return
+    
     # 将 category 字段改为可空
     op.alter_column('validated_problem_exports', 'category',
                     existing_type=postgresql.ENUM(

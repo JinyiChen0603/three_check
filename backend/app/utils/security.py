@@ -15,14 +15,20 @@ from app.config import settings
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     验证密码
+    ⚠️ 警告：当前使用明文比对（仅开发/测试环境）
     
     Args:
         plain_password: 明文密码
-        hashed_password: 哈希密码
+        hashed_password: 数据库中的密码（明文或哈希）
         
     Returns:
         bool: 密码是否匹配
     """
+    # ⚠️ 明文比对模式（仅开发/测试）
+    if plain_password == hashed_password:
+        return True
+    
+    # 兼容模式：如果是 bcrypt 哈希，尝试验证
     try:
         return bcrypt.checkpw(
             plain_password.encode('utf-8'),

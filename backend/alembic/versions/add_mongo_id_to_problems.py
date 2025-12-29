@@ -17,10 +17,19 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # 添加 mongo_id 字段
-    op.add_column('problems', sa.Column('mongo_id', sa.String(length=24), nullable=True))
-    # 创建索引
-    op.create_index('ix_problems_mongo_id', 'problems', ['mongo_id'], unique=True)
+    # 检查 mongo_id 字段是否已存在
+    connection = op.get_bind()
+    result = connection.execute(sa.text("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name='problems' AND column_name='mongo_id'
+    """))
+    
+    if not result.fetchone():
+        # 添加 mongo_id 字段（如果不存在）
+        op.add_column('problems', sa.Column('mongo_id', sa.String(length=24), nullable=True))
+        # 创建索引
+        op.create_index('ix_problems_mongo_id', 'problems', ['mongo_id'], unique=True)
     
     # 将 content, answer 字段改为可空（因为新数据会存在MongoDB）
     # 注意：这里不删除字段，保持兼容性
