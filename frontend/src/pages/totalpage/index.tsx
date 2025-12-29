@@ -3,7 +3,7 @@
  * 单页面设计：所有功能在一个界面
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Card,
   Button,
@@ -24,6 +24,8 @@ import {
   Descriptions,
   Alert,
   Upload,
+  Progress,
+  List,
 } from 'antd';
 import {
   CheckCircleOutlined,
@@ -40,6 +42,9 @@ import {
   SaveOutlined,
   RadarChartOutlined,
   PictureOutlined,
+  LoadingOutlined,
+  ClockCircleOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { problemApi } from '../../api';
 import { MATERIAL_CATEGORIES } from '../../config/constants';
@@ -103,6 +108,21 @@ interface ExportListItem {
   created_at: string;
 }
 
+// 任务队列项状态类型
+type TaskQueueStatus = 'idle' | 'running' | 'completed' | 'error';
+
+// 任务队列项类型
+interface TaskQueueItem {
+  id: 'difficulty' | 'originality' | 'rigor';
+  name: string;
+  icon: React.ReactNode;
+  status: TaskQueueStatus;
+  progress: number; // 0-100
+  result: any | null;
+  passed: boolean | null;
+  taskId?: string; // SSE任务的task_id（仅难度检测使用）
+}
+
 export default function TotalPage() {
   const [form] = Form.useForm<ProblemFormData>();
   
@@ -159,6 +179,53 @@ export default function TotalPage() {
   const [viewProblemModalVisible, setViewProblemModalVisible] = useState(false);
   const [viewProblemData, setViewProblemData] = useState<ExportListItem | null>(null);
 
+  // 任务队列状态
+  const [taskQueue, setTaskQueue] = useState<TaskQueueItem[]>([
+    { id: 'difficulty', name: '难度检测', icon: <ExperimentOutlined />, status: 'idle', progress: 0, result: null, passed: null },
+    { id: 'originality', name: '原创性检测', icon: <SafetyCertificateOutlined />, status: 'idle', progress: 0, result: null, passed: null },
+    { id: 'rigor', name: '严谨性检测', icon: <RadarChartOutlined />, status: 'idle', progress: 0, result: null, passed: null },
+  ]);
+
+  // SSE连接引用（用于难度检测）
+  const sseRef = useRef<EventSource | null>(null);
+  
+  // 标记难度检测是否已完成（用于区分 SSE 正常关闭和真正的错误）
+  const difficultyCompletedRef = useRef(false);
+
+  // 更新单个任务队列项
+  const updateTaskQueueItem = useCallback((
+    id: 'difficulty' | 'originality' | 'rigor',
+    updates: Partial<Omit<TaskQueueItem, 'id' | 'name' | 'icon'>>
+  ) => {
+    setTaskQueue(prev => prev.map(item => 
+      item.id === id ? { ...item, ...updates } : item
+    ));
+  }, []);
+
+  // 重置所有任务队列项
+  const resetTaskQueue = useCallback(() => {
+    setTaskQueue([
+      { id: 'difficulty', name: '难度检测', icon: <ExperimentOutlined />, status: 'idle', progress: 0, result: null, passed: null },
+      { id: 'originality', name: '原创性检测', icon: <SafetyCertificateOutlined />, status: 'idle', progress: 0, result: null, passed: null },
+      { id: 'rigor', name: '严谨性检测', icon: <RadarChartOutlined />, status: 'idle', progress: 0, result: null, passed: null },
+    ]);
+  }, []);
+
+  // 清理SSE连接
+  const cleanupSSE = useCallback(() => {
+    if (sseRef.current) {
+      sseRef.current.close();
+      sseRef.current = null;
+    }
+  }, []);
+
+  // 组件卸载时清理SSE连接
+  useEffect(() => {
+    return () => {
+      cleanupSSE();
+    };
+  }, [cleanupSSE]);
+
   // 计算是否有任何检测正在进行
   const isAnyCheckRunning =
     difficultyCheck.loading || originalityCheck.loading || rigorCheck.loading;
@@ -178,20 +245,29 @@ export default function TotalPage() {
     originalityCheck.result !== null &&
     rigorCheck.result !== null;
 
-  // 验证难度
+  // 验证难度（使用SSE实时推送进度）
   const handleCheckDifficulty = async () => {
     try {
       await form.validateFields(['problem', 'answer']);
       const values = form.getFieldsValue();
 
+      // 清理之前的SSE连接
+      cleanupSSE();
+      
+      // 重置完成标记
+      difficultyCompletedRef.current = false;
+
       // 创建 AbortController
       const controller = new AbortController();
       setAbortControllers(prev => ({ ...prev, difficulty: controller }));
 
+      // 更新状态：开始检测
       setDifficultyCheck({ loading: true, result: null, passed: null });
+      updateTaskQueueItem('difficulty', { status: 'running', progress: 0, result: null, passed: null });
       
       try {
-        const result = await problemApi.validateSingle(
+        // 1. 启动异步难度检测
+        const { task_id } = await problemApi.startDifficultyCheck(
           values.problem,
           values.answer,
           values.explanation
@@ -202,44 +278,111 @@ export default function TotalPage() {
           return;
         }
 
-        // 检查attempts_details中是否有error
-        const hasError = result.attempts_details?.some(
-          (detail: any) => detail.error
-        );
-        
-        setDifficultyCheck({
-          loading: false,
-          result: result,
-          passed: hasError ? false : (result.is_passed || false),
-        });
+        // 更新任务ID
+        updateTaskQueueItem('difficulty', { taskId: task_id });
 
-        if (hasError) {
-          const errorMsg = result.attempts_details?.find((d: any) => d.error)?.error || '检测出错';
-          message.error(`❌ 难度检测出错: ${errorMsg}`);
-        } else if (result.is_passed) {
-          message.success('✅ 难度检测通过');
-        } else {
-          message.warning('⚠️ 难度检测未通过');
-        }
+        // 2. 建立SSE连接订阅进度
+        const eventSource = problemApi.subscribeDifficultyProgress(task_id);
+        sseRef.current = eventSource;
+
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            const progress = data.progress || 0;
+            
+            // 更新任务队列进度
+            updateTaskQueueItem('difficulty', { progress });
+
+            // 如果任务完成（进度100%且有结果）
+            if (progress >= 100 && data.result) {
+              const result = data.result;
+              
+              // 检查attempts_details中是否有error
+              const hasError = result.attempts_details?.some(
+                (detail: any) => detail.error
+              );
+              
+              const passed = hasError ? false : (result.is_passed || false);
+              
+              // 更新状态
+              setDifficultyCheck({
+                loading: false,
+                result: result,
+                passed: passed,
+              });
+              
+              updateTaskQueueItem('difficulty', { 
+                status: 'completed', 
+                progress: 100, 
+                result: result,
+                passed: passed
+              });
+
+              // 标记任务已完成（防止 SSE 关闭时 onerror 误报）
+              difficultyCompletedRef.current = true;
+
+              // 显示消息
+              if (hasError) {
+                const errorMsg = result.attempts_details?.find((d: any) => d.error)?.error || '检测出错';
+                message.error(`❌ 难度检测出错: ${errorMsg}`);
+              } else if (result.is_passed) {
+                message.success('✅ 难度检测通过');
+              } else {
+                message.warning('⚠️ 难度检测未通过');
+              }
+
+              // 关闭SSE连接
+              cleanupSSE();
+              setAbortControllers(prev => ({ ...prev, difficulty: undefined }));
+            }
+          } catch (parseError) {
+            console.error('解析SSE数据失败:', parseError);
+          }
+        };
+
+        eventSource.onerror = (error) => {
+          // 如果任务已完成，忽略这个错误（SSE 正常关闭触发的）
+          if (difficultyCompletedRef.current) {
+            console.log('SSE 正常关闭（任务已完成）');
+            return;
+          }
+          
+          console.error('SSE连接错误:', error);
+          
+          // 如果是取消操作，不显示错误
+          if (controller.signal.aborted) {
+            return;
+          }
+          
+          // 更新状态为错误
+          setDifficultyCheck({ loading: false, result: null, passed: false });
+          updateTaskQueueItem('difficulty', { status: 'error', progress: 0 });
+          message.error('难度检测连接失败，请重试');
+          
+          // 关闭SSE连接
+          cleanupSSE();
+          setAbortControllers(prev => ({ ...prev, difficulty: undefined }));
+        };
+
       } catch (error: any) {
         // 如果是取消操作，不显示错误
         if (controller.signal.aborted) {
           return;
         }
         throw error;
-      } finally {
-        setAbortControllers(prev => ({ ...prev, difficulty: undefined }));
       }
     } catch (error: any) {
       console.error('难度检测失败:', error);
       setDifficultyCheck({ loading: false, result: null, passed: false });
+      updateTaskQueueItem('difficulty', { status: 'error', progress: 0 });
       if (!error.errorFields) {
         message.error('难度检测失败，请重试');
       }
+      setAbortControllers(prev => ({ ...prev, difficulty: undefined }));
     }
   };
 
-  // 检测原创性
+  // 检测原创性（同步API + 任务队列状态更新）
   const handleCheckOriginality = async () => {
     try {
       await form.validateFields(['problem', 'answer']);
@@ -249,7 +392,9 @@ export default function TotalPage() {
       const controller = new AbortController();
       setAbortControllers(prev => ({ ...prev, originality: controller }));
 
+      // 更新状态：开始检测
       setOriginalityCheck({ loading: true, result: null, passed: null });
+      updateTaskQueueItem('originality', { status: 'running', progress: 0, result: null, passed: null });
       
       try {
         const result = await problemApi.checkOriginality(
@@ -267,10 +412,20 @@ export default function TotalPage() {
         const hasError = !result.success || result.originality?.error;
         
         const passed = hasError ? false : (result.originality?.is_original || false);
+        
+        // 更新原有状态
         setOriginalityCheck({
           loading: false,
           result: result.originality,
           passed: passed,
+        });
+
+        // 更新任务队列状态
+        updateTaskQueueItem('originality', { 
+          status: hasError ? 'error' : 'completed', 
+          progress: 100, 
+          result: result.originality,
+          passed: passed
         });
 
         if (hasError) {
@@ -293,13 +448,14 @@ export default function TotalPage() {
     } catch (error: any) {
       console.error('原创性检测失败:', error);
       setOriginalityCheck({ loading: false, result: null, passed: false });
+      updateTaskQueueItem('originality', { status: 'error', progress: 0 });
       if (!error.errorFields) {
         message.error('原创性检测失败，请重试');
       }
     }
   };
 
-  // 检测严谨性
+  // 检测严谨性（同步API + 任务队列状态更新）
   const handleCheckRigor = async () => {
     try {
       await form.validateFields(['problem', 'answer']);
@@ -309,7 +465,9 @@ export default function TotalPage() {
       const controller = new AbortController();
       setAbortControllers(prev => ({ ...prev, rigor: controller }));
 
+      // 更新状态：开始检测
       setRigorCheck({ loading: true, result: null, passed: null });
+      updateTaskQueueItem('rigor', { status: 'running', progress: 0, result: null, passed: null });
       
       try {
         const result = await problemApi.checkRigor(
@@ -327,10 +485,20 @@ export default function TotalPage() {
         const hasError = !result.success || result.rigor?.error;
         
         const passed = hasError ? false : (result.rigor?.is_rigorous || false);
+        
+        // 更新原有状态
         setRigorCheck({
           loading: false,
           result: result.rigor,
           passed: passed,
+        });
+
+        // 更新任务队列状态
+        updateTaskQueueItem('rigor', { 
+          status: hasError ? 'error' : 'completed', 
+          progress: 100, 
+          result: result.rigor,
+          passed: passed
         });
 
         if (hasError) {
@@ -353,6 +521,7 @@ export default function TotalPage() {
     } catch (error: any) {
       console.error('严谨性检测失败:', error);
       setRigorCheck({ loading: false, result: null, passed: false });
+      updateTaskQueueItem('rigor', { status: 'error', progress: 0 });
       if (!error.errorFields) {
         message.error('严谨性检测失败，请重试');
       }
@@ -450,14 +619,23 @@ export default function TotalPage() {
 
   // 重置表单和状态
   const handleReset = () => {
+    // 清理SSE连接
+    cleanupSSE();
+    
     form.resetFields();
     setDifficultyCheck({ loading: false, result: null, passed: null });
     setOriginalityCheck({ loading: false, result: null, passed: null });
     setRigorCheck({ loading: false, result: null, passed: null });
+    
+    // 重置任务队列
+    resetTaskQueue();
   };
 
   // 修改题目（增强版：停止检测并清除报告）
   const handleModify = () => {
+    // 清理SSE连接
+    cleanupSSE();
+    
     // 如果有检测正在进行，取消所有检测
     if (isAnyCheckRunning) {
       // 取消所有正在进行的请求
@@ -477,6 +655,9 @@ export default function TotalPage() {
     
     // 清空 AbortController
     setAbortControllers({});
+    
+    // 重置任务队列
+    resetTaskQueue();
     
     message.info('已清除所有检测结果，可以修改题目');
   };
@@ -996,6 +1177,112 @@ export default function TotalPage() {
         >
           {savingToList ? '保存中...' : canSaveToList ? '保存到导出列表' : '请完成所有检测后保存'}
         </Button>
+      </Card>
+
+      {/* 检测任务队列 */}
+      <Card 
+        title={
+          <Space>
+            <ClockCircleOutlined />
+            检测任务队列
+          </Space>
+        }
+        style={{ marginBottom: 24 }}
+        extra={
+          <Text type="secondary">
+            {taskQueue.filter(t => t.status === 'completed').length}/3 已完成
+          </Text>
+        }
+      >
+        <List
+          dataSource={taskQueue}
+          renderItem={(item) => {
+            // 状态图标
+            const statusIcon = (() => {
+              switch (item.status) {
+                case 'idle':
+                  return <ClockCircleOutlined style={{ color: '#999' }} />;
+                case 'running':
+                  return <LoadingOutlined style={{ color: '#1890ff' }} spin />;
+                case 'completed':
+                  return item.passed 
+                    ? <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                    : <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
+                case 'error':
+                  return <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />;
+                default:
+                  return null;
+              }
+            })();
+
+            // 状态标签
+            const statusTag = (() => {
+              switch (item.status) {
+                case 'idle':
+                  return <Tag color="default">未开始</Tag>;
+                case 'running':
+                  return <Tag color="processing">检测中</Tag>;
+                case 'completed':
+                  return item.passed 
+                    ? <Tag color="success">通过</Tag>
+                    : <Tag color="error">未通过</Tag>;
+                case 'error':
+                  return <Tag color="error">出错</Tag>;
+                default:
+                  return null;
+              }
+            })();
+
+            // 进度条颜色
+            const progressStatus = (() => {
+              switch (item.status) {
+                case 'running':
+                  return 'active' as const;
+                case 'completed':
+                  return item.passed ? 'success' as const : 'exception' as const;
+                case 'error':
+                  return 'exception' as const;
+                default:
+                  return 'normal' as const;
+              }
+            })();
+
+            return (
+              <List.Item
+                actions={[
+                  <Button
+                    key="view"
+                    type="link"
+                    icon={<EyeOutlined />}
+                    disabled={item.status !== 'completed' && item.status !== 'error'}
+                    onClick={() => handleViewReport(item.id)}
+                  >
+                    查看报告
+                  </Button>
+                ]}
+              >
+                <List.Item.Meta
+                  avatar={statusIcon}
+                  title={
+                    <Space>
+                      {item.icon}
+                      <span>{item.name}</span>
+                      {statusTag}
+                    </Space>
+                  }
+                  description={
+                    <Progress
+                      percent={item.progress}
+                      size="small"
+                      status={progressStatus}
+                      format={(percent) => `${percent}%`}
+                    />
+                  }
+                />
+              </List.Item>
+            );
+          }}
+        />
       </Card>
 
       {/* 导出列表区 */}
