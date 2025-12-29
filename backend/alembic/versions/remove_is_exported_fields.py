@@ -17,11 +17,30 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # 删除 is_exported 字段
-    op.drop_column('validated_problem_exports', 'is_exported')
+    # 检查字段是否存在
+    connection = op.get_bind()
     
-    # 删除 exported_at 字段
-    op.drop_column('validated_problem_exports', 'exported_at')
+    # 检查 is_exported 字段
+    result = connection.execute(sa.text("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name='validated_problem_exports' AND column_name='is_exported'
+    """))
+    
+    if result.fetchone():
+        # 删除 is_exported 字段
+        op.drop_column('validated_problem_exports', 'is_exported')
+    
+    # 检查 exported_at 字段
+    result = connection.execute(sa.text("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name='validated_problem_exports' AND column_name='exported_at'
+    """))
+    
+    if result.fetchone():
+        # 删除 exported_at 字段
+        op.drop_column('validated_problem_exports', 'exported_at')
 
 
 def downgrade() -> None:
