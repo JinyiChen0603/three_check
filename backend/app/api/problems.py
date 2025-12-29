@@ -9,8 +9,10 @@
 
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query, BackgroundTasks
 from fastapi.responses import StreamingResponse
+from sse_starlette.sse import EventSourceResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
@@ -36,6 +38,7 @@ from app.services.rigor_check_service import rigor_check_service
 from app.services.deep_transformer_service import deep_transformer_service
 from app.services.problem_storage import get_problem_storage_service
 from app.services.export_service import export_service
+from app.services.progress_service import progress_service
 from app.config import settings
 
 
@@ -602,6 +605,90 @@ async def check_difficulty_only(
         "difficulty": result,
         "is_passed": result.get("is_passed", False),
     }
+
+
+@router.post("/check-difficulty-start", summary="启动难度检测（异步）")
+async def start_difficulty_check(
+    request: QualityCheckContentRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    启动异步难度检测，返回 task_id
+    
+    前端通过 task_id 连接 SSE 端点获取实时进度
+    
+    Returns:
+        {"task_id": "uuid-xxx"}
+    """
+    task_id = str(uuid.uuid4())
+    
+    problem_content = request.content
+    if isinstance(problem_content, dict):
+        problem_content = json.dumps(problem_content, ensure_ascii=False)
+    
+    async def run_check():
+        """后台执行难度检测"""
+        # 定义回调：更新 Redis 进度
+        async def on_progress(p: dict):
+            await progress_service.update_progress(task_id, p["progress"])
+        
+        # 执行检测，使用 lambda 包装异步回调
+        result = await difficulty_check_service.validate_difficulty(
+            problem=problem_content,
+            answer=request.answer,
+            explanation=request.explanation or "",
+            progress_callback=lambda p: asyncio.create_task(on_progress(p))
+        )
+        
+        # 存储最终结果（100% 进度 + 结果）
+        await progress_service.update_progress(task_id, 100, result)
+    
+    background_tasks.add_task(run_check)
+    
+    return {"task_id": task_id}
+
+
+@router.get("/check-difficulty-stream/{task_id}", summary="SSE进度流")
+async def stream_difficulty_progress(task_id: str):
+    """
+    SSE 实时推送难度检测进度
+    
+    - 连接时先发送当前进度（支持刷新恢复）
+    - 然后持续推送进度更新
+    - 收到 progress=100 且包含 result 时表示完成
+    
+    SSE 数据格式：
+        data: {"progress": 6}
+        data: {"progress": 12}
+        ...
+        data: {"progress": 100, "result": {...}}
+    """
+    async def event_generator():
+        async for data in progress_service.subscribe_progress(task_id):
+            yield {"data": json.dumps(data, ensure_ascii=False)}
+    
+    return EventSourceResponse(event_generator())
+
+
+@router.get("/check-difficulty-progress/{task_id}", summary="查询当前进度")
+async def get_difficulty_progress(task_id: str):
+    """
+    查询难度检测的当前进度
+    
+    用于非 SSE 场景或手动查询
+    
+    Returns:
+        {"progress": int, "result": dict|None}
+        如果任务不存在返回 None
+    """
+    data = await progress_service.get_progress(task_id)
+    if data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="任务不存在或已过期"
+        )
+    return data
 
 
 @router.post("/check-originality", summary="单独检测原创性")

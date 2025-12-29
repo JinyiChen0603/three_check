@@ -149,7 +149,7 @@ export const problemApi = {
     return response.data;
   },
 
-  // 单独检测难度
+  // 单独检测难度（同步方式）
   checkDifficulty: async (content: any, answer: string, explanation?: string) => {
     const response = await apiClient.post('/problems/check-difficulty', {
       content: typeof content === 'string' ? content : JSON.stringify(content),
@@ -157,6 +157,39 @@ export const problemApi = {
       explanation,
     });
     return response.data;
+  },
+
+  // 启动异步难度检测，返回task_id
+  startDifficultyCheck: async (content: any, answer: string, explanation?: string) => {
+    const response = await apiClient.post('/problems/check-difficulty-start', {
+      content: typeof content === 'string' ? content : JSON.stringify(content),
+      answer,
+      explanation,
+    });
+    return response.data as { task_id: string };
+  },
+
+  // 订阅难度检测进度（SSE方式）
+  // 返回 EventSource 对象，调用方需要监听 onmessage 和 onerror 事件
+  // 使用完毕后调用 close() 方法关闭连接
+  subscribeDifficultyProgress: (taskId: string): EventSource => {
+    // 获取 baseURL，处理相对路径的情况
+    let baseUrl = apiClient.defaults.baseURL || '';
+    
+    // 如果是相对路径（如 /api），需要转换为完整 URL
+    if (baseUrl.startsWith('/')) {
+      const origin = window.location.origin;
+      baseUrl = `${origin}${baseUrl}`;
+    }
+    
+    const url = `${baseUrl}/problems/check-difficulty-stream/${taskId}`;
+    return new EventSource(url);
+  },
+
+  // 查询难度检测当前进度（非SSE方式，用于恢复状态）
+  getDifficultyProgress: async (taskId: string) => {
+    const response = await apiClient.get(`/problems/check-difficulty-progress/${taskId}`);
+    return response.data as { progress: number; result?: any };
   },
 
   // 单独检测原创性

@@ -6,7 +6,7 @@
 
 import asyncio
 import re
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable
 
 from app.services.llm import doubao, gpt4o, LLMClient
 from app.config import settings
@@ -51,6 +51,7 @@ class DifficultyCheckService:
         answer: str,
         explanation: Optional[str] = None,
         attempts: int = None,
+        progress_callback: Optional[Callable[[dict], None]] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -59,8 +60,9 @@ class DifficultyCheckService:
         Args:
             problem: 题目内容
             answer: 标准答案
-            explanation: 解析（可选）
+            explanation: 解析
             attempts: 尝试次数（默认8）
+            progress_callback: 可选的进度回调函数，接收 {"progress": int} 格式的字典
             
         Returns:
             Dict: 验证结果
@@ -75,14 +77,32 @@ class DifficultyCheckService:
             # 使用 Semaphore 限制并发数
             semaphore = asyncio.Semaphore(self.max_concurrent)
             
+            # 进度追踪（并发安全）
+            completed_attempts = 0
+            lock = asyncio.Lock()
+            
             async def limited_attempt():
-                async with semaphore:
-                    return await self._single_attempt(messages, answer)
+                nonlocal completed_attempts
+                try:
+                    async with semaphore:
+                        return await self._single_attempt(messages, answer)
+                finally:
+                    # 无论成功或异常，都更新进度
+                    async with lock:
+                        completed_attempts += 1
+                        # 只发送 0-99% 的进度，100% 由调用方在存储最终结果时发送
+                        # 避免异步回调与最终结果写入产生竞态条件
+                        if progress_callback and completed_attempts < attempts:
+                            progress = int(completed_attempts / attempts * 100)
+                            progress_callback({"progress": progress})
             
             # 并发执行多次验证（受并发数限制）
             tasks = [limited_attempt() for _ in range(attempts)]
             
             attempt_results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 注意：不在这里发送 100% 进度，由调用方在存储最终结果时发送
+            # 避免异步回调与最终结果写入产生竞态条件
             
             # 统计结果
             correct_count = 0
