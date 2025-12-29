@@ -17,6 +17,18 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # 检查字段是否已存在
+    connection = op.get_bind()
+    result = connection.execute(sa.text("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name='validated_problem_exports' AND column_name='task_id'
+    """))
+    
+    if result.fetchone():
+        # 字段已存在，跳过
+        return
+    
     # 添加 task_id 字段
     op.add_column('validated_problem_exports',
                   sa.Column('task_id', sa.Integer(), nullable=True))

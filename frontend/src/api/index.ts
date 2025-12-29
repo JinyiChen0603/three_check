@@ -17,6 +17,7 @@ export const configApi = {
       task_timeout_hours: number;
       reward_per_problem: number;
       reward_per_review: number;
+      max_problems_total: number;  // 用户总出题数上限
     }>('/config');
     return response.data;
   },
@@ -48,8 +49,10 @@ export const taskApi = {
   },
 
   // 放弃任务
-  abandonTask: async (taskId: number) => {
-    const response = await apiClient.post(`/tasks/${taskId}/abandon`);
+  abandonTask: async (taskId: number, confirmed: boolean = false) => {
+    const response = await apiClient.post(`/tasks/${taskId}/abandon`, null, {
+      params: { confirmed }
+    });
     return response.data;
   },
 

@@ -65,50 +65,17 @@ export function convertBatchesToTasks(batchesResponse: TaskBatchesResponse): Tas
 }
 
 /**
- * 计算指定类型任务的总数量（total_count总和）
- * 只统计已提交（SUBMITTED）的任务，不包括进行中、已放弃、已完成等状态的任务
- */
-export function calculateTotalTaskCount(tasks: Task[], taskType: TaskType): number {
-  // 按batch_id去重，只计算每个批次的总数
-  const batchTotals = new Map<string, number>();
-  
-  tasks
-    .filter((task) => {
-      // 只统计指定类型且状态为已提交的任务
-      return (
-        task.task_type === taskType &&
-        task.status === TaskStatus.SUBMITTED
-      );
-    })
-    .forEach((task) => {
-      if (task.batch_id && task.total_count !== undefined) {
-        // 只记录一次每个批次的总数
-        if (!batchTotals.has(task.batch_id)) {
-          batchTotals.set(task.batch_id, task.total_count);
-        }
-      }
-    });
-  
-  // 计算总和
-  let total = 0;
-  batchTotals.forEach((count) => {
-    total += count;
-  });
-  
-  return total;
-}
-
-/**
  * 计算指定类型任务的已完成数量（completed_count总和）
- * 只统计已提交（SUBMITTED）的任务的完成数，不包括进行中、已放弃、已完成等状态的任务
+ * 只统计已提交（SUBMITTED）的任务，用于计算累计完成数
+ * @internal 此函数主要供 getCurrentTaskStats 内部使用
  */
-export function calculateCompletedTaskCount(tasks: Task[], taskType: TaskType): number {
+function calculateCompletedTaskCount(tasks: Task[], taskType: TaskType): number {
   // 按batch_id去重，只计算每个批次的完成数
   const batchCompleted = new Map<string, number>();
   
   tasks
     .filter((task) => {
-      // 只统计指定类型且状态为已提交的任务
+      // 只统计已提交的任务
       return (
         task.task_type === taskType &&
         task.status === TaskStatus.SUBMITTED
@@ -130,6 +97,44 @@ export function calculateCompletedTaskCount(tasks: Task[], taskType: TaskType): 
   });
   
   return total;
+}
+
+/**
+ * 获取当前进行中任务的统计信息
+ * 返回格式：{ total, completed, hasInProgress }
+ * - 如果有进行中的任务：返回当前任务的 total_count 和 completed_count
+ * - 如果没有进行中的任务：返回配置的最大值和用户累计总数（从后端获取）
+ */
+export function getCurrentTaskStats(
+  tasks: Task[], 
+  taskType: TaskType,
+  userTotalCompleted: number = 0,  // 用户累计总数（从后端 API 获取）
+  maxTotal: number = 50  // 最大总数（从配置获取）
+): {
+  total: number;
+  completed: number;
+  hasInProgress: boolean;
+} {
+  // 查找进行中的任务
+  const inProgressTask = tasks.find(
+    (task) => task.task_type === taskType && task.status === TaskStatus.IN_PROGRESS
+  );
+
+  if (inProgressTask) {
+    // 有进行中的任务，返回当前任务进度
+    return {
+      total: inProgressTask.total_count || 0,
+      completed: inProgressTask.completed_count || 0,
+      hasInProgress: true,
+    };
+  }
+
+  // 没有进行中的任务，返回用户累计总数（从后端实时查询）
+  return {
+    total: maxTotal,  // 使用配置的最大值
+    completed: userTotalCompleted,  // 使用后端返回的累计总数
+    hasInProgress: false,
+  };
 }
 
 /**
