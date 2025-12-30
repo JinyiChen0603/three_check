@@ -621,6 +621,6 @@ gpt4o_vision = LLMClient(
 gemini3_pro = LLMClient(
     api_key=settings.GEMINI_API_KEY,
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-    model="gemini-2.5-pro",
+    model="gemini-3-pro-preview",
     timeout=None  # 无超时限制，允许长时间运行
 )
