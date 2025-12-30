@@ -953,23 +953,30 @@ async def approve_problem(
     problem.published_at = datetime.utcnow()
     
     # 发放出题奖励
-    transaction = Transaction(
-        user_id=problem.creator_id,
-        amount=settings.PROBLEM_REWARD,
-        transaction_type=TransactionType.PROBLEM_REWARD,
-        related_problem_id=problem.id,
-        status=TransactionStatus.CONFIRMED,
-        description=f"题目 #{problem.id} 审核通过奖励",
-        confirmed_at=datetime.utcnow()
-    )
-    db.add(transaction)
-    
-    # 更新用户余额
+    # 查询出题人
     user_result = await db.execute(select(User).where(User.id == problem.creator_id))
     creator = user_result.scalar_one_or_none()
+    
     if creator:
-        creator.balance += settings.PROBLEM_REWARD
-        transaction.balance_after = creator.balance
+        # 计算交易后余额
+        current_balance = await creator.calculate_balance(db)
+        new_balance = current_balance + settings.PROBLEM_REWARD
+        
+        transaction = Transaction(
+            user_id=problem.creator_id,
+            amount=settings.PROBLEM_REWARD,
+            transaction_type=TransactionType.PROBLEM_REWARD,
+            related_problem_id=problem.id,
+            status=TransactionStatus.CONFIRMED,
+            description=f"题目 #{problem.id} 审核通过奖励",
+            balance_after=new_balance,
+            confirmed_at=datetime.utcnow()
+        )
+        db.add(transaction)
+        await db.flush()  # 确保transaction已保存
+        
+        # 刷新用户余额缓存
+        await creator.refresh_balance(db)
     
     await db.commit()
     await db.refresh(problem)
@@ -1747,6 +1754,7 @@ async def get_export_list(
                     "difficulty_validation": p.difficulty_validation,  # 完整的难度检测结果
                     "originality_check": p.originality_check,  # 完整的原创性检测结果
                     "rigor_check": p.rigor_check,  # 完整的严谨性检测结果
+                    "admin_review_status": p.admin_review_status.value if p.admin_review_status else "pending",  # 管理员审核状态
                     "created_at": created_at_str
                 })
             except Exception as e:

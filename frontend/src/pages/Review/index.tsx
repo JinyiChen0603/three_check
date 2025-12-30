@@ -44,7 +44,11 @@ export default function Review() {
         <Title level={2}>评分流程</Title>
         <Card>
           <EmptyState
-            description="暂无进行中的评分任务，请先领取任务后刷新"
+            description={
+              task.currentBatch 
+                ? "当前批次的所有题目已完成，请前往任务管理页面查看或领取新任务"
+                : "暂无进行中的评分任务，请先前往任务管理页面领取任务"
+            }
             actionText="刷新任务"
             onAction={task.loadNextTask}
           />

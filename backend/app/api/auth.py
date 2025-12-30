@@ -80,6 +80,10 @@ async def login(
     
     # 更新最后登录时间
     user.last_login_at = datetime.utcnow()
+    
+    # 刷新用户余额（从Transaction表计算）
+    await user.refresh_balance(db)
+    
     await db.commit()
     
     # 创建访问令牌
@@ -96,7 +100,7 @@ async def login(
             "id": user.id,
             "username": user.username,
             "role": user.role.value,
-            "balance": user.balance,
+            "balance": user.balance,  # 已刷新的余额
             "is_impersonating": user.is_impersonating
         }
     }

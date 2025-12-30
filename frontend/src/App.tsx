@@ -17,12 +17,13 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Materials from './pages/Materials';
 import Admin from './pages/Admin';
+import ProblemReview from './pages/Admin/ProblemReview';
 import Tasks from './pages/Tasks';  // 使用完整版任务管理页面
 import TotalPage from './pages/totalpage';
 import VariantGenerator from './pages/VariantGenerator';  // 变体生成器
-// 以下页面已隐藏，但保留导入以便将来恢复
-// import Review from './pages/Review';
-// import ReviewHistory from './pages/ReviewHistory';
+import Review from './pages/Review';  // ✅ 恢复评分流程
+import ReviewHistory from './pages/ReviewHistory';  // ✅ 恢复我的评分记录
+// 以下页面仍保持隐藏
 // import Problem from './pages/Problem';
 // import MyVariants from './pages/MyVariants';
 
@@ -71,7 +72,16 @@ function App() {
                 path="tasks" 
                 element={<Tasks />} 
               />
-              {/* 以下4个页面已隐藏，但保留路由代码以便将来恢复 */}
+              {/* 评分相关页面 - 已恢复 */}
+              <Route 
+                path="review" 
+                element={<Review />} 
+              />
+              <Route 
+                path="review-history" 
+                element={<ReviewHistory />} 
+              />
+              {/* 以下2个页面仍保持隐藏 */}
               {/* <Route 
                 path="problem" 
                 element={<Problem />} 
@@ -80,14 +90,6 @@ function App() {
                 path="my-variants" 
                 element={<MyVariants />} 
               /> */}
-              {/* <Route 
-                path="review" 
-                element={<Review />} 
-              /> */}
-              {/* <Route 
-                path="review-history" 
-                element={<ReviewHistory />} 
-              /> */}
               <Route 
                 path="materials" 
                 element={<Materials />} 
@@ -95,6 +97,10 @@ function App() {
               <Route 
                 path="admin" 
                 element={<Admin />} 
+              />
+              <Route 
+                path="admin/problem-review" 
+                element={<ProblemReview />} 
               />
               <Route 
                 path="totalpage" 
