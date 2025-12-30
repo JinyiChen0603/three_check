@@ -219,9 +219,6 @@ export default function TotalPage() {
       // 重置完成标记
       difficultyCompletedRef.current.set(problemId, false);
 
-      // 保存表单数据到全局store
-      setFormData(values);
-
       // 创建 AbortController
       const controller = new AbortController();
       abortControllersRef.current.set(controllerKey, controller);
