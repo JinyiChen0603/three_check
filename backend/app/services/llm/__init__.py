@@ -7,6 +7,7 @@ from .clients import (
     # 标准模型实例
     deepseek_math,
     gpt4o,
+    gpt4o_mini,
     doubao,
     # 带默认参数的模型实例
     glm46_thinking,
@@ -26,6 +27,7 @@ __all__ = [
     # 标准模型实例
     "deepseek_math",
     "gpt4o",
+    "gpt4o_mini",
     "doubao",
     # 带默认参数的模型实例
     "glm46_thinking",

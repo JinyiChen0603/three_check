@@ -5,7 +5,7 @@ AI 服务模块
 
 from typing import Dict, Any, List
 
-from app.services.llm import gpt4o, LLMClient
+from app.services.llm import gpt4o_mini, LLMClient
 
 
 class GPTService:
@@ -20,10 +20,10 @@ class GPTService:
         初始化 GPT 服务
         
         Args:
-            client: LLMClient 实例，默认使用 gpt4o
+            client: LLMClient 实例，默认使用 gpt4o_mini
         """
-        self.client = client or gpt4o
-        self.model_name = "gpt-4o"
+        self.client = client or gpt4o_mini
+        self.model_name = "gpt-4o-mini"
     
     async def generate_similar_answers(
         self,
@@ -50,27 +50,18 @@ class GPTService:
             messages = [
                 {
                     "role": "user",
-                    "content": f"""请为以下数学题目生成{count}个相似但错误的答案。
+                    "content": f"""正确答案是：{correct_answer}
 
-题目：
-{problem}
-
-正确答案：
-{correct_answer}
-
-要求：
-1. 生成的答案看起来合理，但实际是错误的
-2. 错误答案要足够相似，能迷惑做题者
-3. 每个答案单独一行
-
-请直接列出{count}个答案，每行一个："""
+请生成{count}个相似但错误的答案，每行一个。
+不需要有过多的思考，快速生成即可。
+保持与原答案相同的格式："""
                 }
             ]
             
             response = await self.client.chat(
                 messages=messages,
-                max_tokens=500,
-                temperature=0.9
+                max_tokens=150,  # 降低token数
+                temperature=0.3  # 降低温度提速
             )
             
             content = LLMClient.extract_content(response)

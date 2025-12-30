@@ -369,21 +369,27 @@ export const variantApi = {
 
 // 评分相关 API
 export const reviewApi = {
+  // 获取下一个待评分题目（新API）
+  getNextProblem: async () => {
+    const response = await apiClient.get('/reviews/next-problem');
+    return response.data;
+  },
+
   // 获取4选1选项（正确性验证）
-  getProblemChoices: async (problemId: number) => {
-    const response = await apiClient.get(`/reviews/problem/${problemId}/choices`);
+  getProblemChoices: async (validatedProblemId: number) => {
+    const response = await apiClient.get(`/reviews/problem/${validatedProblemId}/choices`);
     return response.data;
   },
 
   // 提交正确性验证
   submitCorrectness: async (
-    problemId: number,
+    validatedProblemId: number,
     selectedIndex: number,
     selectedAnswer?: string,
     correctIndex?: number,
     userAnswer?: string
   ) => {
-    const response = await apiClient.post(`/reviews/problem/${problemId}/verify`, {
+    const response = await apiClient.post(`/reviews/problem/${validatedProblemId}/verify`, {
       selected_index: selectedIndex,
       selected_answer: selectedAnswer,
       correct_index: correctIndex,
@@ -508,6 +514,53 @@ export const userApi = {
   // 获取统计信息
   getStats: async () => {
     const response = await apiClient.get('/users/me/stats');
+    return response.data;
+  },
+
+  // 获取用户列表（管理员）
+  getUserList: async (skip = 0, limit = 50) => {
+    const response = await apiClient.get('/users/list', {
+      params: { skip, limit }
+    });
+    return response.data;
+  },
+};
+
+// 管理员相关 API
+export const adminApi = {
+  // 获取待审核题目列表
+  getPendingReviewProblems: async (statusFilter?: string, skip = 0, limit = 50) => {
+    const response = await apiClient.get('/admin/problems/pending-review', {
+      params: { status_filter: statusFilter, skip, limit }
+    });
+    return response.data;
+  },
+
+  // 获取题目审核详情
+  getProblemReviewDetail: async (problemId: number) => {
+    const response = await apiClient.get(`/admin/problems/${problemId}/detail`);
+    return response.data;
+  },
+
+  // 审核题目
+  reviewProblem: async (problemId: number, approved: boolean, note?: string) => {
+    const response = await apiClient.post('/admin/problems/review', {
+      problem_id: problemId,
+      approved,
+      note,
+    });
+    return response.data;
+  },
+
+  // 导出题目
+  exportProblems: async (onlyApproved: boolean = false, statusFilter?: string) => {
+    const response = await apiClient.get('/admin/problems/export', {
+      params: { 
+        only_approved: onlyApproved ? 1 : 0,
+        status_filter: statusFilter
+      },
+      responseType: 'blob',
+    });
     return response.data;
   },
 };

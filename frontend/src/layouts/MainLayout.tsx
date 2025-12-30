@@ -111,16 +111,16 @@ export default function MainLayout() {
       icon: <FireOutlined />,
       label: '变体生成',
     },
-    // {
-    //   key: '/review',
-    //   icon: <CheckCircleOutlined />,
-    //   label: '评分流程',
-    // },
-    // {
-    //   key: '/review-history',
-    //   icon: <HistoryOutlined />,
-    //   label: '我的评分记录',
-    // },
+    {
+      key: '/review',
+      icon: <CheckCircleOutlined />,
+      label: '评分流程',
+    },
+    {
+      key: '/review-history',
+      icon: <HistoryOutlined />,
+      label: '我的评分记录',
+    },
     {
       key: '/materials',
       icon: <BookOutlined />,
@@ -133,6 +133,11 @@ export default function MainLayout() {
             key: '/admin',
             icon: <TeamOutlined />,
             label: '用户管理',
+          },
+          {
+            key: '/admin/problem-review',
+            icon: <CheckCircleOutlined />,
+            label: '题目审核',
           },
         ]
       : []),

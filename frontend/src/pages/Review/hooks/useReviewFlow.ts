@@ -41,7 +41,7 @@ export function useReviewFlow({
   }, []);
 
   // 当 problemData 变化时，外部调用 reset 更清晰；这里提供一个派生 key 方便判断
-  const problemKey = useMemo(() => problemData?.problem_id ?? null, [problemData?.problem_id]);
+  const problemKey = useMemo(() => problemData?.validated_problem_id ?? null, [problemData?.validated_problem_id]);
 
   const handleSubmitCorrectness = useCallback(async () => {
     if (userChoiceIndex === null) {
@@ -52,7 +52,7 @@ export function useReviewFlow({
     setSubmitting(true);
     try {
       const resp = await reviewApi.submitCorrectness(
-        problemData.problem_id,
+        problemData.validated_problem_id,
         userChoiceIndex,
         options[userChoiceIndex],
         problemData.correct_index

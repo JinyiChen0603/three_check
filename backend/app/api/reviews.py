@@ -10,15 +10,17 @@ from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, exists
 from pydantic import BaseModel, Field
 import random
+import re
 
 from app.database import get_db
 from app.models import (
     User, Problem, ProblemStatus, HumanReviewStatus,
     Review, ReviewStatus, Task, TaskStatus, TaskType,
-    Transaction, TransactionType, TransactionStatus
+    Transaction, TransactionType, TransactionStatus,
+    ValidatedProblemExport  # 新增：已验证题目导出表
 )
 from app.api.deps import get_current_user
 from app.services.ai_service import gpt_service
@@ -29,26 +31,57 @@ from app.config import settings
 router = APIRouter()
 
 
+# ==================== 辅助函数 ====================
+
+def auto_wrap_latex(text: str) -> str:
+    """
+    自动检测并包裹LaTeX公式
+    
+    如果文本包含LaTeX命令但没有用$...$包裹，自动包裹
+    """
+    if not text:
+        return text
+    
+    text_str = str(text).strip()
+    
+    # 检测常见的LaTeX命令
+    latex_patterns = [
+        r'\\frac', r'\\sqrt', r'\\pi', r'\\theta', r'\\alpha', r'\\beta',
+        r'\\gamma', r'\\delta', r'\\sum', r'\\int', r'\\lim', r'\\sin',
+        r'\\cos', r'\\tan', r'\\log', r'\\ln', r'\\exp'
+    ]
+    
+    has_latex = any(re.search(pattern, text_str) for pattern in latex_patterns)
+    
+    if has_latex and '$' not in text_str:
+        # 自动包裹整个文本
+        return f'${text_str}$'
+    
+    return text_str
+
+
 async def _get_review_task_or_error(
     db: AsyncSession,
-    user_id: int,
-    problem_id: int
+    user_id: int
 ) -> Task:
-    """校验并获取用户的评分任务（必须是进行中且未过期）"""
+    """
+    获取用户当前的进行中评分任务（新设计：不关联具体题目）
+    """
     now = datetime.utcnow()
+    
     result = await db.execute(
         select(Task).where(
             Task.user_id == user_id,
             Task.task_type == TaskType.REVIEW_PROBLEM,
-            Task.problem_id == problem_id,
             Task.status == TaskStatus.IN_PROGRESS
         ).order_by(Task.claimed_at.asc())
     )
+    
     task = result.scalars().first()
     if not task:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="当前题目未分配给你的评分任务，或已处理完成"
+            detail="您没有进行中的评分任务，请先领取任务"
         )
     if task.expires_at and now > task.expires_at:
         task.status = TaskStatus.TIMEOUT
@@ -105,56 +138,223 @@ class ReviewResponse(BaseModel):
 
 # ==================== API 路由 ====================
 
-@router.get("/problem/{problem_id}/choices", summary="获取4选1选项（正确性验证）")
-async def get_problem_choices(
-    problem_id: int,
+@router.get("/next-problem", summary="获取下一个待评分题目及其选项")
+async def get_next_problem(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    获取题目的4选1选项用于正确性验证
+    获取下一个待评分题目及其4选1选项（新设计API）
+    
+    - 自动查询当前任务下一个可评分的题目
+    - 返回题目选项和正确答案索引
+    
+    如果没有可评分的题目，返回404
+    """
+    # 1. 校验用户有进行中的评分任务
+    task = await _get_review_task_or_error(db, current_user.id)
+    
+    # 2. 查询该任务下已评分的题目ID列表
+    reviewed_ids_result = await db.execute(
+        select(Review.validated_problem_id)
+        .where(Review.task_id == task.id)
+    )
+    reviewed_ids = [row[0] for row in reviewed_ids_result.fetchall()]
+    
+    # 3. 查询已提交的出题任务
+    submitted_creation_tasks_subquery = (
+        select(Task.id)
+        .where(
+            Task.task_type == TaskType.CREATE_PROBLEM,
+            Task.status == TaskStatus.SUBMITTED
+        )
+    )
+    
+    # 4. 查询下一个可评分的题目
+    problem_query = (
+        select(ValidatedProblemExport)
+        .where(
+            # 排除自己出的题目
+            ValidatedProblemExport.user_id != current_user.id,
+            # 只选择已提交的题目
+            ValidatedProblemExport.task_id.in_(submitted_creation_tasks_subquery),
+            # 评分数量还没达到上限
+            ValidatedProblemExport.review_count < 3
+        )
+    )
+    
+    # 排除当前任务已评分的题目
+    if reviewed_ids:
+        problem_query = problem_query.where(ValidatedProblemExport.id.not_in(reviewed_ids))
+    
+    # 排除用户在其他任务中评分过的题目
+    user_reviewed_ids_query = select(Review.validated_problem_id).where(
+        Review.reviewer_id == current_user.id
+    )
+    problem_query = problem_query.where(
+        ValidatedProblemExport.id.not_in(user_reviewed_ids_query)
+    )
+    
+    problem_query = problem_query.order_by(ValidatedProblemExport.created_at.asc()).limit(1)
+    
+    result = await db.execute(problem_query)
+    problem = result.scalar_one_or_none()
+    
+    if not problem:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="没有可评分的题目了，您的评分任务已完成"
+        )
+    
+    # 5. 生成3个相似的错误答案
+    try:
+        similar_result = await gpt_service.generate_similar_answers(
+            problem=str(problem.content) if problem.content else "",
+            correct_answer=problem.answer or "",
+            count=3
+        )
+        
+        if similar_result["success"]:
+            choices = [problem.answer] + similar_result["similar_answers"][:3]
+        else:
+            raise Exception("GPT调用失败")
+    except Exception as e:
+        # GPT调用失败时使用mock数据（保持LaTeX格式）
+        import re
+        # 提取答案中的数字
+        answer_str = str(problem.answer)
+        # 生成相似但错误的答案
+        mock_wrong_answers = []
+        
+        # 尝试提取数字并生成相似答案
+        numbers = re.findall(r'-?\d+\.?\d*', answer_str)
+        if numbers:
+            base_num = float(numbers[0])
+            mock_wrong_answers = [
+                answer_str.replace(str(numbers[0]), str(base_num + 1)),
+                answer_str.replace(str(numbers[0]), str(base_num - 1)),
+                answer_str.replace(str(numbers[0]), str(base_num * 2))
+            ]
+        else:
+            # 如果没有数字，使用通用错误答案
+            mock_wrong_answers = [
+                f"{answer_str} + 1",
+                f"{answer_str} - 1", 
+                f"2{answer_str}"
+            ]
+        
+        # 6. 组合正确答案和错误答案
+        choices = [problem.answer] + mock_wrong_answers[:3]
+    
+    # 7. 自动包裹LaTeX公式
+    choices = [auto_wrap_latex(choice) for choice in choices]
+    
+    # 8. 随机打乱选项
+    correct_index = 0
+    combined = list(enumerate(choices))
+    random.shuffle(combined)
+    
+    shuffled_choices = []
+    for original_idx, choice in combined:
+        shuffled_choices.append(choice)
+        if original_idx == 0:
+            correct_index = len(shuffled_choices) - 1
+    
+    return {
+        "validated_problem_id": problem.id,
+        "problem_content": problem.content,
+        "problem_explanation": problem.explanation,
+        "choices": shuffled_choices,
+        "correct_index": correct_index,
+        "instruction": "请选择你认为正确的答案：",
+        "progress": {
+            "completed": len(reviewed_ids),
+            "total": task.total_count
+        }
+    }
+
+
+@router.get("/problem/{validated_problem_id}/choices", summary="获取4选1选项（正确性验证）")
+async def get_problem_choices(
+    validated_problem_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取题目的4选1选项用于正确性验证（新设计：动态查询可评分题目）
     
     - 1个正确答案
     - 3个由GPT生成的相似错误答案
     
     选项顺序随机打乱
     """
-    # 查询题目
-    result = await db.execute(
-        select(Problem).where(Problem.id == problem_id)
+    # 1. 校验用户有进行中的评分任务
+    task = await _get_review_task_or_error(db, current_user.id)
+    
+    # 2. 查询该任务下已评分的题目ID列表
+    reviewed_ids_result = await db.execute(
+        select(Review.validated_problem_id)
+        .where(Review.task_id == task.id)
     )
+    reviewed_ids = [row[0] for row in reviewed_ids_result.fetchall()]
+    
+    # 3. 查询已提交的出题任务
+    submitted_creation_tasks_subquery = (
+        select(Task.id)
+        .where(
+            Task.task_type == TaskType.CREATE_PROBLEM,
+            Task.status == TaskStatus.SUBMITTED
+        )
+    )
+    
+    # 4. 验证请求的题目是否可评分
+    problem_query = (
+        select(ValidatedProblemExport)
+        .where(
+            ValidatedProblemExport.id == validated_problem_id,
+            # 排除自己出的题目
+            ValidatedProblemExport.user_id != current_user.id,
+            # 只选择已提交的题目
+            ValidatedProblemExport.task_id.in_(submitted_creation_tasks_subquery),
+            # 评分数量还没达到上限
+            ValidatedProblemExport.review_count < 3
+        )
+    )
+    
+    result = await db.execute(problem_query)
     problem = result.scalar_one_or_none()
     
     if not problem:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="题目不存在"
+            detail="题目不存在或不可评分"
         )
     
-    # 不能评分自己的题目
-    if problem.creator_id == current_user.id:
+    # 5. 检查是否已评分过
+    if validated_problem_id in reviewed_ids:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="不能评分自己出的题目"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="您已经评分过这道题目了"
         )
     
-    # 校验任务（评分任务必须存在且未超时）
-    task = await _get_review_task_or_error(db, current_user.id, problem.id)
+    # 6. 检查用户在其他任务中是否评分过此题
+    already_reviewed = await db.execute(
+        select(func.count(Review.id))
+        .where(
+            Review.validated_problem_id == validated_problem_id,
+            Review.reviewer_id == current_user.id
+        )
+    )
+    if already_reviewed.scalar() > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="您已经评分过这道题目了"
+        )
     
-    # 使用ProblemStorageService获取完整题目数据（包括MongoDB内容）
-    try:
-        storage_service = get_problem_storage_service()
-        full_problem = await storage_service.get_problem(db, problem_id)
-        
-        problem_content = full_problem.get("content")
-        problem_answer = full_problem.get("answer")
-        problem_explanation = full_problem.get("explanation")
-        
-    except RuntimeError:
-        # MongoDB未配置，回退到PostgreSQL（兼容模式）
-        problem_content = problem.content
-        problem_answer = problem.answer
-        problem_explanation = problem.explanation
+    # ValidatedProblemExport 的数据直接在 PostgreSQL 中
+    problem_content = problem.content
+    problem_answer = problem.answer
+    problem_explanation = problem.explanation
     
     # 生成3个相似的错误答案
     similar_result = await gpt_service.generate_similar_answers(
@@ -187,8 +387,7 @@ async def get_problem_choices(
             correct_index = len(shuffled_choices) - 1
     
     return {
-        "problem_id": problem.id,
-        "problem_title": problem.title,
+        "validated_problem_id": problem.id,
         "problem_content": problem_content,
         "problem_explanation": problem_explanation,
         "choices": shuffled_choices,
@@ -197,9 +396,9 @@ async def get_problem_choices(
     }
 
 
-@router.post("/problem/{problem_id}/verify", summary="提交正确性验证")
+@router.post("/problem/{validated_problem_id}/verify", summary="提交正确性验证")
 async def verify_correctness(
-    problem_id: int,
+    validated_problem_id: int,
     request: VerifyCorrectnessRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -212,9 +411,9 @@ async def verify_correctness(
     2. 如果选对 → 题目正确，进入评分阶段
     3. 如果选错 → 展示解析和答案，让用户判断题目是否有问题
     """
-    # 查询题目
+    # 查询题目（从 ValidatedProblemExport 表）
     result = await db.execute(
-        select(Problem).where(Problem.id == problem_id)
+        select(ValidatedProblemExport).where(ValidatedProblemExport.id == validated_problem_id)
     )
     problem = result.scalar_one_or_none()
     
@@ -225,33 +424,29 @@ async def verify_correctness(
         )
     
     # 不能评分自己的题目
-    if problem.creator_id == current_user.id:
+    if problem.user_id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="不能评分自己出的题目"
         )
 
-    # 校验并获取对应的评分任务
-    task = await _get_review_task_or_error(db, current_user.id, problem.id)
+    # 校验并获取对应的评分任务（新设计：不需要传入题目ID）
+    task = await _get_review_task_or_error(db, current_user.id)
     
-    # 检查该任务是否已有评分记录（防止重复提交）
+    # 检查该题目在当前任务中是否已有评分记录（防止重复提交）
     existing_review_result = await db.execute(
-        select(Review).where(Review.task_id == task.id)
+        select(Review).where(
+            and_(
+                Review.task_id == task.id,
+                Review.validated_problem_id == validated_problem_id
+            )
+        )
     )
     existing_review = existing_review_result.scalar_one_or_none()
     
-    # 使用ProblemStorageService获取完整题目数据（包括MongoDB内容）
-    try:
-        storage_service = get_problem_storage_service()
-        full_problem = await storage_service.get_problem(db, problem_id)
-        
-        problem_answer = full_problem.get("answer")
-        problem_explanation = full_problem.get("explanation")
-        
-    except RuntimeError:
-        # MongoDB未配置，回退到PostgreSQL（兼容模式）
-        problem_answer = problem.answer
-        problem_explanation = problem.explanation
+    # ValidatedProblemExport 的数据直接在 PostgreSQL 中
+    problem_answer = problem.answer
+    problem_explanation = problem.explanation
     
     if existing_review:
         # 如果已经有评分记录，返回现有记录（防止重复提交）
@@ -284,7 +479,7 @@ async def verify_correctness(
     
     # 创建评分记录（现在确保不会重复）
     review = Review(
-        problem_id=problem.id,
+        validated_problem_id=problem.id,
         reviewer_id=current_user.id,
         task_id=task.id,
         is_answer_correct=is_correct,
@@ -361,9 +556,9 @@ async def submit_score(
         task_result = await db.execute(select(Task).where(Task.id == review.task_id))
         task = task_result.scalar_one_or_none()
     if not task:
-        # 尝试按问题匹配一个评分任务
+        # 尝试获取当前用户的进行中评分任务
         try:
-            task = await _get_review_task_or_error(db, current_user.id, review.problem_id)
+            task = await _get_review_task_or_error(db, current_user.id)
             review.task_id = task.id
         except HTTPException:
             task = None
@@ -384,59 +579,55 @@ async def submit_score(
     review.status = ReviewStatus.APPROVED
     review.approved_at = datetime.utcnow()
     
-    # 更新题目的平均评分
-    result = await db.execute(
-        select(Problem).where(Problem.id == review.problem_id)
-    )
-    problem = result.scalar_one_or_none()
-    
-    if problem:
-        # 重新计算平均分
+    # 更新题目的平均评分（新设计：使用ValidatedProblemExport）
+    validated_problem_id = review.validated_problem_id
+    if validated_problem_id:
         result = await db.execute(
-            select(
-                func.avg(Review.innovation_score).label("avg_innovation"),
-                func.avg(Review.rigor_score).label("avg_rigor"),
-                func.count(Review.id).label("review_count")
-            )
-            .where(
-                and_(
-                    Review.problem_id == problem.id,
-                    Review.status == ReviewStatus.APPROVED
+            select(ValidatedProblemExport).where(ValidatedProblemExport.id == validated_problem_id)
+        )
+        validated_problem = result.scalar_one_or_none()
+        
+        if validated_problem:
+            # 重新计算平均分
+            result = await db.execute(
+                select(
+                    func.avg(Review.innovation_score).label("avg_innovation"),
+                    func.avg(Review.rigor_score).label("avg_rigor"),
+                    func.count(Review.id).label("review_count")
+                )
+                .where(
+                    and_(
+                        Review.validated_problem_id == validated_problem.id,
+                        Review.status == ReviewStatus.APPROVED
+                    )
                 )
             )
-        )
-        stats = result.one()
-        
-        problem.avg_innovation_score = float(stats.avg_innovation) if stats.avg_innovation else None
-        problem.avg_rigor_score = float(stats.avg_rigor) if stats.avg_rigor else None
-        problem.review_count = stats.review_count
-
-        # 评分完成后的状态流转
-        if request.is_vetoed:
-            # 一票否决，退回草稿并记录原因
-            problem.status = ProblemStatus.DRAFT
-            problem.human_review_status = HumanReviewStatus.NEED_MODIFICATION
-            problem.human_review_note = request.veto_reason
-        else:
-            # 达到最低评分数则发布（当前阈值 1，可按需调整或配置化）
-            min_reviews_for_publish = 1
-            if (problem.review_count or 0) >= min_reviews_for_publish:
-                problem.status = ProblemStatus.PUBLISHED
-                problem.published_at = datetime.utcnow()
-                problem.human_review_status = HumanReviewStatus.APPROVED
+            stats = result.one()
+            
+            validated_problem.avg_innovation_score = float(stats.avg_innovation) if stats.avg_innovation else None
+            validated_problem.avg_rigor_score = float(stats.avg_rigor) if stats.avg_rigor else None
+            validated_problem.review_count = stats.review_count
     
     # 增加用户的评分完成计数
     current_user.reviews_completed_count += 1
     
-    # 更新任务进度
-    now = datetime.utcnow()
-    if task and task.status == TaskStatus.IN_PROGRESS:
-        task.completed_count = (task.completed_count or 0) + 1
-        if task.completed_count >= task.total_count:
+    # 检查任务是否完成（新设计：通过Review记录数判断）
+    if task:
+        review_count_result = await db.execute(
+            select(func.count(Review.id))
+            .where(Review.task_id == task.id)
+        )
+        completed_reviews = review_count_result.scalar() or 0
+        
+        if completed_reviews >= task.total_count:
             task.status = TaskStatus.SUBMITTED
-            task.submitted_at = now
+            task.submitted_at = datetime.utcnow()
     
-    # 创建奖励交易（7元）
+    # 创建奖励交易（评分奖励）
+    # 计算交易后余额
+    current_balance = await current_user.calculate_balance(db)
+    new_balance = current_balance + settings.REVIEW_REWARD
+    
     transaction = Transaction(
         user_id=current_user.id,
         amount=settings.REVIEW_REWARD,
@@ -444,15 +635,17 @@ async def submit_score(
         related_problem_id=review.problem_id,
         related_task_id=review.task_id,
         status=TransactionStatus.CONFIRMED,  # 评分奖励立即到账
-        description=f"评分题目 #{review.problem_id}",
-        balance_after=current_user.balance + settings.REVIEW_REWARD,
+        description=f"评分题目 #{review.validated_problem_id}",
+        balance_after=new_balance,
         confirmed_at=datetime.utcnow()
     )
     
-    # 更新用户余额
-    current_user.balance += settings.REVIEW_REWARD
-    
     db.add(transaction)
+    await db.flush()  # 确保transaction已保存
+    
+    # 刷新用户余额缓存
+    await current_user.refresh_balance(db)
+    
     await db.commit()
     await db.refresh(review)
     
@@ -496,13 +689,13 @@ async def get_my_reviews(
         "reviews": [
             {
                 "id": r.id,
-                "problem_id": r.problem_id,
+                "validated_problem_id": r.validated_problem_id,  # 使用新字段
                 "is_answer_correct": r.is_answer_correct,
                 "innovation_score": r.innovation_score,
                 "rigor_score": r.rigor_score,
                 "is_vetoed": r.is_vetoed,
                 "status": r.status.value,
-                "created_at": r.created_at
+                "created_at": r.created_at.isoformat() if r.created_at else None
             }
             for r in reviews
         ]
@@ -535,4 +728,200 @@ async def get_review(
         )
     
     return review
+
+
+# ==================== 新评分流程 API（基于 validated_problem_exports）====================
+
+@router.get("/export/{export_id}/choices", summary="获取4选1选项（新评分流程）")
+async def get_export_choices(
+    export_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取已验证题目的4选1选项用于正确性验证（新评分流程）
+    
+    - 从 validated_problem_exports 表获取题目
+    - 1个正确答案
+    - 3个由GPT生成的相似错误答案
+    """
+    # 查询已验证题目
+    result = await db.execute(
+        select(ValidatedProblemExport).where(ValidatedProblemExport.id == export_id)
+    )
+    export = result.scalar_one_or_none()
+    
+    if not export:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="题目不存在"
+        )
+    
+    # 不能评分自己的题目
+    if export.user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="不能评分自己出的题目"
+        )
+    
+    # 校验任务（评分任务必须存在且未超时）
+    task = await _get_review_task_or_error(db, current_user.id, validated_problem_id=export.id)
+    
+    # 生成3个相似的错误答案
+    similar_result = await gpt_service.generate_similar_answers(
+        problem=export.content,
+        correct_answer=export.answer,
+        count=3
+    )
+    
+    if not similar_result["success"]:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="生成选项失败"
+        )
+    
+    # 组合正确答案和错误答案
+    choices = [export.answer] + similar_result["similar_answers"][:3]
+    
+    # 记录正确答案的原始位置
+    correct_index = 0
+    
+    # 随机打乱选项
+    combined = list(enumerate(choices))
+    random.shuffle(combined)
+    
+    # 找到正确答案的新位置
+    shuffled_choices = []
+    for original_idx, choice in combined:
+        shuffled_choices.append(choice)
+        if original_idx == 0:  # 原始的正确答案
+            correct_index = len(shuffled_choices) - 1
+    
+    return {
+        "export_id": export.id,
+        "problem_content": export.content,
+        "problem_explanation": export.explanation,
+        "choices": shuffled_choices,
+        "correct_index": correct_index,
+        "instruction": "请选择你认为正确的答案："
+    }
+
+
+@router.post("/export/{export_id}/verify", summary="提交正确性验证（新评分流程）")
+async def verify_export_correctness(
+    export_id: int,
+    request: VerifyCorrectnessRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    提交正确性验证结果（新评分流程）
+    
+    流程：
+    1. 用户选择4个选项中的一个
+    2. 如果选对 → 题目正确，进入评分阶段
+    3. 如果选错 → 展示解析和答案，让用户判断题目是否有问题
+    """
+    # 查询已验证题目
+    result = await db.execute(
+        select(ValidatedProblemExport).where(ValidatedProblemExport.id == export_id)
+    )
+    export = result.scalar_one_or_none()
+    
+    if not export:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="题目不存在"
+        )
+    
+    # 不能评分自己的题目
+    if export.user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="不能评分自己出的题目"
+        )
+    
+    # 校验任务（新设计：不需要传入题目ID）
+    task = await _get_review_task_or_error(db, current_user.id)
+    
+    # 检查是否已经评分过
+    existing_review_result = await db.execute(
+        select(Review).where(
+            and_(
+                Review.validated_problem_id == export.id,
+                Review.reviewer_id == current_user.id
+            )
+        )
+    )
+    existing_review = existing_review_result.scalar_one_or_none()
+    
+    if existing_review:
+        # 已经完成验证，返回之前的结果
+        if existing_review.is_answer_correct:
+            return {
+                "success": True,
+                "is_correct": True,
+                "review_id": existing_review.id,
+                "message": "✅ 该题目已完成正确性验证（答案正确）",
+                "next_step": "scoring"
+            }
+        else:
+            return {
+                "success": True,
+                "is_correct": False,
+                "review_id": existing_review.id,
+                "message": "❌ 该题目已完成正确性验证。",
+                "problem_explanation": export.explanation,
+                "correct_answer": export.answer,
+                "question": "请判断：题目的解析和答案是否正确？",
+                "next_step": "manual_verification"
+            }
+    
+    # 判定正确性
+    is_correct = False
+    if request.selected_answer is not None:
+        is_correct = str(request.selected_answer).strip() == str(export.answer).strip()
+    elif request.correct_index is not None:
+        is_correct = (request.selected_index == request.correct_index)
+    
+    # 创建评分记录
+    review = Review(
+        validated_problem_id=export.id,  # 使用新字段
+        reviewer_id=current_user.id,
+        task_id=task.id,
+        is_answer_correct=is_correct,
+        correctness_verification={
+            "selected_index": request.selected_index,
+            "selected_answer": request.selected_answer,
+            "correct_index": request.correct_index,
+            "user_judgment": request.user_answer if not is_correct else None
+        },
+        status=ReviewStatus.PENDING
+    )
+    
+    db.add(review)
+    await db.commit()
+    await db.refresh(review)
+    
+    if is_correct:
+        # 选对了，进入评分阶段
+        return {
+            "success": True,
+            "is_correct": True,
+            "review_id": review.id,
+            "message": "✅ 答案正确！请继续对题目进行创新性和严谨性评分。",
+            "next_step": "scoring"
+        }
+    else:
+        # 选错了，展示解析和答案
+        return {
+            "success": True,
+            "is_correct": False,
+            "review_id": review.id,
+            "message": "❌ 答案不正确。请查看题目的解析和标准答案：",
+            "problem_explanation": export.explanation,
+            "correct_answer": export.answer,
+            "question": "请判断：题目的解析和答案是否正确？",
+            "next_step": "manual_verification"
+        }
 

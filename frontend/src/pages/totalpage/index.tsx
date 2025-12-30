@@ -884,6 +884,22 @@ export default function TotalPage() {
       render: (_: any, __: any, index: number) => index + 1,
     },
     {
+      title: '题目状态',
+      dataIndex: 'admin_review_status',
+      key: 'admin_review_status',
+      width: 100,
+      render: (status: string | undefined) => {
+        if (!status || status === 'pending') {
+          return <Tag color="default">待审核</Tag>;
+        } else if (status === 'approved') {
+          return <Tag color="success">通过</Tag>;
+        } else if (status === 'rejected') {
+          return <Tag color="error">未通过</Tag>;
+        }
+        return <Tag color="default">待审核</Tag>;
+      },
+    },
+    {
       title: '题目内容',
       dataIndex: 'content',
       key: 'content',

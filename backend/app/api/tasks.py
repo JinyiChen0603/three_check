@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func
+from sqlalchemy import select, and_, or_, func, exists
 from pydantic import BaseModel, Field
 
 from app.database import get_db
@@ -89,6 +89,9 @@ async def claim_tasks(
     3. 评分任务不能包含自己出的题目
     4. 必须完成当前任务后才能继续领取
     """
+    # 先自动清理超时任务
+    await release_expired_tasks(db)
+    
     # 验证任务类型
     try:
         task_type_enum = TaskType(request.task_type)
@@ -129,71 +132,68 @@ async def claim_tasks(
     expires_at = claimed_at + timedelta(hours=settings.TASK_TIMEOUT_HOURS)
     
     if task_type_enum == TaskType.REVIEW_PROBLEM:
-        # 评分任务：分配已发布的题目
-        # 排除自己出的题目
-        query = (
-            select(Problem)
+        # 评分任务：从已验证题目导出表分配题目
+        # 只分配已提交的出题任务的题目（in_progress 的题目不进入评分）
+        
+        # 创建子查询：找出所有已提交的出题任务的题目ID
+        submitted_creation_tasks_subquery = (
+            select(Task.id)
             .where(
-                and_(
-                    Problem.status.in_([ProblemStatus.PENDING_REVIEW, ProblemStatus.PUBLISHED]),
-                    Problem.creator_id != current_user.id
-                )
+                Task.task_type == TaskType.CREATE_PROBLEM,
+                Task.status == TaskStatus.SUBMITTED
             )
-            # 排除已经评分过的题目
-            .outerjoin(
-                Task,
-                and_(
-                    Task.problem_id == Problem.id,
-                    Task.user_id == current_user.id,
-                    Task.task_type == TaskType.REVIEW_PROBLEM
-                )
-            )
-            .where(Task.id.is_(None))
-            .limit(request.count)
         )
         
-        result = await db.execute(query)
-        available_problems = result.scalars().all()
+        # 查询可用题目数量（新设计：不需要为每道题创建Task，只需要知道有多少题目可评分）
+        available_count_result = await db.execute(
+            select(func.count(ValidatedProblemExport.id))
+            .where(
+                # 排除自己出的题目
+                ValidatedProblemExport.user_id != current_user.id,
+                # 只选择已提交的出题任务的题目
+                ValidatedProblemExport.task_id.in_(submitted_creation_tasks_subquery),
+                # 评分数量还没达到上限（假设每道题需要3个评分）
+                ValidatedProblemExport.review_count < 3,
+                # 排除当前用户已经评分过的题目
+                ~exists(
+                    select(1)
+                    .where(
+                        Review.validated_problem_id == ValidatedProblemExport.id,
+                        Review.reviewer_id == current_user.id
+                    )
+                )
+            )
+        )
+        available_count = available_count_result.scalar() or 0
         
-        if len(available_problems) < request.count:
+        if available_count < request.count:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"可用题目不足，当前只有 {len(available_problems)} 个题目可以评分"
+                detail=f"可用题目不足，当前只有 {available_count} 个题目可以评分（只有已提交的题目才能被评分）"
             )
         
-        # 创建任务
-        tasks = []
-        for problem in available_problems:
-            task = Task(
-                problem_id=problem.id,
-                user_id=current_user.id,
-                task_type=task_type_enum,
-                batch_id=batch_id,
-                total_count=request.count,
-                completed_count=0,
-                status=TaskStatus.IN_PROGRESS,
-                claimed_at=claimed_at,
-                expires_at=expires_at
-            )
-            tasks.append(task)
-            db.add(task)
+        # 创建1个评分任务（新设计：1个Task = n道题目）
+        task = Task(
+            user_id=current_user.id,
+            task_type=task_type_enum,
+            batch_id=batch_id,
+            total_count=request.count,  # 批次总数
+            completed_count=0,
+            status=TaskStatus.IN_PROGRESS,
+            claimed_at=claimed_at,
+            expires_at=expires_at
+        )
+        db.add(task)
         
         await db.commit()
         
         return {
             "success": True,
-            "message": f"成功领取 {len(tasks)} 个评分任务",
+            "message": f"成功领取 {request.count} 个评分任务",
             "batch_id": batch_id,
-            "task_count": len(tasks),
+            "task_count": request.count,
             "expires_at": expires_at,
-            "expires_in_hours": settings.TASK_TIMEOUT_HOURS,
-            "tasks": [
-                {
-                    "task_id": t.id,
-                    "problem_id": t.problem_id
-                }
-                for t in tasks
-            ]
+            "expires_in_hours": settings.TASK_TIMEOUT_HOURS
         }
     
     else:  # CREATE_PROBLEM
@@ -243,6 +243,9 @@ async def get_my_tasks(
     - total_problems_created: 用户的累计出题总数（所有题目，不限任务状态）
     - total_reviews_completed: 用户的累计评分总数
     """
+    # 先自动清理超时任务
+    await release_expired_tasks(db)
+    
     query = select(Task).where(Task.user_id == current_user.id)
     
     if status:
@@ -259,46 +262,58 @@ async def get_my_tasks(
     
     # 按批次汇总
     batches = {}
+    batch_tasks_status = {}  # 记录每个批次的所有Task状态，用于判断批次整体状态
+    
     for task in tasks:
         if task.batch_id:
             if task.batch_id not in batches:
-                # 对于出题任务，从数据库查询真实题目数
-                if task.task_type == TaskType.CREATE_PROBLEM:
-                    # 查询该任务关联的实际题目数
-                    count_result = await db.execute(
-                        select(func.count(ValidatedProblemExport.id))
-                        .where(ValidatedProblemExport.task_id == task.id)
-                    )
-                    real_completed_count = count_result.scalar() or 0
-                else:
-                    # 评分任务使用原来的 completed_count
-                    real_completed_count = task.completed_count or 0
-                
+                # 初始化批次信息
                 batches[task.batch_id] = {
                     "batch_id": task.batch_id,
                     "task_type": task.task_type.value,
-                    "status": task.status.value,
-                    "total_count": task.total_count,
-                    "completed_count": real_completed_count,  # 使用真实查询的数据
+                    "status": task.status.value,  # 初始状态，后面会更新
+                    "total_count": 0,  # 批次总数，累加计算
+                    "completed_count": 0,  # 批次完成数，累加计算
                     "claimed_at": task.claimed_at,
                     "expires_at": task.expires_at,
                     "submitted_at": task.submitted_at,
                     "tasks": []
                 }
+                batch_tasks_status[task.batch_id] = []
+            
+            # 添加任务到批次（新设计：评分任务不关联具体题目）
             batches[task.batch_id]["tasks"].append({
                 "task_id": task.id,
-                "problem_id": task.problem_id
+                "validated_problem_id": task.validated_problem_id,  # 出题任务的题目ID（评分任务为None）
+                "status": task.status.value  # 返回Task状态
             })
             
-            # 对于同一批次的多条记录，重新计算 completed_count
+            # 记录Task状态（用于后续判断批次状态）
+            batch_tasks_status[task.batch_id].append(task.status)
+            
+            # 累加批次的total_count和completed_count
             if task.task_type == TaskType.CREATE_PROBLEM:
+                # 出题任务：从数据库实时查询题目数
                 count_result = await db.execute(
                     select(func.count(ValidatedProblemExport.id))
                     .where(ValidatedProblemExport.task_id == task.id)
                 )
                 task_completed = count_result.scalar() or 0
-                if task_completed > batches[task.batch_id]["completed_count"]:
-                    batches[task.batch_id]["completed_count"] = task_completed
+                batches[task.batch_id]["total_count"] = task.total_count or 0
+                batches[task.batch_id]["completed_count"] = task_completed
+                batches[task.batch_id]["status"] = task.status.value
+            else:
+                # 评分任务：从数据库实时查询评分记录数（新设计：1个Task=n个题目）
+                review_result = await db.execute(
+                    select(func.count(Review.id))
+                    .where(Review.task_id == task.id)
+                )
+                task_completed = review_result.scalar() or 0
+                batches[task.batch_id]["total_count"] = task.total_count or 0
+                batches[task.batch_id]["completed_count"] = task_completed
+                batches[task.batch_id]["status"] = task.status.value
+    
+    # 新设计：评分任务只有1个Task，批次状态已经在上面设置，这里不需要额外处理
     
     # 查询用户的累计出题总数（所有题目，不限任务状态）
     problems_count_result = await db.execute(
@@ -405,9 +420,10 @@ async def abandon_task(
     放弃任务
     
     规则：
-    1. 如果任务下有已完成的题目，会一并删除
-    2. 首次调用时如果有题目，返回警告要求确认
-    3. 确认后再次调用（confirmed=true）才真正执行
+    1. 出题任务：如果任务下有已完成的题目，会一并删除（需要确认）
+    2. 评分任务：自动放弃整个批次的所有任务（不需要确认）
+    3. 首次调用时如果有题目，返回警告要求确认
+    4. 确认后再次调用（confirmed=true）才真正执行
     """
     result = await db.execute(
         select(Task).where(Task.id == task_id)
@@ -432,7 +448,35 @@ async def abandon_task(
             detail=f"任务状态为 {task.status.value}，无法放弃"
         )
     
-    # 检查是否有关联的已完成题目（只对出题任务检查）
+    # 评分任务：自动放弃整个批次
+    if task.task_type == TaskType.REVIEW_PROBLEM and task.batch_id:
+        # 查询同批次的所有进行中的任务
+        batch_tasks_result = await db.execute(
+            select(Task).where(
+                and_(
+                    Task.batch_id == task.batch_id,
+                    Task.user_id == current_user.id,
+                    Task.status == TaskStatus.IN_PROGRESS
+                )
+            )
+        )
+        batch_tasks = batch_tasks_result.scalars().all()
+        
+        # 放弃整个批次
+        for batch_task in batch_tasks:
+            batch_task.status = TaskStatus.REJECTED
+            batch_task.abandoned_count = 1
+        
+        await db.commit()
+        
+        return {
+            "success": True,
+            "message": f"已放弃整个评分批次（共 {len(batch_tasks)} 个任务）",
+            "batch_id": task.batch_id,
+            "abandoned_count": len(batch_tasks)
+        }
+    
+    # 出题任务：检查是否有已完成的题目
     problem_count = 0
     if task.task_type == TaskType.CREATE_PROBLEM:
         count_result = await db.execute(
@@ -453,7 +497,7 @@ async def abandon_task(
         }
     
     # 确认后执行放弃操作
-    # 1. 删除关联的题目
+    # 1. 删除关联的题目（数据库的 CASCADE 会自动删除相关的 Task 和 Review 记录）
     if problem_count > 0:
         problems_result = await db.execute(
             select(ValidatedProblemExport).where(

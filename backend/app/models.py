@@ -17,8 +17,11 @@ from sqlalchemy import (
     Text,
     JSON,
     Index,
+    select,
+    func,
 )
 from sqlalchemy.orm import relationship
+from sqlalchemy.ext.hybrid import hybrid_property
 import enum
 
 from app.database import Base
@@ -107,6 +110,13 @@ class ReviewStatus(str, enum.Enum):
     REJECTED = "rejected"    # 已驳回
 
 
+class AdminReviewStatus(str, enum.Enum):
+    """管理员审核状态"""
+    PENDING = "pending"      # 待审核
+    APPROVED = "approved"    # 已通过
+    REJECTED = "rejected"    # 未通过
+
+
 class TransactionType(str, enum.Enum):
     """交易类型"""
     PROBLEM_REWARD = "problem_reward"  # 出题奖励
@@ -156,6 +166,30 @@ class User(Base):
     claimed_tasks = relationship("Task", back_populates="user")
     reviews = relationship("Review", back_populates="reviewer")
     transactions = relationship("Transaction", back_populates="user")
+    
+    async def calculate_balance(self, session) -> float:
+        """
+        计算用户真实余额（从Transaction表）
+        
+        余额 = SUM(已确认交易的金额)
+        """
+        from sqlalchemy.ext.asyncio import AsyncSession
+        result = await session.execute(
+            select(func.coalesce(func.sum(Transaction.amount), 0))
+            .where(
+                Transaction.user_id == self.id,
+                Transaction.status == TransactionStatus.CONFIRMED
+            )
+        )
+        return float(result.scalar() or 0.0)
+    
+    async def refresh_balance(self, session):
+        """
+        刷新缓存的余额字段
+        
+        从Transaction表重新计算余额并更新balance字段
+        """
+        self.balance = await self.calculate_balance(session)
     
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username}, role={self.role})>"
@@ -255,7 +289,8 @@ class Task(Base):
     
     # 基础字段
     id = Column(Integer, primary_key=True, index=True)
-    problem_id = Column(Integer, ForeignKey("problems.id"), nullable=True, index=True)  # 对于批量领取，单个任务可能没有problem_id
+    problem_id = Column(Integer, ForeignKey("problems.id"), nullable=True, index=True)  # 旧题目表（兼容）
+    validated_problem_id = Column(Integer, ForeignKey("validated_problem_exports.id", ondelete="CASCADE"), nullable=True, index=True)  # 新题目表
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     
     # 任务类型
@@ -284,9 +319,10 @@ class Task(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
     # 关系
-    problem = relationship("Problem", back_populates="tasks")
+    problem = relationship("Problem", back_populates="tasks")  # 旧题目表关系（兼容）
+    validated_problem = relationship("ValidatedProblemExport", foreign_keys=[validated_problem_id], back_populates="review_tasks")  # 新题目表关系
     user = relationship("User", back_populates="claimed_tasks")
-    review = relationship("Review", back_populates="task", uselist=False)
+    reviews = relationship("Review", back_populates="task")  # 一个评分任务批次可以有多个评分记录
     
     # 索引
     __table_args__ = (
@@ -312,9 +348,10 @@ class Review(Base):
     
     # 基础字段
     id = Column(Integer, primary_key=True, index=True)
-    problem_id = Column(Integer, ForeignKey("problems.id"), nullable=False, index=True)
+    problem_id = Column(Integer, ForeignKey("problems.id"), nullable=True, index=True)  # 旧题目表（兼容）
+    validated_problem_id = Column(Integer, ForeignKey("validated_problem_exports.id", ondelete="CASCADE"), nullable=True, index=True)  # 新题目表
     reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True, unique=True)  # 关联任务
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True, index=True)  # 关联评分任务批次（不再unique，一个批次可以有多个评分）
     
     # 答题验证（正确性验证流程）
     correctness_verification = Column(JSON, nullable=True)  # 正确性验证过程（4选1的记录）
@@ -341,9 +378,10 @@ class Review(Base):
     approved_at = Column(DateTime, nullable=True)
     
     # 关系
-    problem = relationship("Problem", back_populates="reviews")
+    problem = relationship("Problem", back_populates="reviews")  # 旧题目表关系（兼容）
+    validated_problem = relationship("ValidatedProblemExport", foreign_keys=[validated_problem_id])  # 新题目表关系
     reviewer = relationship("User", back_populates="reviews")
-    task = relationship("Task", back_populates="review")
+    task = relationship("Task", back_populates="reviews")  # 对应Task.reviews（一个任务多个评分）
     
     # 索引
     __table_args__ = (
@@ -480,7 +518,7 @@ class ValidatedProblemExport(Base):
     # 基础字段
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True, index=True)  # 关联任务ID
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True, index=True)  # 关联出题任务ID
     
     # 题目信息
     content = Column(Text, nullable=False)  # 题目内容
@@ -494,12 +532,30 @@ class ValidatedProblemExport(Base):
     originality_check = Column(JSON, nullable=False)  # 原创性检测结果
     rigor_check = Column(JSON, nullable=False)  # 严谨性检测结果
     
+    # 评分相关字段（简化设计：题目表包含评分状态）
+    review_count = Column(Integer, default=0, nullable=False)  # 已完成的评分数
+    avg_innovation_score = Column(Float, nullable=True)  # 平均创新性评分
+    avg_rigor_score = Column(Float, nullable=True)  # 平均严谨性评分
+    
+    # 管理员审核相关
+    admin_review_status = Column(
+        Enum(AdminReviewStatus),
+        default=AdminReviewStatus.PENDING,
+        nullable=False,
+        index=True
+    )  # 管理员审核状态
+    admin_reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # 审核管理员ID
+    admin_review_note = Column(Text, nullable=True)  # 管理员审核备注
+    admin_reviewed_at = Column(DateTime, nullable=True)  # 审核时间
+    
     # 时间戳
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     
     # 关系
-    user = relationship("User", backref="validated_exports")
-    task = relationship("Task", backref="validated_exports")
+    user = relationship("User", backref="validated_exports", foreign_keys=[user_id])
+    admin_reviewer = relationship("User", foreign_keys=[admin_reviewer_id])
+    creation_task = relationship("Task", foreign_keys="[ValidatedProblemExport.task_id]", backref="created_problems")
+    review_tasks = relationship("Task", foreign_keys="[Task.validated_problem_id]", back_populates="validated_problem")
     
     def __repr__(self):
-        return f"<ValidatedProblemExport(id={self.id}, user_id={self.user_id})>"
+        return f"<ValidatedProblemExport(id={self.id}, user_id={self.user_id}, admin_review_status={self.admin_review_status})>"

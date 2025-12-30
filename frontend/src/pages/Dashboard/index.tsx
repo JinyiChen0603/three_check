@@ -28,7 +28,7 @@ import { BUSINESS_CONSTANTS } from '../../config/constants';
 const { Title } = Typography;
 
 export default function Dashboard() {
-  const { user } = useAuthStore();
+  const { user, fetchCurrentUser } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [rankings, setRankings] = useState<Ranking[]>([]);
   const [stats, setStats] = useState<any>({});
@@ -43,6 +43,7 @@ export default function Dashboard() {
       const [rankingsData, statsData] = await Promise.all([
         userApi.getRankings(),
         userApi.getStats(),
+        fetchCurrentUser(), // 🔥 刷新用户余额
       ]);
       setRankings(rankingsData);
       setStats(statsData);

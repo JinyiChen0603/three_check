@@ -106,13 +106,16 @@ async def get_config():
 
 
 # ==================== API 路由 ====================
-from app.api import auth, materials, problems, reviews, tasks, users, deep_transform
+from app.api import auth, materials, problems, reviews, tasks, users, deep_transform, admin
 
 # 认证路由
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
 
 # 用户路由
 app.include_router(users.router, prefix="/api/users", tags=["用户管理"])
+
+# 管理员路由
+app.include_router(admin.router, prefix="/api/admin", tags=["管理员"])
 
 # 资料库路由
 app.include_router(materials.router, prefix="/api/materials", tags=["资料库"])
