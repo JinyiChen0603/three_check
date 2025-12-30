@@ -236,7 +236,7 @@ class Problem(Base):
     
     # 生命周期状态
     status = Column(
-        Enum(ProblemStatus),
+        Enum(ProblemStatus, values_callable=lambda x: [e.value for e in x]),
         default=ProblemStatus.DRAFT,
         nullable=False,
         index=True
@@ -248,7 +248,7 @@ class Problem(Base):
     
     # 人工质检
     human_review_status = Column(
-        Enum(HumanReviewStatus),
+        Enum(HumanReviewStatus, values_callable=lambda x: [e.value for e in x]),
         default=HumanReviewStatus.PENDING,
         nullable=False,
         index=True
@@ -539,7 +539,7 @@ class ValidatedProblemExport(Base):
     
     # 管理员审核相关
     admin_review_status = Column(
-        Enum(AdminReviewStatus),
+        Enum(AdminReviewStatus, values_callable=lambda x: [e.value for e in x]),
         default=AdminReviewStatus.PENDING,
         nullable=False,
         index=True

@@ -21,6 +21,12 @@ from sqlalchemy import text, MetaData, inspect
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
+# 设置输出编码为 UTF-8（Windows 兼容）
+if sys.platform == 'win32':
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+
 # 添加项目路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -266,35 +272,51 @@ async def sync_database_schema():
                     }
                 },
                 {
-                    "name": "Sync Enum: transactionstatus",
+                    "name": "Sync Enum: problemsourcetype",
                     "enum_sync": {
-                        "enum_name": "transactionstatus",
-                        "values": ["pending", "confirmed", "cancelled"],
-                        "table_column_map": [("transactions", "status")]
+                        "enum_name": "problemsourcetype",
+                        "values": ["manual", "ocr", "variant"],
+                        "table_column_map": [("problems", "source_type")]
                     }
                 },
                 {
-                    "name": "Sync Enum: transactiontype",
+                    "name": "Sync Enum: problemvalidationstatus",
                     "enum_sync": {
-                        "enum_name": "transactiontype",
-                        "values": ["problem_reward", "review_reward", "withdrawal", "adjustment"],
-                        "table_column_map": [("transactions", "transaction_type")]
+                        "enum_name": "problemvalidationstatus",
+                        "values": ["not_validated", "difficulty_checking", "difficulty_passed", "difficulty_failed"],
+                        "table_column_map": [("problems", "validation_status")]
                     }
                 },
                 {
-                    "name": "Sync Enum: adminreviewstatus",
+                    "name": "Sync Enum: problemstatus",
                     "enum_sync": {
-                        "enum_name": "adminreviewstatus",
-                        "values": ["pending", "approved", "rejected"],
-                        "table_column_map": [("validated_problem_exports", "admin_review_status")]
+                        "enum_name": "problemstatus",
+                        "values": ["draft", "pending_review", "approved", "rejected", "published"],
+                        "table_column_map": [("problems", "status")]
                     }
                 },
                 {
-                    "name": "Sync Enum: reviewstatus",
+                    "name": "Sync Enum: humanreviewstatus",
                     "enum_sync": {
-                        "enum_name": "reviewstatus",
-                        "values": ["pending", "approved", "rejected"],
-                        "table_column_map": [("reviews", "status")]
+                        "enum_name": "humanreviewstatus",
+                        "values": ["pending", "in_progress", "approved", "rejected"],
+                        "table_column_map": [("problems", "human_review_status")]
+                    }
+                },
+                {
+                    "name": "Sync Enum: materialcategory",
+                    "enum_sync": {
+                        "enum_name": "materialcategory",
+                        "values": ["math", "physics", "chemistry", "biology", "other"],
+                        "table_column_map": [("problems", "category"), ("material_library", "category")]
+                    }
+                },
+                {
+                    "name": "Sync Enum: tasktype",
+                    "enum_sync": {
+                        "enum_name": "tasktype",
+                        "values": ["review_problem", "create_problem"],
+                        "table_column_map": [("tasks", "task_type")]
                     }
                 },
                 {
@@ -306,11 +328,35 @@ async def sync_database_schema():
                     }
                 },
                 {
-                    "name": "Sync Enum: tasktype",
+                    "name": "Sync Enum: reviewstatus",
                     "enum_sync": {
-                        "enum_name": "tasktype",
-                        "values": ["review_problem", "create_problem"],
-                        "table_column_map": [("tasks", "task_type")]
+                        "enum_name": "reviewstatus",
+                        "values": ["pending", "approved", "rejected"],
+                        "table_column_map": [("reviews", "status")]
+                    }
+                },
+                {
+                    "name": "Sync Enum: adminreviewstatus",
+                    "enum_sync": {
+                        "enum_name": "adminreviewstatus",
+                        "values": ["pending", "approved", "rejected"],
+                        "table_column_map": [("validated_problem_exports", "admin_review_status")]
+                    }
+                },
+                {
+                    "name": "Sync Enum: transactiontype",
+                    "enum_sync": {
+                        "enum_name": "transactiontype",
+                        "values": ["problem_reward", "review_reward", "withdrawal", "adjustment"],
+                        "table_column_map": [("transactions", "transaction_type")]
+                    }
+                },
+                {
+                    "name": "Sync Enum: transactionstatus",
+                    "enum_sync": {
+                        "enum_name": "transactionstatus",
+                        "values": ["pending", "confirmed", "cancelled"],
+                        "table_column_map": [("transactions", "status")]
                     }
                 },
                 
@@ -459,7 +505,10 @@ async def sync_database_schema():
             print("="*80 + "\n")
             
             print("Summary:")
-            print("  ✓ 所有枚举类型已同步为小写值（userrole, transactionstatus等）")
+            print("  ✓ 所有枚举类型已同步为小写值 (12个枚举):")
+            print("    - userrole, problemsourcetype, problemvalidationstatus, problemstatus")
+            print("    - humanreviewstatus, materialcategory, tasktype, taskstatus")
+            print("    - reviewstatus, adminreviewstatus, transactiontype, transactionstatus")
             print("  ✓ validated_problem_exports.task_id (关联出题任务)")
             print("  ✓ validated_problem_exports.review_count (评分次数, 默认0)")
             print("  ✓ validated_problem_exports.avg_innovation_score (平均创新分)")
@@ -468,8 +517,9 @@ async def sync_database_schema():
             print("  ✓ reviews.validated_problem_id (CASCADE)")
             print("  ✓ tasks.validated_problem_id (CASCADE)")
             print("  ✓ 旧数据保留，新字段使用默认值或NULL")
-            print("\n📋 简化设计说明:")
+            print("\n设计说明:")
             print("  - 所有枚举类型使用小写值（与 models.py 保持一致）")
+            print("  - 数据库中的大写枚举值会自动转换为小写")
             print("  - ValidatedProblemExport表包含评分状态和分数")
             print("  - Review表记录评分详情，task_id关联评分任务批次")
             print("  - 一个评分任务(Task)可以产生多个评分记录(Review)")
@@ -533,7 +583,7 @@ if __name__ == "__main__":
     if args.check:
         asyncio.run(check_database_diff())
     elif args.sync:
-        response = input("⚠️  这将修改数据库结构。是否继续？ (yes/no): ")
+        response = input("警告: 这将修改数据库结构。是否继续？ (yes/no): ")
         if response.lower() == "yes":
             asyncio.run(sync_database_schema())
         else:
