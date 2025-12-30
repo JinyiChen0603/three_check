@@ -183,14 +183,24 @@ export default function TotalPage() {
     sseConnectionsRef.current.clear();
   }, []);
 
-  // 组件卸载时清理所有SSE连接和AbortController
+  // 组件卸载时的清理逻辑
+  // 注意：不再清理正在运行的检测，让它们在后台继续完成
+  // 这样用户切换页面后再回来，检测依然会正常完成
   useEffect(() => {
     return () => {
-      cleanupAllSSE();
-      abortControllersRef.current.forEach(controller => controller.abort());
-      abortControllersRef.current.clear();
+      // ✅ 不做任何清理，原因：
+      // 1. SSE 连接会在检测完成时自动关闭（见 onmessage 中的 progress >= 100 逻辑）
+      // 2. SSE 连接在出错时会自动关闭（见 onerror 处理）
+      // 3. HTTP 请求会在完成时自然结束
+      // 4. 如果在这里清理，切换页面会导致检测中断，状态卡在 'running'
+      
+      console.log('[TotalPage] 组件卸载，但保持后台检测继续运行');
+      
+      // 不执行清理：
+      // cleanupAllSSE();  // ← 会断开 SSE，导致难度检测卡住
+      // abortControllersRef.current.forEach(controller => controller.abort());  // ← 会取消请求，导致原创性和严谨性卡住
     };
-  }, [cleanupAllSSE]);
+  }, []);
 
   // 计算队列中有多少题目完成了所有检测
   const completedCount = problemQueue.filter(item => item.allCompleted).length;
@@ -573,8 +583,10 @@ export default function TotalPage() {
     }
   };
 
-  // 从队列中移除题目
+  // 从队列中移除题目（手动删除时才清理资源）
   const handleRemoveFromQueue = (problemId: string) => {
+    console.log(`[TotalPage] 手动移除题目: ${problemId}，清理相关资源`);
+    
     // 取消该题目的所有进行中的请求
     ['difficulty', 'originality', 'rigor'].forEach(type => {
       const controllerKey = `${problemId}-${type}`;
@@ -588,11 +600,14 @@ export default function TotalPage() {
     // 清理SSE连接
     cleanupSSE(problemId);
     
+    // 清理完成标记
+    difficultyCompletedRef.current.delete(problemId);
+    
     // 从队列中移除（使用 store 方法）
     removeFromProblemQueue(problemId);
   };
 
-  // 清空整个检测队列
+  // 清空整个检测队列（手动清空时才清理所有资源）
   const handleClearQueue = () => {
     if (problemQueue.length === 0) {
       message.info('队列已经是空的');
@@ -606,12 +621,17 @@ export default function TotalPage() {
       cancelText: '取消',
       okType: 'danger',
       onOk: () => {
+        console.log('[TotalPage] 手动清空队列，清理所有资源');
+        
         // 取消所有正在进行的请求
         abortControllersRef.current.forEach(controller => controller.abort());
         abortControllersRef.current.clear();
         
         // 清理所有SSE连接
         cleanupAllSSE();
+        
+        // 清理所有完成标记
+        difficultyCompletedRef.current.clear();
         
         // 清空队列（使用 store 方法）
         clearProblemQueue();
