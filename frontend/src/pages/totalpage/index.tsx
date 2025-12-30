@@ -1361,7 +1361,7 @@ export default function TotalPage() {
           >
             导出全部题目
           </Button>
-          <Button icon={<SyncOutlined />} onClick={loadExportList}>
+          <Button icon={<SyncOutlined />} onClick={() => loadExportList()}>
             刷新列表
           </Button>
           <Button
