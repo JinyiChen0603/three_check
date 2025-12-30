@@ -660,12 +660,17 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="智能数据库结构同步脚本")
     parser.add_argument("--check", action="store_true", help="检查数据库差异")
-    parser.add_argument("--sync", action="store_true", help="执行同步")
+    parser.add_argument("--sync", action="store_true", help="执行完整同步（需要确认）")
+    parser.add_argument("--auto-sync", action="store_true", help="自动同步（Docker 启动时使用，无需确认）")
     
     args = parser.parse_args()
     
     if args.check:
         asyncio.run(check_database_diff())
+    elif args.auto_sync:
+        # Docker 启动时自动调用，不需要确认
+        print("🚀 自动同步模式（无需确认）")
+        asyncio.run(sync_database_schema())
     elif args.sync:
         response = input("警告: 这将修改数据库结构。是否继续？ (yes/no): ")
         if response.lower() == "yes":
@@ -674,6 +679,7 @@ if __name__ == "__main__":
             print("已取消")
     else:
         print("Usage:")
-        print("  python sync_database_schema.py --check  # 检查差异")
-        print("  python sync_database_schema.py --sync   # 执行同步")
+        print("  python sync_database_schema.py --check      # 检查差异")
+        print("  python sync_database_schema.py --sync       # 执行同步（需确认）")
+        print("  python sync_database_schema.py --auto-sync  # 自动同步（无需确认）")
 
