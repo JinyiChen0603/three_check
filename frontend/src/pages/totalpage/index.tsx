@@ -219,9 +219,6 @@ export default function TotalPage() {
       // 重置完成标记
       difficultyCompletedRef.current.set(problemId, false);
 
-      // 保存表单数据到全局store
-      setFormData(values);
-
       // 创建 AbortController
       const controller = new AbortController();
       abortControllersRef.current.set(controllerKey, controller);
@@ -248,9 +245,12 @@ export default function TotalPage() {
         try {
           const data = JSON.parse(event.data);
           
-          // 忽略心跳消息（仅用于保持连接活跃）
+          // 处理心跳消息：也更新进度，作为同步保障机制
           if (data.heartbeat) {
             console.log('收到心跳，连接正常');
+            const progress = data.progress || 0;
+            // 只更新进度值，不处理 result（心跳不包含 result）
+            updateProblemCheck(problemId, 'difficulty', { progress });
             return;
           }
           

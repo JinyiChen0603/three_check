@@ -665,7 +665,11 @@ async def stream_difficulty_progress(task_id: str):
         data: {"progress": 100, "result": {...}}
     """
     async def event_generator():
-        async for data in progress_service.subscribe_progress(task_id):
+        # 超时时间从默认 600 秒改为 3600 秒（1 小时）
+        async for data in progress_service.subscribe_progress(
+            task_id,
+            timeout=3600.0  # 1 小时
+        ):
             yield {"data": json.dumps(data, ensure_ascii=False)}
     
     return EventSourceResponse(event_generator())
