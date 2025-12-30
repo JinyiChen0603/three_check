@@ -140,7 +140,7 @@ export default function TotalPage() {
 
   // 其他本地状态
   const [exporting, setExporting] = useState<'passed' | 'all' | null>(null);
-  const [savingToList, setSavingToList] = useState(false);
+  const [savingToList, setSavingToList] = useState<Record<string, boolean>>({});
   
   // 获取进行中的出题任务
   const inProgressTask = tasks.find(
@@ -546,7 +546,7 @@ export default function TotalPage() {
     }
 
     try {
-      setSavingToList(true);
+      setSavingToList(prev => ({ ...prev, [problemId]: true }));
 
       const result = await problemApi.validateAndSave({
         problem: item.problem,
@@ -579,7 +579,7 @@ export default function TotalPage() {
       const errorMsg = error.response?.data?.detail || error.message || '保存失败，请重试';
       message.error(errorMsg);
     } finally {
-      setSavingToList(false);
+      setSavingToList(prev => ({ ...prev, [problemId]: false }));
     }
   };
 
@@ -1249,7 +1249,7 @@ export default function TotalPage() {
                           type="primary" 
                           size="small" 
                           icon={<SaveOutlined />}
-                          loading={savingToList}
+                          loading={savingToList[problemItem.id] || false}
                           onClick={() => handleSaveProblem(problemItem.id)}
                         >
                           保存
