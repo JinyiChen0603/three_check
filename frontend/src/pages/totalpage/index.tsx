@@ -100,7 +100,7 @@ const createInitialCheckState = () => ({
 export default function TotalPage() {
   const [form] = Form.useForm<ProblemFormData>();
   
-  // 任务管理Hook
+  // 任务管理Hook（现在使用全局 store，避免重复请求）
   const { tasks, refreshTasks } = useTask();
   
   // 用户信息刷新
@@ -115,6 +115,8 @@ export default function TotalPage() {
     exportList,
     exportStats,
     loadingList,
+    lastExportListFetchTime,
+    exportListInitialized,
     addToProblemQueue,
     updateProblemCheck,
     removeFromProblemQueue,
@@ -123,6 +125,7 @@ export default function TotalPage() {
     setExportList,
     setExportStats,
     setLoadingList,
+    loadExportListIfNeeded,
   } = useValidationStore();
 
   // AbortController引用（用于取消HTTP请求）
@@ -552,10 +555,12 @@ export default function TotalPage() {
       // 标记为已保存（使用 store 方法）
       markProblemAsSaved(problemId);
       
-      // 刷新列表、任务和用户信息
-      await loadExportList();
-      await refreshTasks();
-      await fetchCurrentUser();
+      // 刷新列表和用户信息（任务会自动智能刷新）
+      await Promise.all([
+        loadExportList(true),  // 强制刷新
+        refreshTasks(),  // 强制刷新任务，因为进度已变化
+        fetchCurrentUser()
+      ]);
     } catch (error: any) {
       console.error('保存失败:', error);
       const errorMsg = error.response?.data?.detail || error.message || '保存失败，请重试';
@@ -697,8 +702,26 @@ export default function TotalPage() {
     return false; // 阻止默认上传行为
   };
 
-  // 加载导出列表（现在使用 store 方法）
-  const loadExportList = async () => {
+  // 加载导出列表（带缓存检查）
+  const loadExportList = async (force = false) => {
+    const CACHE_DURATION = 5000; // 5秒缓存
+    
+    // 检查是否需要加载
+    if (!force && exportListInitialized) {
+      const timeSinceLastFetch = Date.now() - lastExportListFetchTime;
+      if (timeSinceLastFetch < CACHE_DURATION) {
+        console.log(`[TotalPage] 使用导出列表缓存（${Math.round(timeSinceLastFetch / 1000)}秒前）`);
+        return;
+      }
+    }
+    
+    // 如果正在加载，跳过
+    if (loadingList) {
+      console.log('[TotalPage] 正在加载导出列表，跳过');
+      return;
+    }
+    
+    console.log('[TotalPage] 加载导出列表');
     setLoadingList(true);
     try {
       const data = await problemApi.getExportList();
@@ -732,7 +755,7 @@ export default function TotalPage() {
       window.URL.revokeObjectURL(url);
 
       message.success('✅ 导出成功！');
-      await loadExportList();
+      await loadExportList(true);  // 强制刷新
     } catch (error) {
       console.error('导出失败:', error);
       message.error('导出失败，请重试');
@@ -753,10 +776,12 @@ export default function TotalPage() {
         try {
           await problemApi.clearExportList();
           message.success('✅ 列表已清空，任务进度已重置');
-          // 刷新列表、任务和用户信息（用于更新仪表盘）
-          await loadExportList();
-          await refreshTasks();
-          await fetchCurrentUser();
+          // 刷新列表和用户信息（并行执行）
+          await Promise.all([
+            loadExportList(true),  // 强制刷新
+            refreshTasks(),  // 强制刷新任务，因为进度已变化
+            fetchCurrentUser()
+          ]);
         } catch (error: any) {
           console.error('清空失败:', error);
           const errorMsg = error.response?.data?.detail || error.message || '清空失败，请重试';
@@ -766,13 +791,13 @@ export default function TotalPage() {
     });
   };
 
-  // 初始化加载列表和任务（只在列表为空时加载）
+  // 初始化加载列表（智能加载，使用缓存）
+  // 注意：不再在这里调用 refreshTasks，useTask hook 会自动智能加载
   useEffect(() => {
-    if (exportList.length === 0) {
-      loadExportList();
-    }
-    refreshTasks();
-  }, []);
+    // 使用智能加载，如果有缓存就不加载
+    loadExportList(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // 只在组件挂载时执行一次
 
   // 恢复表单数据（从全局store）
   useEffect(() => {
@@ -805,10 +830,12 @@ export default function TotalPage() {
           
           message.success(`✅ 题目已删除${progressMsg}`);
           
-          // 刷新列表、任务和用户信息（用于更新仪表盘）
-          await loadExportList();
-          await refreshTasks();
-          await fetchCurrentUser();
+          // 刷新列表和用户信息（并行执行）
+          await Promise.all([
+            loadExportList(true),  // 强制刷新
+            refreshTasks(),  // 强制刷新任务，因为进度已变化
+            fetchCurrentUser()
+          ]);
         } catch (error: any) {
           console.error('删除失败:', error);
           const errorMsg = error.response?.data?.detail || error.message || '删除失败，请重试';

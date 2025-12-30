@@ -74,6 +74,8 @@ interface ValidationState {
   exportList: ExportListItem[];
   exportStats: { total: number; passed: number; failed: number };
   loadingList: boolean;
+  lastExportListFetchTime: number;  // 导出列表最后加载时间
+  exportListInitialized: boolean;   // 是否已初始化
   
   // Actions - 旧版
   setDifficultyCheck: (check: CheckStatus) => void;
@@ -98,6 +100,8 @@ interface ValidationState {
   setExportList: (list: ExportListItem[]) => void;
   setExportStats: (stats: { total: number; passed: number; failed: number }) => void;
   setLoadingList: (loading: boolean) => void;
+  resetExportData: () => void;
+  loadExportListIfNeeded: (force?: boolean) => Promise<void>;  // 智能加载
   
   // 完成检查时的通知
   notifyCheckComplete: (checkType: 'difficulty' | 'originality' | 'rigor', passed: boolean) => void;
@@ -127,6 +131,8 @@ export const useValidationStore = create<ValidationState>((set, get) => ({
   exportList: [],
   exportStats: { total: 0, passed: 0, failed: 0 },
   loadingList: false,
+  lastExportListFetchTime: 0,
+  exportListInitialized: false,
 
   // Actions - 旧版
   setDifficultyCheck: (check) => {
@@ -220,7 +226,11 @@ export const useValidationStore = create<ValidationState>((set, get) => ({
 
   // Actions - 导出列表
   setExportList: (list) => {
-    set({ exportList: list });
+    set({ 
+      exportList: list,
+      lastExportListFetchTime: Date.now(),
+      exportListInitialized: true,
+    });
   },
 
   setExportStats: (stats) => {
@@ -229,6 +239,46 @@ export const useValidationStore = create<ValidationState>((set, get) => ({
 
   setLoadingList: (loading) => {
     set({ loadingList: loading });
+  },
+  
+  // 清空所有数据（用于重置）
+  resetExportData: () => {
+    set({
+      exportList: [],
+      exportStats: { total: 0, passed: 0, failed: 0 },
+      lastExportListFetchTime: 0,
+      exportListInitialized: false,
+    });
+  },
+  
+  // 智能加载导出列表（带缓存机制）
+  loadExportListIfNeeded: async (force = false) => {
+    const { loadingList, lastExportListFetchTime, exportListInitialized } = get();
+    const CACHE_DURATION = 5000; // 5秒缓存
+    
+    // 如果正在加载，跳过
+    if (loadingList) {
+      console.log('[ValidationStore] 正在加载导出列表，跳过');
+      return;
+    }
+    
+    // 如果强制刷新或未初始化，立即加载
+    if (force || !exportListInitialized) {
+      console.log('[ValidationStore] 强制刷新或首次加载导出列表');
+      // 这里不直接调用API，而是返回，让调用方处理
+      // 因为API调用在组件中，store只负责状态管理
+      return;
+    }
+    
+    // 检查缓存时间
+    const timeSinceLastFetch = Date.now() - lastExportListFetchTime;
+    if (timeSinceLastFetch < CACHE_DURATION) {
+      console.log(`[ValidationStore] 使用导出列表缓存（${Math.round(timeSinceLastFetch / 1000)}秒前）`);
+      return;
+    }
+    
+    console.log('[ValidationStore] 导出列表缓存过期，需要刷新');
+    // 返回，让调用方知道需要刷新
   },
 
   // 通知
