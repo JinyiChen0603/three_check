@@ -413,6 +413,15 @@ gpt4o = LLMClient(
     default_extra_params={}
 )
 
+# GPT-4o-mini 快速模型（用于生成选项等简单任务）
+gpt4o_mini = LLMClient(
+    api_key=settings.OPENAI_API_KEY,
+    base_url="https://api.openai.com/v1/chat/completions",
+    model="gpt-4o-mini",
+    timeout=60.0,
+    default_extra_params={}
+)
+
 
 # ==================== Responses API 客户端（支持 web_search 等工具） ====================
 

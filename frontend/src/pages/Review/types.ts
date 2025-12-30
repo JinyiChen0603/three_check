@@ -1,6 +1,5 @@
 export interface ReviewChoiceResponse {
-  problem_id: number;
-  problem_title?: string;
+  validated_problem_id: number;
   problem_content: any;
   problem_explanation?: string;
   choices: string[];
@@ -10,7 +9,9 @@ export interface ReviewChoiceResponse {
 
 export interface TaskItem {
   task_id: number;
-  problem_id: number;
+  validated_problem_id: number;
+  status: string;  // Task状态：in_progress, timeout等
+  has_review: boolean;  // 是否已有评分记录（判断是否已评分）
 }
 
 export interface TaskBatch {

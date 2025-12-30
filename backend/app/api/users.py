@@ -72,6 +72,9 @@ async def get_my_stats(
     
     注意：出题数和评分数直接从数据库查询真实记录数，而不是使用累加字段
     """
+    # 刷新用户余额（从Transaction表计算）
+    await current_user.refresh_balance(db)
+    
     # 计算排名
     result = await db.execute(
         select(func.count(User.id))
@@ -167,14 +170,17 @@ async def get_leaderboard(
     leaderboard = []
     for idx, item in enumerate(leaderboard_data[:limit], start=1):
         user = item["user"]
+        # 使用从Transaction表计算的总收入作为余额
+        calculated_balance = item["total_earnings"]
+        
         leaderboard.append({
             "rank": idx,
             "user_id": user.id,
             "username": user.username,
-            "balance": user.balance,
+            "balance": calculated_balance,  # 使用计算出的余额
             "problems_created": user.problems_created_count,
             "reviews_completed": user.reviews_completed_count,
-            "total_earnings": item["total_earnings"]
+            "total_earnings": calculated_balance
         })
     
     return leaderboard

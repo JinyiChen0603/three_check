@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 
-import { authApi } from '../../../api';
+import { authApi, userApi } from '../../../api';
 import type { User } from '../../../types';
 import { UserRole } from '../../../types';
 import { useAuthStore } from '../../../store/useAuthStore';
@@ -21,58 +21,20 @@ export function useUserManagement() {
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      // TODO: 后端用户列表 API 就绪后替换
-      const mockUsers: User[] = [
-        {
-          id: 1,
-          username: 'lifanghe',
-          email: 'lifanghe@mathtasks.com',
-          role: UserRole.ADMIN,
-          balance: 0,
-          problems_created_count: 0,
-          reviews_completed_count: 0,
-          is_active: true,
-          is_impersonating: false,
-          created_at: '2025-12-17T10:00:00',
-        },
-        {
-          id: 2,
-          username: 'gexinlin',
-          email: 'gexinlin@mathtasks.com',
-          role: UserRole.ADMIN,
-          balance: 0,
-          problems_created_count: 0,
-          reviews_completed_count: 0,
-          is_active: true,
-          is_impersonating: false,
-          created_at: '2025-12-17T10:00:00',
-        },
-        {
-          id: 3,
-          username: 'hewenze',
-          email: 'hewenze@mathtasks.com',
-          role: UserRole.USER,
-          balance: 210,
-          problems_created_count: 5,
-          reviews_completed_count: 12,
-          is_active: true,
-          is_impersonating: false,
-          created_at: '2025-12-17T10:00:00',
-        },
-        {
-          id: 4,
-          username: 'chenjinyi',
-          email: 'chenjinyi@mathtasks.com',
-          role: UserRole.USER,
-          balance: 294,
-          problems_created_count: 8,
-          reviews_completed_count: 6,
-          is_active: true,
-          is_impersonating: false,
-          created_at: '2025-12-17T10:00:00',
-        },
-      ];
-      setUsers(mockUsers);
+      const response = await userApi.getUserList(0, 1000);
+      const userList = response.users.map((u: any) => ({
+        id: u.id,
+        username: u.username,
+        email: u.email || '',
+        role: u.role === 'admin' ? UserRole.ADMIN : UserRole.USER,
+        balance: u.balance,
+        problems_created_count: u.problems_created_count,
+        reviews_completed_count: u.reviews_completed_count,
+        is_active: u.is_active,
+        is_impersonating: false,
+        created_at: u.created_at,
+      }));
+      setUsers(userList);
     } catch (error) {
       message.error('加载用户列表失败');
     } finally {

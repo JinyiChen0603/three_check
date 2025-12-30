@@ -11,26 +11,6 @@ export function useReviewTask() {
   const [problemData, setProblemData] = useState<ReviewChoiceResponse | null>(null);
   const [options, setOptions] = useState<string[]>([]);
 
-  const loadProblem = useCallback(async (problemId: number) => {
-    setLoading(true);
-    try {
-      const res: ReviewChoiceResponse = await reviewApi.getProblemChoices(problemId);
-      setProblemData(res);
-      setOptions(res.choices || []);
-    } catch (error: any) {
-      if (error.response?.status === 404) {
-        message.info('题目不存在，尝试下一题');
-        // 交由 loadNextTask 继续推进
-        throw Object.assign(new Error('PROBLEM_NOT_FOUND'), { code: 404 });
-      } else {
-        message.error('加载题目失败');
-        throw error;
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   const clearCurrent = useCallback(() => {
     setCurrentTask(null);
     setCurrentBatch(null);
@@ -41,6 +21,7 @@ export function useReviewTask() {
   const loadNextTask = useCallback(async () => {
     setLoading(true);
     try {
+      // 1. 检查是否有进行中的评分批次
       const data = await taskApi.getMyTasks();
       const batches: TaskBatch[] = data?.batches || [];
       const targetBatch = batches.find(
@@ -56,24 +37,30 @@ export function useReviewTask() {
         return;
       }
 
-      const task = targetBatch.tasks.find((t) => t.problem_id);
-      if (!task) {
-        setCurrentTask(null);
-        setCurrentBatch(targetBatch);
-        setProblemData(null);
-        setOptions([]);
-        return;
-      }
-
-      setCurrentTask(task);
       setCurrentBatch(targetBatch);
 
+      // 2. 直接调用新API获取下一个可评分题目（不再从Task列表中选择）
       try {
-        await loadProblem(task.problem_id);
+        const nextProblem: ReviewChoiceResponse = await reviewApi.getNextProblem();
+        
+        // 构造一个虚拟的Task对象，保持兼容性
+        const virtualTask: TaskItem = {
+          task_id: targetBatch.tasks[0]?.task_id || 0,
+          validated_problem_id: nextProblem.validated_problem_id,
+          status: 'in_progress',
+          has_review: false
+        };
+        
+        setCurrentTask(virtualTask);
+        setProblemData(nextProblem);
+        setOptions(nextProblem.choices || []);
       } catch (e: any) {
-        if (e?.code === 404) {
-          // 题目不存在：继续下一题
-          await loadNextTask();
+        if (e?.response?.status === 404) {
+          // 没有可评分的题目了
+          setCurrentTask(null);
+          setProblemData(null);
+          setOptions([]);
+          message.info('当前批次已无待评分题目');
           return;
         }
         throw e;
@@ -84,7 +71,7 @@ export function useReviewTask() {
     } finally {
       setLoading(false);
     }
-  }, [clearCurrent, loadProblem]);
+  }, [clearCurrent]);
 
   useEffect(() => {
     loadNextTask();
