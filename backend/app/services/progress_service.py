@@ -81,7 +81,7 @@ class ProgressService:
         self,
         task_id: str,
         poll_interval: float = 0.3,
-        timeout: float = 600.0,
+        timeout: float = 3600.0,
         heartbeat_interval: float = 15.0
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """

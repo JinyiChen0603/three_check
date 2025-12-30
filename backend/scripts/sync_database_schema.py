@@ -198,6 +198,46 @@ async def drop_unique_constraint_safe(session: AsyncSession, table_name: str, co
         return False
 
 
+async def create_index_safe(session: AsyncSession, index_name: str, table_name: str, 
+                            columns: list, unique: bool = False):
+    """安全创建索引"""
+    # 检查索引是否存在
+    result = await session.execute(text("""
+        SELECT indexname 
+        FROM pg_indexes 
+        WHERE indexname = :index_name
+    """), {"index_name": index_name})
+    
+    if result.fetchone() is None:
+        unique_clause = "UNIQUE " if unique else ""
+        columns_str = ", ".join(columns)
+        sql = f"CREATE {unique_clause}INDEX {index_name} ON {table_name}({columns_str})"
+        print(f"  [+] Creating index: {index_name} on {table_name}({columns_str})")
+        await session.execute(text(sql))
+        return True
+    else:
+        print(f"  [✓] Index exists: {index_name}")
+        return False
+
+
+async def drop_index_safe(session: AsyncSession, index_name: str):
+    """安全删除索引"""
+    result = await session.execute(text("""
+        SELECT indexname 
+        FROM pg_indexes 
+        WHERE indexname = :index_name
+    """), {"index_name": index_name})
+    
+    if result.fetchone() is not None:
+        sql = f"DROP INDEX IF EXISTS {index_name}"
+        print(f"  [-] Dropping index: {index_name}")
+        await session.execute(text(sql))
+        return True
+    else:
+        print(f"  [✓] Index not exists: {index_name}")
+        return False
+
+
 async def sync_enum_type(session: AsyncSession, enum_name: str, values: list, 
                          table_column_map: list = None):
     """同步枚举类型 - 添加小写值并更新数据"""
@@ -437,6 +477,29 @@ async def sync_database_schema():
                         "on_delete": "CASCADE"
                     }
                 },
+                
+                # Step 5: validation_records 表 - 添加 validated_problem_id
+                {
+                    "name": "validation_records.validated_problem_id",
+                    "table": "validation_records",
+                    "column": "validated_problem_id",
+                    "type": "INTEGER",
+                    "nullable": True,
+                    "make_nullable": ["problem_id"],  # 旧字段改为可空
+                    "foreign_key": {
+                        "name": "fk_validation_validated_problem_id",
+                        "ref_table": "validated_problem_exports",
+                        "ref_column": "id",
+                        "on_delete": "CASCADE"
+                    },
+                    "drop_indexes": ["idx_problem_type"],  # 删除旧索引
+                    "create_indexes": [
+                        {
+                            "name": "idx_validated_problem_type",
+                            "columns": ["validated_problem_id", "validation_type"]
+                        }
+                    ]
+                },
             ]
             
             # ===================================================================
@@ -497,6 +560,22 @@ async def sync_database_schema():
                         fk.get("on_delete")
                     )
                 
+                # 5. 删除旧索引
+                if "drop_indexes" in migration:
+                    for index_name in migration["drop_indexes"]:
+                        await drop_index_safe(session, index_name)
+                
+                # 6. 创建新索引
+                if "create_indexes" in migration:
+                    for idx in migration["create_indexes"]:
+                        await create_index_safe(
+                            session,
+                            idx["name"],
+                            migration["table"],
+                            idx["columns"],
+                            idx.get("unique", False)
+                        )
+                
                 await session.commit()
                 print()
             
@@ -516,13 +595,16 @@ async def sync_database_schema():
             print("  ✓ reviews.task_id - 删除UNIQUE约束 (允许一个任务多个评分)")
             print("  ✓ reviews.validated_problem_id (CASCADE)")
             print("  ✓ tasks.validated_problem_id (CASCADE)")
+            print("  ✓ validation_records.validated_problem_id (CASCADE)")
             print("  ✓ 旧数据保留，新字段使用默认值或NULL")
             print("\n设计说明:")
             print("  - 所有枚举类型使用小写值（与 models.py 保持一致）")
             print("  - 数据库中的大写枚举值会自动转换为小写")
             print("  - ValidatedProblemExport表包含评分状态和分数")
             print("  - Review表记录评分详情，task_id关联评分任务批次")
+            print("  - ValidationRecord表记录质检验证详情，关联到ValidatedProblemExport")
             print("  - 一个评分任务(Task)可以产生多个评分记录(Review)")
+            print("  - validation_records.validated_problem_id允许为NULL（用于内容质检）")
             print()
 
         except Exception as e:
@@ -542,12 +624,14 @@ async def check_database_diff():
     async with AsyncSessionLocal() as session:
         # 需要检查的表和字段
         expected_structure = {
-            "validated_problem_exports": ["id", "user_id", "task_id", "title", "content", 
-                                         "answer", "explanation", "category", "created_at"],
+            "validated_problem_exports": ["id", "user_id", "task_id", "content", 
+                                         "answer", "explanation", "review_count", "created_at"],
             "reviews": ["id", "problem_id", "validated_problem_id", "reviewer_id", 
                        "task_id", "is_answer_correct", "status"],
             "tasks": ["id", "problem_id", "validated_problem_id", "user_id", 
                      "task_type", "status", "batch_id"],
+            "validation_records": ["id", "problem_id", "validated_problem_id", 
+                                  "validation_type", "ai_model", "is_passed"],
         }
         
         print("检查关键字段:")
