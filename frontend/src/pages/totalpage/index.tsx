@@ -3,27 +3,26 @@
  * 单页面设计：所有功能在一个界面
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Card,
   Button,
   Space,
   Typography,
   Input,
-  Select,
   Form,
   message,
   Table,
   Tag,
-  Divider,
   Modal,
-  Spin,
   Statistic,
   Row,
   Col,
   Descriptions,
   Alert,
   Upload,
+  Progress,
+  List,
 } from 'antd';
 import {
   CheckCircleOutlined,
@@ -36,18 +35,24 @@ import {
   SafetyCertificateOutlined,
   ExperimentOutlined,
   EyeOutlined,
-  EditOutlined,
   SaveOutlined,
   RadarChartOutlined,
   PictureOutlined,
+  LoadingOutlined,
+  ClockCircleOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { problemApi } from '../../api';
-import { MATERIAL_CATEGORIES } from '../../config/constants';
 import MathRenderer from '../../components/MathRenderer';
 import { useTask } from '../../hooks/useTask';
 import { TaskType } from '../../config/constants';
 import { useAuthStore } from '../../store/useAuthStore';
-import { useValidationStore } from '../../store/useValidationStore';
+import { 
+  useValidationStore,
+  type ProblemQueueItem,
+  type ExportListItem,
+  type CheckTaskStatus,
+} from '../../store/useValidationStore';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -84,41 +89,47 @@ interface ProblemFormData {
   explanation: string;
 }
 
-interface ExportListItem {
-  id: number;
-  content?: string;  // 题目内容
-  answer?: string;  // 答案
-  explanation?: string;  // 解析
-  difficulty_passed: boolean | null;
-  originality_passed: boolean | null;
-  rigor_passed: boolean | null;
-  difficulty_validation?: any;  // 完整的难度检测结果
-  originality_check?: any;  // 完整的原创性检测结果
-  rigor_check?: any;  // 完整的严谨性检测结果
-  created_at: string;
-}
+// 创建初始检测状态
+const createInitialCheckState = () => ({
+  status: 'idle' as const,
+  progress: 0,
+  result: null,
+  passed: null,
+});
 
 export default function TotalPage() {
   const [form] = Form.useForm<ProblemFormData>();
   
-  // 任务管理Hook
-  const { tasks, refreshTasks, problemCreationTotal, problemCreationCompleted } = useTask();
+  // 任务管理Hook（现在使用全局 store，避免重复请求）
+  const { tasks, refreshTasks } = useTask();
   
   // 用户信息刷新
   const fetchCurrentUser = useAuthStore((state) => state.fetchCurrentUser);
 
   // 使用全局store替代本地state
   const {
-    difficultyCheck,
-    originalityCheck,
-    rigorCheck,
     formData,
-    setDifficultyCheck,
-    setOriginalityCheck,
-    setRigorCheck,
-    setFormData,
     clearAllChecks,
+    // 新增：从 store 获取检测队列和导出列表
+    problemQueue,
+    exportList,
+    exportStats,
+    loadingList,
+    lastExportListFetchTime,
+    exportListInitialized,
+    addToProblemQueue,
+    updateProblemCheck,
+    removeFromProblemQueue,
+    clearProblemQueue,
+    markProblemAsSaved,
+    setExportList,
+    setExportStats,
+    setLoadingList,
+    loadExportListIfNeeded,
   } = useValidationStore();
+
+  // AbortController引用（用于取消HTTP请求）
+  const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
 
   // 用于取消请求的控制器
   const [abortControllers, setAbortControllers] = useState<{
@@ -127,10 +138,7 @@ export default function TotalPage() {
     rigor?: AbortController;
   }>({});
 
-  // 导出列表
-  const [exportList, setExportList] = useState<ExportListItem[]>([]);
-  const [exportStats, setExportStats] = useState({ total: 0, passed: 0, failed: 0 });
-  const [loadingList, setLoadingList] = useState(false);
+  // 其他本地状态
   const [exporting, setExporting] = useState<'passed' | 'all' | null>(null);
   const [savingToList, setSavingToList] = useState(false);
   
@@ -150,237 +158,330 @@ export default function TotalPage() {
   const [viewProblemModalVisible, setViewProblemModalVisible] = useState(false);
   const [viewProblemData, setViewProblemData] = useState<ExportListItem | null>(null);
 
-  // 计算是否有任何检测正在进行
-  const isAnyCheckRunning =
-    difficultyCheck.loading || originalityCheck.loading || rigorCheck.loading;
+  // SSE连接引用（按题目ID存储）
+  const sseConnectionsRef = useRef<Map<string, EventSource>>(new Map());
+  
+  // 标记难度检测是否已完成（按题目ID存储，用于区分 SSE 正常关闭和真正的错误）
+  const difficultyCompletedRef = useRef<Map<string, boolean>>(new Map());
 
-  // 计算是否有任何检测已完成
-  const hasAnyCheckCompleted =
-    difficultyCheck.result !== null ||
-    originalityCheck.result !== null ||
-    rigorCheck.result !== null;
+  // updateProblemCheck 现在直接从 store 获取，不需要本地定义
 
-  // 表单字段是否应该被禁用（检测中或检测完成后）
-  const formFieldsDisabled = isAnyCheckRunning || hasAnyCheckCompleted;
+  // 清理单个题目的SSE连接
+  const cleanupSSE = useCallback((problemId: string) => {
+    const eventSource = sseConnectionsRef.current.get(problemId);
+    if (eventSource) {
+      eventSource.close();
+      sseConnectionsRef.current.delete(problemId);
+    }
+  }, []);
 
-  // 是否可以保存到列表（三个检测都完成即可，无论是否通过）
-  const canSaveToList =
-    difficultyCheck.result !== null &&
-    originalityCheck.result !== null &&
-    rigorCheck.result !== null;
+  // 清理所有SSE连接
+  const cleanupAllSSE = useCallback(() => {
+    sseConnectionsRef.current.forEach((eventSource) => {
+      eventSource.close();
+    });
+    sseConnectionsRef.current.clear();
+  }, []);
 
-  // 验证难度
-  const handleCheckDifficulty = async () => {
+  // 组件卸载时清理所有SSE连接和AbortController
+  useEffect(() => {
+    return () => {
+      cleanupAllSSE();
+      abortControllersRef.current.forEach(controller => controller.abort());
+      abortControllersRef.current.clear();
+    };
+  }, [cleanupAllSSE]);
+
+  // 计算队列中有多少题目完成了所有检测
+  const completedCount = problemQueue.filter(item => item.allCompleted).length;
+  
+  // 计算队列中有多少题目已保存
+  const savedCount = problemQueue.filter(item => item.saved).length;
+
+  // 验证难度（使用SSE实时推送进度）- 针对特定题目
+  const runDifficultyCheck = useCallback(async (problemId: string, problem: string, answer: string, explanation: string) => {
+    const controllerKey = `${problemId}-difficulty`;
+    
     try {
-      await form.validateFields(['problem', 'answer']);
-      const values = form.getFieldsValue();
+      // 清理之前的SSE连接
+      cleanupSSE(problemId);
+      
+      // 重置完成标记
+      difficultyCompletedRef.current.set(problemId, false);
 
       // 保存表单数据到全局store
       setFormData(values);
 
       // 创建 AbortController
       const controller = new AbortController();
-      setAbortControllers(prev => ({ ...prev, difficulty: controller }));
+      abortControllersRef.current.set(controllerKey, controller);
 
-      setDifficultyCheck({ loading: true, result: null, passed: null });
+      // 更新状态：开始检测
+      updateProblemCheck(problemId, 'difficulty', { status: 'running', progress: 0, result: null, passed: null });
       
-      try {
-        const result = await problemApi.validateSingle(
-          values.problem,
-          values.answer,
-          values.explanation
-        );
+      // 1. 启动异步难度检测
+      const { task_id } = await problemApi.startDifficultyCheck(problem, answer, explanation);
 
-        // 检查是否已被取消
-        if (controller.signal.aborted) {
+      // 检查是否已被取消
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      // 更新任务ID
+      updateProblemCheck(problemId, 'difficulty', { taskId: task_id });
+
+      // 2. 建立SSE连接订阅进度
+      const eventSource = problemApi.subscribeDifficultyProgress(task_id);
+      sseConnectionsRef.current.set(problemId, eventSource);
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          // 忽略心跳消息（仅用于保持连接活跃）
+          if (data.heartbeat) {
+            console.log('收到心跳，连接正常');
+            return;
+          }
+          
+          const progress = data.progress || 0;
+          
+          // 更新进度
+          updateProblemCheck(problemId, 'difficulty', { progress });
+
+          // 如果任务完成（进度100%且有结果）
+          if (progress >= 100 && data.result) {
+            const result = data.result;
+            
+            // 检查attempts_details中是否有error
+            const hasError = result.attempts_details?.some((detail: any) => detail.error);
+            const passed = hasError ? false : (result.is_passed || false);
+            
+            // 1. 首先标记任务已完成（防止 SSE 关闭时 onerror 误报，必须在其他操作之前）
+            difficultyCompletedRef.current.set(problemId, true);
+            
+            // 2. 更新状态
+            updateProblemCheck(problemId, 'difficulty', { 
+              status: 'completed', 
+              progress: 100, 
+              result: result,
+              passed: passed
+            });
+
+            // 3. 关闭SSE连接
+            cleanupSSE(problemId);
+            abortControllersRef.current.delete(controllerKey);
+          }
+        } catch (parseError) {
+          console.error('解析SSE数据失败:', parseError);
+        }
+      };
+
+      eventSource.onerror = (error) => {
+        // 如果任务已完成，忽略这个错误（SSE 正常关闭触发的）
+        if (difficultyCompletedRef.current.get(problemId)) {
+          console.log('SSE 正常关闭（任务已完成）');
           return;
         }
-
-        // 检查attempts_details中是否有error
-        const hasError = result.attempts_details?.some(
-          (detail: any) => detail.error
-        );
         
-        setDifficultyCheck({
-          loading: false,
-          result: result,
-          passed: hasError ? false : (result.is_passed || false),
-        });
-
-        if (hasError) {
-          const errorMsg = result.attempts_details?.find((d: any) => d.error)?.error || '检测出错';
-          message.error(`❌ 难度检测出错: ${errorMsg}`);
-        } else if (result.is_passed) {
-          message.success('✅ 难度检测通过');
-        } else {
-          message.warning('⚠️ 难度检测未通过');
-        }
-      } catch (error: any) {
+        console.error('SSE连接错误:', error);
+        
         // 如果是取消操作，不显示错误
         if (controller.signal.aborted) {
           return;
         }
-        throw error;
-      } finally {
-        setAbortControllers(prev => ({ ...prev, difficulty: undefined }));
-      }
+        
+        // 更新状态为错误
+        updateProblemCheck(problemId, 'difficulty', { status: 'error', progress: 0 });
+        
+        // 关闭SSE连接
+        cleanupSSE(problemId);
+        abortControllersRef.current.delete(controllerKey);
+      };
+
     } catch (error: any) {
       console.error('难度检测失败:', error);
-      setDifficultyCheck({ loading: false, result: null, passed: false });
-      if (!error.errorFields) {
-        message.error('难度检测失败，请重试');
-      }
+      updateProblemCheck(problemId, 'difficulty', { status: 'error', progress: 0 });
+      abortControllersRef.current.delete(controllerKey);
     }
-  };
+  }, [cleanupSSE, updateProblemCheck]);
 
-  // 检测原创性
-  const handleCheckOriginality = async () => {
+  // 检测原创性 - 针对特定题目
+  const runOriginalityCheck = useCallback(async (problemId: string, problem: string, answer: string, explanation: string) => {
+    const controllerKey = `${problemId}-originality`;
+    
     try {
-      await form.validateFields(['problem', 'answer']);
-      const values = form.getFieldsValue();
-
-      // 保存表单数据到全局store
-      setFormData(values);
-
       // 创建 AbortController
       const controller = new AbortController();
-      setAbortControllers(prev => ({ ...prev, originality: controller }));
+      abortControllersRef.current.set(controllerKey, controller);
 
-      setOriginalityCheck({ loading: true, result: null, passed: null });
+      // 更新状态：开始检测
+      updateProblemCheck(problemId, 'originality', { status: 'running', progress: 0, result: null, passed: null });
       
-      try {
-        const result = await problemApi.checkOriginality(
-          values.problem,
-          values.answer,
-          values.explanation
-        );
+      const result = await problemApi.checkOriginality(problem, answer, explanation);
 
-        // 检查是否已被取消
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        // 检查是否有error
-        const hasError = !result.success || result.originality?.error;
-        
-        const passed = hasError ? false : (result.originality?.is_original || false);
-        setOriginalityCheck({
-          loading: false,
-          result: result.originality,
-          passed: passed,
-        });
-
-        if (hasError) {
-          const errorMsg = result.originality?.error || result.error || '检测出错';
-          message.error(`❌ 原创性检测出错: ${errorMsg}`);
-        } else if (passed) {
-          message.success('✅ 原创性检测通过');
-        } else {
-          message.warning('⚠️ 原创性检测未通过');
-        }
-      } catch (error: any) {
-        // 如果是取消操作，不显示错误
-        if (controller.signal.aborted) {
-          return;
-        }
-        throw error;
-      } finally {
-        setAbortControllers(prev => ({ ...prev, originality: undefined }));
+      // 检查是否已被取消
+      if (controller.signal.aborted) {
+        return;
       }
+
+      // 检查是否有error
+      const hasError = !result.success || result.originality?.error;
+      const passed = hasError ? false : (result.originality?.is_original || false);
+
+      // 更新状态
+      updateProblemCheck(problemId, 'originality', { 
+        status: hasError ? 'error' : 'completed', 
+        progress: 100, 
+        result: result.originality,
+        passed: passed
+      });
+
+      abortControllersRef.current.delete(controllerKey);
     } catch (error: any) {
       console.error('原创性检测失败:', error);
-      setOriginalityCheck({ loading: false, result: null, passed: false });
-      if (!error.errorFields) {
-        message.error('原创性检测失败，请重试');
-      }
+      updateProblemCheck(problemId, 'originality', { status: 'error', progress: 0 });
+      abortControllersRef.current.delete(controllerKey);
     }
-  };
+  }, [updateProblemCheck]);
 
-  // 检测严谨性
-  const handleCheckRigor = async () => {
+  // 检测严谨性 - 针对特定题目
+  const runRigorCheck = useCallback(async (problemId: string, problem: string, answer: string, explanation: string) => {
+    const controllerKey = `${problemId}-rigor`;
+    
     try {
-      await form.validateFields(['problem', 'answer']);
-      const values = form.getFieldsValue();
-
-      // 保存表单数据到全局store
-      setFormData(values);
-
       // 创建 AbortController
       const controller = new AbortController();
-      setAbortControllers(prev => ({ ...prev, rigor: controller }));
+      abortControllersRef.current.set(controllerKey, controller);
 
-      setRigorCheck({ loading: true, result: null, passed: null });
+      // 更新状态：开始检测
+      updateProblemCheck(problemId, 'rigor', { status: 'running', progress: 0, result: null, passed: null });
       
-      try {
-        const result = await problemApi.checkRigor(
-          values.problem,
-          values.answer,
-          values.explanation
-        );
+      const result = await problemApi.checkRigor(problem, answer, explanation);
 
-        // 检查是否已被取消
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        // 检查是否有error
-        const hasError = !result.success || result.rigor?.error;
-        
-        const passed = hasError ? false : (result.rigor?.is_rigorous || false);
-        setRigorCheck({
-          loading: false,
-          result: result.rigor,
-          passed: passed,
-        });
-
-        if (hasError) {
-          const errorMsg = result.rigor?.error || result.error || '检测出错';
-          message.error(`❌ 严谨性检测出错: ${errorMsg}`);
-        } else if (passed) {
-          message.success('✅ 严谨性检测通过');
-        } else {
-          message.warning('⚠️ 严谨性检测未通过');
-        }
-      } catch (error: any) {
-        // 如果是取消操作，不显示错误
-        if (controller.signal.aborted) {
-          return;
-        }
-        throw error;
-      } finally {
-        setAbortControllers(prev => ({ ...prev, rigor: undefined }));
+      // 检查是否已被取消
+      if (controller.signal.aborted) {
+        return;
       }
+
+      // 检查是否有error
+      const hasError = !result.success || result.rigor?.error;
+      const passed = hasError ? false : (result.rigor?.is_rigorous || false);
+
+      // 更新状态
+      updateProblemCheck(problemId, 'rigor', { 
+        status: hasError ? 'error' : 'completed', 
+        progress: 100, 
+        result: result.rigor,
+        passed: passed
+      });
+
+      abortControllersRef.current.delete(controllerKey);
     } catch (error: any) {
       console.error('严谨性检测失败:', error);
-      setRigorCheck({ loading: false, result: null, passed: false });
+      updateProblemCheck(problemId, 'rigor', { status: 'error', progress: 0 });
+      abortControllersRef.current.delete(controllerKey);
+    }
+  }, [updateProblemCheck]);
+
+  // 启动单个题目的所有检测（并行执行）
+  const startAllChecksForProblem = useCallback((item: ProblemQueueItem) => {
+    // 并行启动三项检测
+    runDifficultyCheck(item.id, item.problem, item.answer, item.explanation);
+    runOriginalityCheck(item.id, item.problem, item.answer, item.explanation);
+    runRigorCheck(item.id, item.problem, item.answer, item.explanation);
+  }, [runDifficultyCheck, runOriginalityCheck, runRigorCheck]);
+
+  // 重试单项检测
+  const retryCheck = useCallback((problemId: string, checkType: 'difficulty' | 'originality' | 'rigor') => {
+    const item = problemQueue.find(p => p.id === problemId);
+    if (!item) {
+      message.warning('题目不存在');
+      return;
+    }
+
+    switch (checkType) {
+      case 'difficulty':
+        runDifficultyCheck(item.id, item.problem, item.answer, item.explanation);
+        break;
+      case 'originality':
+        runOriginalityCheck(item.id, item.problem, item.answer, item.explanation);
+        break;
+      case 'rigor':
+        runRigorCheck(item.id, item.problem, item.answer, item.explanation);
+        break;
+    }
+  }, [problemQueue, runDifficultyCheck, runOriginalityCheck, runRigorCheck]);
+
+  // 添加题目到队列并立即开始检测
+  const handleAddToQueue = async () => {
+    try {
+      await form.validateFields(['problem', 'answer', 'explanation']);
+      const values = form.getFieldsValue();
+
+      // 生成唯一ID
+      const problemId = `problem-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // 创建新的队列项
+      const newItem: ProblemQueueItem = {
+        id: problemId,
+        problem: values.problem,
+        answer: values.answer,
+        explanation: values.explanation || '',
+        checks: {
+          difficulty: createInitialCheckState(),
+          originality: createInitialCheckState(),
+          rigor: createInitialCheckState(),
+        },
+        allCompleted: false,
+        saved: false,
+      };
+
+      // 添加到队列（使用 store 方法）
+      addToProblemQueue(newItem);
+
+      // 清空表单，允许继续输入
+      form.resetFields();
+
+      message.success('✅ 题目已添加到检测队列');
+
+      // 立即启动检测
+      startAllChecksForProblem(newItem);
+    } catch (error: any) {
       if (!error.errorFields) {
-        message.error('严谨性检测失败，请重试');
+        message.error('添加失败，请检查输入');
       }
     }
   };
 
-  // 查看检测报告
-  const handleViewReport = (type: 'difficulty' | 'originality' | 'rigor') => {
+  // 查看检测报告 - 针对特定题目
+  const handleViewReport = (problemId: string, type: 'difficulty' | 'originality' | 'rigor') => {
+    const item = problemQueue.find(p => p.id === problemId);
+    if (!item) {
+      message.warning('题目不存在');
+      return;
+    }
+
     let title = '';
     let data = null;
 
     switch (type) {
       case 'difficulty':
         title = '难度检测报告';
-        data = difficultyCheck.result;
+        data = item.checks.difficulty.result;
         break;
       case 'originality':
         title = '原创性检测报告';
-        data = originalityCheck.result;
+        data = item.checks.originality.result;
         break;
       case 'rigor':
         title = '严谨性检测报告';
-        data = rigorCheck.result;
+        data = item.checks.rigor.result;
         break;
     }
 
     if (!data) {
-      message.warning('请先进行检测');
+      message.warning('暂无检测结果');
       return;
     }
 
@@ -388,29 +489,63 @@ export default function TotalPage() {
     setViewModalVisible(true);
   };
 
-  // 保存到列表
-  const handleSaveToList = async () => {
-    if (!canSaveToList || savingToList) {
-      if (!canSaveToList) {
-        message.warning('请先完成所有检测');
-      }
+  // 保存单个题目到列表
+  const handleSaveProblem = async (problemId: string) => {
+    const item = problemQueue.find(p => p.id === problemId);
+    if (!item) {
+      message.warning('题目不存在');
+      return;
+    }
+
+    // 检查三个检测是否都已执行过（不能有idle状态）
+    const hasIdleCheck = 
+      item.checks.difficulty.status === 'idle' ||
+      item.checks.originality.status === 'idle' ||
+      item.checks.rigor.status === 'idle';
+    
+    if (hasIdleCheck) {
+      message.warning('请确保三项检测都已执行');
+      return;
+    }
+
+    // 检查是否有正在进行的检测
+    const hasRunningCheck = 
+      item.checks.difficulty.status === 'running' ||
+      item.checks.originality.status === 'running' ||
+      item.checks.rigor.status === 'running';
+    
+    if (hasRunningCheck) {
+      message.warning('请等待所有检测完成');
+      return;
+    }
+
+    // 检查是否有出错的检测
+    const hasErrorCheck = 
+      item.checks.difficulty.status === 'error' ||
+      item.checks.originality.status === 'error' ||
+      item.checks.rigor.status === 'error';
+    
+    if (hasErrorCheck) {
+      message.warning('存在检测出错，请点击重试按钮重新检测');
+      return;
+    }
+
+    if (item.saved) {
+      message.warning('该题目已保存');
       return;
     }
 
     try {
       setSavingToList(true);
-      await form.validateFields();
-      const values = form.getFieldsValue();
 
       const result = await problemApi.validateAndSave({
-        problem: values.problem,
-        answer: values.answer,
-        explanation: values.explanation,
+        problem: item.problem,
+        answer: item.answer,
+        explanation: item.explanation,
         include_difficulty: false,
-        // 传递前端已完成的检测结果
-        difficulty_result: difficultyCheck.result || undefined,
-        originality_result: originalityCheck.result || undefined,
-        rigor_result: rigorCheck.result || undefined,
+        difficulty_result: item.checks.difficulty.result || undefined,
+        originality_result: item.checks.originality.result || undefined,
+        rigor_result: item.checks.rigor.result || undefined,
       });
 
       const taskProgress = result.task_progress;
@@ -418,15 +553,17 @@ export default function TotalPage() {
         ? `（进度：${taskProgress.completed}/${taskProgress.total}，剩余：${taskProgress.remaining}）`
         : '';
       
-          message.success(`✅ 题目已保存到导出列表${progressMsg}`);
-          
-          // 刷新列表、任务和用户信息（用于更新仪表盘）
-          await loadExportList();
-          await refreshTasks();
-          await fetchCurrentUser();
-          
-          // 重置表单和检测状态
-          handleReset();
+      message.success(`✅ 题目已保存到导出列表${progressMsg}`);
+      
+      // 标记为已保存（使用 store 方法）
+      markProblemAsSaved(problemId);
+      
+      // 刷新列表和用户信息（任务会自动智能刷新）
+      await Promise.all([
+        loadExportList(true),  // 强制刷新
+        refreshTasks(),  // 强制刷新任务，因为进度已变化
+        fetchCurrentUser()
+      ]);
     } catch (error: any) {
       console.error('保存失败:', error);
       const errorMsg = error.response?.data?.detail || error.message || '保存失败，请重试';
@@ -436,15 +573,51 @@ export default function TotalPage() {
     }
   };
 
-  // 删除题目（重置）
-  const handleDelete = () => {
+  // 从队列中移除题目
+  const handleRemoveFromQueue = (problemId: string) => {
+    // 取消该题目的所有进行中的请求
+    ['difficulty', 'originality', 'rigor'].forEach(type => {
+      const controllerKey = `${problemId}-${type}`;
+      const controller = abortControllersRef.current.get(controllerKey);
+      if (controller) {
+        controller.abort();
+        abortControllersRef.current.delete(controllerKey);
+      }
+    });
+    
+    // 清理SSE连接
+    cleanupSSE(problemId);
+    
+    // 从队列中移除（使用 store 方法）
+    removeFromProblemQueue(problemId);
+  };
+
+  // 清空整个检测队列
+  const handleClearQueue = () => {
+    if (problemQueue.length === 0) {
+      message.info('队列已经是空的');
+      return;
+    }
+
     Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除当前题目吗？所有检测结果将被清空。',
+      title: '确认清空队列',
+      content: `确定要清空检测队列吗？共 ${problemQueue.length} 个题目将被移除。`,
       okText: '确认',
       cancelText: '取消',
       okType: 'danger',
-      onOk: handleReset,
+      onOk: () => {
+        // 取消所有正在进行的请求
+        abortControllersRef.current.forEach(controller => controller.abort());
+        abortControllersRef.current.clear();
+        
+        // 清理所有SSE连接
+        cleanupAllSSE();
+        
+        // 清空队列（使用 store 方法）
+        clearProblemQueue();
+        
+        message.success('队列已清空');
+      },
     });
   };
 
@@ -456,17 +629,12 @@ export default function TotalPage() {
 
   // 修改题目（增强版：停止检测并清除报告）
   const handleModify = () => {
-    // 如果有检测正在进行，取消所有检测
-    if (isAnyCheckRunning) {
-      // 取消所有正在进行的请求
-      Object.values(abortControllers).forEach(controller => {
-        if (controller) {
-          controller.abort();
-        }
-      });
-      
-      message.warning('已停止所有正在进行的检测');
-    }
+    // 取消所有正在进行的请求
+    Object.values(abortControllers).forEach(controller => {
+      if (controller) {
+        controller.abort();
+      }
+    });
 
     // 重置所有检测状态和报告（使用全局store）
     clearAllChecks();
@@ -537,8 +705,26 @@ export default function TotalPage() {
     return false; // 阻止默认上传行为
   };
 
-  // 加载导出列表
-  const loadExportList = async () => {
+  // 加载导出列表（带缓存检查）
+  const loadExportList = async (force = false) => {
+    const CACHE_DURATION = 5000; // 5秒缓存
+    
+    // 检查是否需要加载
+    if (!force && exportListInitialized) {
+      const timeSinceLastFetch = Date.now() - lastExportListFetchTime;
+      if (timeSinceLastFetch < CACHE_DURATION) {
+        console.log(`[TotalPage] 使用导出列表缓存（${Math.round(timeSinceLastFetch / 1000)}秒前）`);
+        return;
+      }
+    }
+    
+    // 如果正在加载，跳过
+    if (loadingList) {
+      console.log('[TotalPage] 正在加载导出列表，跳过');
+      return;
+    }
+    
+    console.log('[TotalPage] 加载导出列表');
     setLoadingList(true);
     try {
       const data = await problemApi.getExportList();
@@ -572,7 +758,7 @@ export default function TotalPage() {
       window.URL.revokeObjectURL(url);
 
       message.success('✅ 导出成功！');
-      await loadExportList();
+      await loadExportList(true);  // 强制刷新
     } catch (error) {
       console.error('导出失败:', error);
       message.error('导出失败，请重试');
@@ -593,10 +779,12 @@ export default function TotalPage() {
         try {
           await problemApi.clearExportList();
           message.success('✅ 列表已清空，任务进度已重置');
-          // 刷新列表、任务和用户信息（用于更新仪表盘）
-          await loadExportList();
-          await refreshTasks();
-          await fetchCurrentUser();
+          // 刷新列表和用户信息（并行执行）
+          await Promise.all([
+            loadExportList(true),  // 强制刷新
+            refreshTasks(),  // 强制刷新任务，因为进度已变化
+            fetchCurrentUser()
+          ]);
         } catch (error: any) {
           console.error('清空失败:', error);
           const errorMsg = error.response?.data?.detail || error.message || '清空失败，请重试';
@@ -606,11 +794,20 @@ export default function TotalPage() {
     });
   };
 
-  // 初始化加载列表和任务
+  // 初始化加载列表（智能加载，使用缓存）
+  // 注意：不再在这里调用 refreshTasks，useTask hook 会自动智能加载
   useEffect(() => {
-    loadExportList();
-    refreshTasks();
-  }, []);
+    // 使用智能加载，如果有缓存就不加载
+    loadExportList(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // 只在组件挂载时执行一次
+
+  // 恢复表单数据（从全局store）
+  useEffect(() => {
+    if (formData) {
+      form.setFieldsValue(formData);
+    }
+  }, [formData, form]);
 
   // 恢复表单数据（从全局store）
   useEffect(() => {
@@ -643,10 +840,12 @@ export default function TotalPage() {
           
           message.success(`✅ 题目已删除${progressMsg}`);
           
-          // 刷新列表、任务和用户信息（用于更新仪表盘）
-          await loadExportList();
-          await refreshTasks();
-          await fetchCurrentUser();
+          // 刷新列表和用户信息（并行执行）
+          await Promise.all([
+            loadExportList(true),  // 强制刷新
+            refreshTasks(),  // 强制刷新任务，因为进度已变化
+            fetchCurrentUser()
+          ]);
         } catch (error: any) {
           console.error('删除失败:', error);
           const errorMsg = error.response?.data?.detail || error.message || '删除失败，请重试';
@@ -803,46 +1002,54 @@ export default function TotalPage() {
     },
   ];
 
-  // 渲染检测按钮
-  const renderCheckButton = (
-    label: string,
-    icon: React.ReactNode,
-    check: CheckStatus,
-    onCheck: () => void,
-    onView: () => void
-  ) => {
-    return (
-      <Space direction="vertical" style={{ width: '100%' }}>
-        <Button
-          type={check.passed === true ? 'primary' : 'default'}
-          danger={check.passed === false}
-          icon={icon}
-          loading={check.loading}
-          onClick={onCheck}
-          block
-          size="large"
-          style={{ height: 48 }}
-        >
-          {check.loading
-            ? '检测中...'
-            : check.passed === null
-            ? label
-            : check.result?.error || (check.result?.attempts_details?.some((d: any) => d.error))
-            ? `${label}出错`
-            : check.passed
-            ? `${label}通过`
-            : `${label}未通过`}
-        </Button>
-        <Button
-          icon={<EyeOutlined />}
-          onClick={onView}
-          disabled={!check.result}
-          block
-        >
-          查看报告
-        </Button>
-      </Space>
-    );
+  // 获取检测状态图标
+  const getCheckStatusIcon = (status: CheckTaskStatus, passed: boolean | null) => {
+    switch (status) {
+      case 'idle':
+        return <ClockCircleOutlined style={{ color: '#999' }} />;
+      case 'running':
+        return <LoadingOutlined style={{ color: '#1890ff' }} spin />;
+      case 'completed':
+        return passed 
+          ? <CheckCircleOutlined style={{ color: '#52c41a' }} />
+          : <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
+      case 'error':
+        return <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />;
+      default:
+        return null;
+    }
+  };
+
+  // 获取检测状态标签
+  const getCheckStatusTag = (status: CheckTaskStatus, passed: boolean | null) => {
+    switch (status) {
+      case 'idle':
+        return <Tag color="default">未开始</Tag>;
+      case 'running':
+        return <Tag color="processing">检测中</Tag>;
+      case 'completed':
+        return passed 
+          ? <Tag color="success">通过</Tag>
+          : <Tag color="error">未通过</Tag>;
+      case 'error':
+        return <Tag color="error">出错</Tag>;
+      default:
+        return null;
+    }
+  };
+
+  // 获取进度条状态
+  const getProgressStatus = (status: CheckTaskStatus, passed: boolean | null) => {
+    switch (status) {
+      case 'running':
+        return 'active' as const;
+      case 'completed':
+        return passed ? 'success' as const : 'exception' as const;
+      case 'error':
+        return 'exception' as const;
+      default:
+        return 'normal' as const;
+    }
   };
 
   return (
@@ -877,7 +1084,7 @@ export default function TotalPage() {
       </Card>
 
       {/* 题目输入区 */}
-      <Card title="题目信息" style={{ marginBottom: 24 }}>
+      <Card title="添加题目到检测队列" style={{ marginBottom: 24 }}>
         <Form form={form} layout="vertical">
           <Form.Item
             label="题目内容"
@@ -887,7 +1094,6 @@ export default function TotalPage() {
             <TextArea
               rows={6}
               placeholder="请输入题目内容（支持LaTeX公式，如 $x^2$）"
-              disabled={formFieldsDisabled}
             />
           </Form.Item>
 
@@ -898,7 +1104,7 @@ export default function TotalPage() {
                 name="answer"
                 rules={[{ required: true, message: '请输入标准答案' }]}
               >
-                <Input placeholder="请输入标准答案" disabled={formFieldsDisabled} />
+                <Input placeholder="请输入标准答案" />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -907,7 +1113,7 @@ export default function TotalPage() {
                 name="explanation"
                 rules={[{ required: true, message: '请输入题目解析' }]}
               >
-                <Input placeholder="请输入题目解析" disabled={formFieldsDisabled} />
+                <Input placeholder="请输入题目解析" />
               </Form.Item>
             </Col>
           </Row>
@@ -916,25 +1122,22 @@ export default function TotalPage() {
         {/* 操作按钮 */}
         <Space style={{ marginTop: 16 }}>
           <Button 
-            icon={<EditOutlined />} 
-            onClick={handleModify}
-            disabled={!formFieldsDisabled}
-            type={isAnyCheckRunning ? 'primary' : 'default'}
-            danger={isAnyCheckRunning}
+            type="primary"
+            icon={<PlusOutlined />} 
+            onClick={handleAddToQueue}
+            size="large"
           >
-            {isAnyCheckRunning ? '停止检测并修改' : '修改题目'}
+            添加到检测队列
           </Button>
           
           <Upload
             accept="image/*"
             showUploadList={false}
             beforeUpload={handleImageRecognize}
-            disabled={formFieldsDisabled}
           >
             <Button 
               icon={<PictureOutlined />}
               loading={recognizing}
-              disabled={formFieldsDisabled}
             >
               {recognizing ? '识别中...' : '图片识别'}
             </Button>
@@ -942,63 +1145,151 @@ export default function TotalPage() {
         </Space>
       </Card>
 
-      {/* 三重检测区 */}
-      <Card title="三重检测" style={{ marginBottom: 24 }}>
-        <Row gutter={16}>
-          <Col span={8}>
-            {renderCheckButton(
-              '难度检测',
-              <ExperimentOutlined />,
-              difficultyCheck,
-              handleCheckDifficulty,
-              () => handleViewReport('difficulty')
+      {/* 检测任务队列 */}
+      <Card 
+        title={
+          <Space>
+            <ClockCircleOutlined />
+            检测任务队列
+          </Space>
+        }
+        style={{ marginBottom: 24 }}
+        extra={
+          <Space>
+            <Text type="secondary">
+              {completedCount}/{problemQueue.length} 题完成 | {savedCount} 已保存
+            </Text>
+            {problemQueue.length > 0 && (
+              <Button 
+                danger 
+                size="small" 
+                icon={<DeleteOutlined />}
+                onClick={handleClearQueue}
+              >
+                清空队列
+              </Button>
             )}
-          </Col>
-          <Col span={8}>
-            {renderCheckButton(
-              '原创性检测',
-              <SafetyCertificateOutlined />,
-              originalityCheck,
-              handleCheckOriginality,
-              () => handleViewReport('originality')
-            )}
-          </Col>
-          <Col span={8}>
-            {renderCheckButton(
-              '严谨性检测',
-              <RadarChartOutlined />,
-              rigorCheck,
-              handleCheckRigor,
-              () => handleViewReport('rigor')
-            )}
-          </Col>
-        </Row>
+          </Space>
+        }
+      >
+        {problemQueue.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
+            <ClockCircleOutlined style={{ fontSize: 48, marginBottom: 16 }} />
+            <div>暂无检测任务，请在上方添加题目</div>
+          </div>
+        ) : (
+          <List
+            dataSource={problemQueue}
+            renderItem={(problemItem, index) => {
+              const checks = [
+                { key: 'difficulty' as const, name: '难度检测', icon: <ExperimentOutlined />, ...problemItem.checks.difficulty },
+                { key: 'originality' as const, name: '原创性检测', icon: <SafetyCertificateOutlined />, ...problemItem.checks.originality },
+                { key: 'rigor' as const, name: '严谨性检测', icon: <RadarChartOutlined />, ...problemItem.checks.rigor },
+              ];
 
-        {/* 检测状态提示 */}
-        {canSaveToList && (
-          <Alert
-            message="✅ 所有检测已完成！"
-            description={`难度检测：${difficultyCheck.passed ? '通过' : '未通过'} | 原创性检测：${originalityCheck.passed ? '通过' : '未通过'} | 严谨性检测：${rigorCheck.passed ? '通过' : '未通过'} - AI建议仅供参考，非最终采纳结果`}
-            type="info"
-            showIcon
-            style={{ marginTop: 16 }}
+              return (
+                <Card 
+                  key={problemItem.id}
+                  size="small" 
+                  style={{ marginBottom: 16 }}
+                  title={
+                    <Space>
+                      <Text strong>题目 {index + 1}</Text>
+                      {problemItem.allCompleted ? (
+                        problemItem.saved ? (
+                          <Tag color="success" icon={<CheckCircleOutlined />}>已保存</Tag>
+                        ) : (
+                          <Tag color="blue" icon={<CheckCircleOutlined />}>检测完成</Tag>
+                        )
+                      ) : (
+                        <Tag color="processing" icon={<LoadingOutlined />}>检测中</Tag>
+                      )}
+                    </Space>
+                  }
+                  extra={
+                    <Space>
+                      {problemItem.allCompleted && !problemItem.saved && (
+                        <Button 
+                          type="primary" 
+                          size="small" 
+                          icon={<SaveOutlined />}
+                          loading={savingToList}
+                          onClick={() => handleSaveProblem(problemItem.id)}
+                        >
+                          保存
+                        </Button>
+                      )}
+                      <Button 
+                        danger 
+                        size="small" 
+                        icon={<DeleteOutlined />}
+                        onClick={() => handleRemoveFromQueue(problemItem.id)}
+                      >
+                        移除
+                      </Button>
+                    </Space>
+                  }
+                >
+                  {/* 题目内容预览 */}
+                  <div style={{ marginBottom: 12 }}>
+                    <Text type="secondary">题目：</Text>
+                    <Text ellipsis={{ tooltip: problemItem.problem }} style={{ maxWidth: 400 }}>
+                      {problemItem.problem.length > 50 ? `${problemItem.problem.slice(0, 50)}...` : problemItem.problem}
+                    </Text>
+                  </div>
+
+                  {/* 三项检测状态 */}
+                  <Row gutter={[16, 8]}>
+                    {checks.map((check) => (
+                      <Col span={8} key={check.key}>
+                        <Card size="small" bordered={false} style={{ background: '#fafafa' }}>
+                          <Space direction="vertical" style={{ width: '100%' }} size={4}>
+                            <Space>
+                              {getCheckStatusIcon(check.status, check.passed)}
+                              {check.icon}
+                              <Text strong style={{ fontSize: 12 }}>{check.name}</Text>
+                            </Space>
+                            <Progress
+                              percent={check.progress}
+                              size="small"
+                              status={getProgressStatus(check.status, check.passed)}
+                              format={(percent) => `${percent}%`}
+                            />
+                            <Space>
+                              {getCheckStatusTag(check.status, check.passed)}
+                              {check.status === 'completed' && check.result && (
+                                <Button 
+                                  type="link" 
+                                  size="small" 
+                                  icon={<EyeOutlined />}
+                                  onClick={() => handleViewReport(problemItem.id, check.key)}
+                                  style={{ padding: 0 }}
+                                >
+                                  查看报告
+                                </Button>
+                              )}
+                              {check.status === 'error' && (
+                                <Button 
+                                  type="link" 
+                                  size="small" 
+                                  icon={<SyncOutlined />}
+                                  onClick={() => retryCheck(problemItem.id, check.key)}
+                                  style={{ padding: 0, color: '#ff4d4f' }}
+                                >
+                                  重试
+                                </Button>
+                              )}
+                            </Space>
+                          </Space>
+                        </Card>
+                      </Col>
+                    ))}
+                  </Row>
+                </Card>
+              );
+            }}
           />
         )}
-
-        {/* 保存按钮 */}
-        <Divider />
-        <Button
-          type="primary"
-          size="large"
-          icon={<SaveOutlined />}
-          onClick={handleSaveToList}
-          disabled={!canSaveToList || savingToList}
-          loading={savingToList}
-          block
-          style={{ height: 56, fontSize: 16 }}
-        >
-          {savingToList ? '保存中...' : canSaveToList ? '保存到导出列表' : '请完成所有检测后保存'}
-        </Button>
       </Card>
 
       {/* 导出列表区 */}

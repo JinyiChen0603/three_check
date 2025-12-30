@@ -12,8 +12,50 @@ export interface CheckStatus {
   passed: boolean | null;
 }
 
+// 检测任务状态类型
+export type CheckTaskStatus = 'idle' | 'running' | 'completed' | 'error';
+
+// 单项检测任务状态
+export interface CheckTaskState {
+  status: CheckTaskStatus;
+  progress: number;              // 0-100
+  result: any | null;
+  passed: boolean | null;
+  taskId?: string;               // SSE任务ID（仅难度检测）
+}
+
+// 多题目队列项类型
+export interface ProblemQueueItem {
+  id: string;                    // UUID
+  problem: string;               // 题目内容
+  answer: string;                // 答案
+  explanation: string;           // 解析
+  checks: {
+    difficulty: CheckTaskState;
+    originality: CheckTaskState;
+    rigor: CheckTaskState;
+  };
+  allCompleted: boolean;         // 三项检测是否全部完成
+  saved: boolean;                // 是否已保存到导出列表
+}
+
+// 导出列表项类型
+export interface ExportListItem {
+  id: number;
+  content?: string;
+  answer?: string;
+  explanation?: string;
+  difficulty_passed: boolean | null;
+  originality_passed: boolean | null;
+  rigor_passed: boolean | null;
+  difficulty_validation?: any;
+  originality_check?: any;
+  rigor_check?: any;
+  created_at: string;
+}
+
 interface ValidationState {
-  // 三个检测状态
+  // 三个检测状态（旧版单题目模式，保留兼容）
   difficultyCheck: CheckStatus;
   originalityCheck: CheckStatus;
   rigorCheck: CheckStatus;
@@ -25,18 +67,48 @@ interface ValidationState {
     explanation: string;
   } | null;
   
-  // Actions
+  // 新增：检测队列状态
+  problemQueue: ProblemQueueItem[];
+  
+  // 新增：导出列表状态
+  exportList: ExportListItem[];
+  exportStats: { total: number; passed: number; failed: number };
+  loadingList: boolean;
+  lastExportListFetchTime: number;  // 导出列表最后加载时间
+  exportListInitialized: boolean;   // 是否已初始化
+  
+  // Actions - 旧版
   setDifficultyCheck: (check: CheckStatus) => void;
   setOriginalityCheck: (check: CheckStatus) => void;
   setRigorCheck: (check: CheckStatus) => void;
   setFormData: (data: { problem: string; answer: string; explanation: string }) => void;
   clearAllChecks: () => void;
   
+  // Actions - 检测队列
+  addToProblemQueue: (item: ProblemQueueItem) => void;
+  updateProblemInQueue: (id: string, updates: Partial<ProblemQueueItem>) => void;
+  updateProblemCheck: (
+    problemId: string,
+    checkType: 'difficulty' | 'originality' | 'rigor',
+    updates: Partial<CheckTaskState>
+  ) => void;
+  removeFromProblemQueue: (id: string) => void;
+  clearProblemQueue: () => void;
+  markProblemAsSaved: (id: string) => void;
+  
+  // Actions - 导出列表
+  setExportList: (list: ExportListItem[]) => void;
+  setExportStats: (stats: { total: number; passed: number; failed: number }) => void;
+  setLoadingList: (loading: boolean) => void;
+  resetExportData: () => void;
+  loadExportListIfNeeded: (force?: boolean) => Promise<void>;  // 智能加载
+  
   // 完成检查时的通知
   notifyCheckComplete: (checkType: 'difficulty' | 'originality' | 'rigor', passed: boolean) => void;
 }
 
 export const useValidationStore = create<ValidationState>((set, get) => ({
+  // 初始状态 - 旧版
   difficultyCheck: {
     loading: false,
     result: null,
@@ -53,7 +125,16 @@ export const useValidationStore = create<ValidationState>((set, get) => ({
     passed: null,
   },
   formData: null,
+  
+  // 初始状态 - 新增
+  problemQueue: [],
+  exportList: [],
+  exportStats: { total: 0, passed: 0, failed: 0 },
+  loadingList: false,
+  lastExportListFetchTime: 0,
+  exportListInitialized: false,
 
+  // Actions - 旧版
   setDifficultyCheck: (check) => {
     set({ difficultyCheck: check });
     // 如果检测完成，发送通知
@@ -89,6 +170,118 @@ export const useValidationStore = create<ValidationState>((set, get) => ({
     });
   },
 
+  // Actions - 检测队列
+  addToProblemQueue: (item) => {
+    set((state) => ({
+      problemQueue: [...state.problemQueue, item],
+    }));
+  },
+
+  updateProblemInQueue: (id, updates) => {
+    set((state) => ({
+      problemQueue: state.problemQueue.map((item) =>
+        item.id === id ? { ...item, ...updates } : item
+      ),
+    }));
+  },
+
+  updateProblemCheck: (problemId, checkType, updates) => {
+    set((state) => ({
+      problemQueue: state.problemQueue.map((item) => {
+        if (item.id !== problemId) return item;
+        
+        const newChecks = {
+          ...item.checks,
+          [checkType]: { ...item.checks[checkType], ...updates }
+        };
+        
+        // 计算是否所有检测都完成
+        const allCompleted = 
+          (newChecks.difficulty.status === 'completed' || newChecks.difficulty.status === 'error') &&
+          (newChecks.originality.status === 'completed' || newChecks.originality.status === 'error') &&
+          (newChecks.rigor.status === 'completed' || newChecks.rigor.status === 'error');
+        
+        return { ...item, checks: newChecks, allCompleted };
+      }),
+    }));
+  },
+
+  removeFromProblemQueue: (id) => {
+    set((state) => ({
+      problemQueue: state.problemQueue.filter((item) => item.id !== id),
+    }));
+  },
+
+  clearProblemQueue: () => {
+    set({ problemQueue: [] });
+  },
+
+  markProblemAsSaved: (id) => {
+    set((state) => ({
+      problemQueue: state.problemQueue.map((item) =>
+        item.id === id ? { ...item, saved: true } : item
+      ),
+    }));
+  },
+
+  // Actions - 导出列表
+  setExportList: (list) => {
+    set({ 
+      exportList: list,
+      lastExportListFetchTime: Date.now(),
+      exportListInitialized: true,
+    });
+  },
+
+  setExportStats: (stats) => {
+    set({ exportStats: stats });
+  },
+
+  setLoadingList: (loading) => {
+    set({ loadingList: loading });
+  },
+  
+  // 清空所有数据（用于重置）
+  resetExportData: () => {
+    set({
+      exportList: [],
+      exportStats: { total: 0, passed: 0, failed: 0 },
+      lastExportListFetchTime: 0,
+      exportListInitialized: false,
+    });
+  },
+  
+  // 智能加载导出列表（带缓存机制）
+  loadExportListIfNeeded: async (force = false) => {
+    const { loadingList, lastExportListFetchTime, exportListInitialized } = get();
+    const CACHE_DURATION = 5000; // 5秒缓存
+    
+    // 如果正在加载，跳过
+    if (loadingList) {
+      console.log('[ValidationStore] 正在加载导出列表，跳过');
+      return;
+    }
+    
+    // 如果强制刷新或未初始化，立即加载
+    if (force || !exportListInitialized) {
+      console.log('[ValidationStore] 强制刷新或首次加载导出列表');
+      // 这里不直接调用API，而是返回，让调用方处理
+      // 因为API调用在组件中，store只负责状态管理
+      return;
+    }
+    
+    // 检查缓存时间
+    const timeSinceLastFetch = Date.now() - lastExportListFetchTime;
+    if (timeSinceLastFetch < CACHE_DURATION) {
+      console.log(`[ValidationStore] 使用导出列表缓存（${Math.round(timeSinceLastFetch / 1000)}秒前）`);
+      return;
+    }
+    
+    console.log('[ValidationStore] 导出列表缓存过期，需要刷新');
+    // 返回，让调用方知道需要刷新
+  },
+
+  // 通知
   notifyCheckComplete: (checkType, passed) => {
     const typeNames = {
       difficulty: '难度验证',
