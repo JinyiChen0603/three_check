@@ -32,6 +32,14 @@ alembic upgrade head || {
 
 echo "✅ 数据库迁移完成"
 
+# 同步数据库结构（自动修复枚举大小写等问题）
+echo "🔄 同步数据库结构（包括枚举类型）..."
+python scripts/sync_database_schema.py --auto-sync || {
+  echo "⚠️ 数据库同步失败，继续启动应用"
+}
+
+echo "✅ 数据库同步完成"
+
 # 启动应用
 echo "🚀 启动 FastAPI 应用..."
 exec "$@"
