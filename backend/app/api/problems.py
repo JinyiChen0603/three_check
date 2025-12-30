@@ -643,6 +643,26 @@ async def start_difficulty_check(
         
         # 存储最终结果（100% 进度 + 结果）
         await progress_service.update_progress(task_id, 100, result)
+        
+        # 保存完整的8次检测结果到数据库
+        if result.get("success", False):
+            try:
+                async for db in get_db():
+                    validation_record = ValidationRecord(
+                        problem_id=None,  # 暂时不关联题目
+                        validation_type="difficulty",
+                        ai_model=result.get("ai_model", "豆包"),
+                        attempts=result.get("attempts", 16),
+                        correct_count=result.get("correct_count", 0),
+                        is_passed=result.get("is_passed", False),
+                        result_data=result  # 存储完整结果，包含8次详细输出
+                    )
+                    db.add(validation_record)
+                    await db.commit()
+                    print(f"✅ 难度检测结果已保存到数据库，task_id={task_id}")
+                    break
+            except Exception as e:
+                print(f"⚠️ 保存验证记录到数据库失败: {str(e)}")
     
     background_tasks.add_task(run_check)
     
