@@ -1,46 +1,37 @@
 #!/bin/bash
 set -e
 
-echo "🚀 启动应用..."
+echo "Starting application..."
 
-# 等待数据库就绪（最多等待 60 秒）
-echo "⏳ 等待数据库连接..."
+# Wait for database (max 60 seconds)
+echo "Waiting for database connection..."
 MAX_RETRIES=30
 RETRY_COUNT=0
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-  # 使用 pg_isready 检查 PostgreSQL 是否就绪（更可靠）
+  # Use pg_isready to check if PostgreSQL is ready
   if PGPASSWORD=mathtasks123 psql -h postgres -U mathtasks -d mathtasks -c "SELECT 1" >/dev/null 2>&1; then
-    echo "✅ 数据库连接成功"
+    echo "Database connection successful"
     break
   fi
   RETRY_COUNT=$((RETRY_COUNT + 1))
-  echo "⏳ 数据库未就绪，等待 2 秒... ($RETRY_COUNT/$MAX_RETRIES)"
+  echo "Database not ready, waiting 2 seconds... ($RETRY_COUNT/$MAX_RETRIES)"
   sleep 2
 done
 
 if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-  echo "❌ 数据库连接超时，请检查数据库服务"
+  echo "Database connection timeout, please check database service"
   exit 1
 fi
 
-# 运行数据库迁移
-echo "📦 运行数据库迁移..."
+# Run database migrations
+echo "Running database migrations..."
 alembic upgrade head || {
-  echo "⚠️ 数据库迁移失败，但继续启动应用（可能是数据库已是最新版本）"
+  echo "Database migration failed, but continuing to start application (database may already be up to date)"
 }
 
-echo "✅ 数据库迁移完成"
+echo "Database migration completed"
 
-# 同步数据库结构（自动修复枚举大小写等问题）
-echo "🔄 同步数据库结构（包括枚举类型）..."
-python scripts/sync_database_schema.py --auto-sync || {
-  echo "⚠️ 数据库同步失败，继续启动应用"
-}
-
-echo "✅ 数据库同步完成"
-
-# 启动应用
-echo "🚀 启动 FastAPI 应用..."
+# Start application
+echo "Starting FastAPI application..."
 exec "$@"
-

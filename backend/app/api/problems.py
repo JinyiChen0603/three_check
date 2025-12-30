@@ -649,7 +649,7 @@ async def start_difficulty_check(
             try:
                 async for db in get_db():
                     validation_record = ValidationRecord(
-                        problem_id=None,  # 暂时不关联题目
+                        validated_problem_id=None,  # 内容质检暂不关联题目，导出后再关联
                         validation_type="difficulty",
                         ai_model=result.get("ai_model", "豆包"),
                         attempts=result.get("attempts", 16),
@@ -852,22 +852,9 @@ async def quality_check(
     
     await db.commit()
     
-    # 保存验证记录
-    for check_type, check_data in [
-        ("difficulty", check_result["difficulty"]),
-        ("originality", check_result["originality"]),
-        ("rigor", check_result["rigor"])
-    ]:
-        validation_record = ValidationRecord(
-            problem_id=problem.id,
-            validation_type=check_type,
-            ai_model=check_data.get("ai_model", "unknown"),
-            is_passed=check_data.get("is_passed", False) if check_type == "difficulty" else check_data.get(f"is_{check_type.replace('ity', 'al') if check_type.endswith('ity') else check_type}", False),
-            result_data=check_data
-        )
-        db.add(validation_record)
+    # ValidationRecord 已迁移到 ValidatedProblemExport，旧的 Problem 表不再保存验证记录
+    # 如果需要保存验证记录，请使用导出功能创建 ValidatedProblemExport
     
-    await db.commit()
     await db.refresh(problem)
     
     return {
@@ -1320,6 +1307,40 @@ async def validate_and_save_problem(
         db.add(validated_problem)
         await db.commit()
         await db.refresh(validated_problem)
+        
+        # 5.1 创建验证记录
+        validation_checks = []
+        if difficulty_result:
+            validation_checks.append(("difficulty", difficulty_result))
+        if originality_check:
+            validation_checks.append(("originality", originality_check))
+        if rigor_check:
+            validation_checks.append(("rigor", rigor_check))
+        
+        for check_type, check_data in validation_checks:
+            if check_data and check_data.get("success"):
+                # 判断是否通过
+                if check_type == "difficulty":
+                    is_passed = check_data.get("is_passed", False)
+                elif check_type == "originality":
+                    is_passed = check_data.get("is_original", False)
+                elif check_type == "rigor":
+                    is_passed = check_data.get("is_rigorous", False)
+                else:
+                    is_passed = False
+                
+                validation_record = ValidationRecord(
+                    validated_problem_id=validated_problem.id,
+                    validation_type=check_type,
+                    ai_model=check_data.get("ai_model", "unknown"),
+                    attempts=check_data.get("attempts") if check_type == "difficulty" else None,
+                    correct_count=check_data.get("correct_count") if check_type == "difficulty" else None,
+                    is_passed=is_passed,
+                    result_data=check_data
+                )
+                db.add(validation_record)
+        
+        await db.commit()
         
         # 6. 实时统计当前任务的题目数量，更新任务进度
         saved_count_result = await db.execute(

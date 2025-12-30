@@ -271,7 +271,8 @@ class Problem(Base):
     tasks = relationship("Task", back_populates="problem")
     reviews = relationship("Review", back_populates="problem")
     transactions = relationship("Transaction", back_populates="related_problem")
-    validation_records = relationship("ValidationRecord", back_populates="problem")
+    # validation_records 已迁移到 ValidatedProblemExport
+    # validation_records = relationship("ValidationRecord", back_populates="problem")
     
     # 索引
     __table_args__ = (
@@ -480,7 +481,7 @@ class ValidationRecord(Base):
     
     # 基础字段
     id = Column(Integer, primary_key=True, index=True)
-    problem_id = Column(Integer, ForeignKey("problems.id"), nullable=False, index=True)
+    validated_problem_id = Column(Integer, ForeignKey("validated_problem_exports.id", ondelete="CASCADE"), nullable=True, index=True)
     
     # 验证类型
     validation_type = Column(String(50), nullable=False)  # difficulty/originality/rigor
@@ -500,15 +501,15 @@ class ValidationRecord(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     
     # 关系
-    problem = relationship("Problem", back_populates="validation_records")
+    validated_problem = relationship("ValidatedProblemExport", back_populates="validation_records")
     
     # 索引
     __table_args__ = (
-        Index("idx_problem_type", "problem_id", "validation_type"),
+        Index("idx_validated_problem_type", "validated_problem_id", "validation_type"),
     )
     
     def __repr__(self):
-        return f"<ValidationRecord(id={self.id}, problem_id={self.problem_id}, type={self.validation_type}, passed={self.is_passed})>"
+        return f"<ValidationRecord(id={self.id}, validated_problem_id={self.validated_problem_id}, type={self.validation_type}, passed={self.is_passed})>"
 
 
 class ValidatedProblemExport(Base):
@@ -556,6 +557,7 @@ class ValidatedProblemExport(Base):
     admin_reviewer = relationship("User", foreign_keys=[admin_reviewer_id])
     creation_task = relationship("Task", foreign_keys="[ValidatedProblemExport.task_id]", backref="created_problems")
     review_tasks = relationship("Task", foreign_keys="[Task.validated_problem_id]", back_populates="validated_problem")
+    validation_records = relationship("ValidationRecord", back_populates="validated_problem", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<ValidatedProblemExport(id={self.id}, user_id={self.user_id}, admin_review_status={self.admin_review_status})>"
