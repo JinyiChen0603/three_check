@@ -287,26 +287,82 @@ export default function TotalPage() {
         }
       };
 
-      eventSource.onerror = (error) => {
+      eventSource.onerror = async (error) => {
         // 如果任务已完成，忽略这个错误（SSE 正常关闭触发的）
         if (difficultyCompletedRef.current.get(problemId)) {
           console.log('SSE 正常关闭（任务已完成）');
           return;
         }
         
-        console.error('SSE连接错误:', error);
+        console.warn('SSE连接断开，尝试轮询获取最终结果...', error);
         
         // 如果是取消操作，不显示错误
         if (controller.signal.aborted) {
           return;
         }
         
-        // 更新状态为错误
-        updateProblemCheck(problemId, 'difficulty', { status: 'error', progress: 0 });
-        
         // 关闭SSE连接
         cleanupSSE(problemId);
-        abortControllersRef.current.delete(controllerKey);
+        
+        // ✅ 兜底方案：SSE断开后轮询检查结果（最多30次，每2秒一次）
+        let pollCount = 0;
+        const maxPolls = 30;
+        const pollInterval = 2000;
+        
+        const pollResult = setInterval(async () => {
+          pollCount++;
+          
+          try {
+            // 调用进度查询接口
+            const progressData = await problemApi.getDifficultyProgress(task_id);
+            
+            if (progressData && progressData.progress !== undefined) {
+              const { progress, result } = progressData;
+              
+              // 更新进度
+              updateProblemCheck(problemId, 'difficulty', { progress });
+              
+              // 检查是否完成
+              if (progress >= 100 && result) {
+                clearInterval(pollResult);
+                
+                const passed = result.is_passed || false;
+                
+                // 标记为已完成
+                difficultyCompletedRef.current.set(problemId, true);
+                
+                // 更新最终结果
+                updateProblemCheck(problemId, 'difficulty', { 
+                  status: 'completed', 
+                  progress: 100, 
+                  result: result,
+                  passed: passed
+                });
+                
+                abortControllersRef.current.delete(controllerKey);
+                message.success('难度检测完成（轮询恢复）');
+                return;
+              }
+            }
+            
+            // 达到最大轮询次数仍未完成
+            if (pollCount >= maxPolls) {
+              clearInterval(pollResult);
+              console.error('轮询超时，检测失败');
+              updateProblemCheck(problemId, 'difficulty', { status: 'error', progress: 0 });
+              abortControllersRef.current.delete(controllerKey);
+              message.error('难度检测失败：连接超时');
+            }
+          } catch (pollError) {
+            console.error('轮询失败:', pollError);
+            // 继续轮询，不中断
+          }
+        }, pollInterval);
+        
+        // 存储轮询定时器ID，以便取消时清理
+        abortControllersRef.current.set(`${controllerKey}-poll`, { 
+          abort: () => clearInterval(pollResult) 
+        } as any);
       };
 
     } catch (error: any) {
