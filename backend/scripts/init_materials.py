@@ -133,10 +133,10 @@ async def create_initial_materials():
     async with AsyncSessionLocal() as session:
         try:
             for material_data in INITIAL_MATERIALS:
-                # 检查资料是否已存在
+                # 使用 title 检查资料是否已存在（避免枚举比较问题）
                 result = await session.execute(
                     select(MaterialLibrary).where(
-                        MaterialLibrary.category == material_data["category"]
+                        MaterialLibrary.title == material_data["title"]
                     )
                 )
                 existing_material = result.scalar_one_or_none()
@@ -145,9 +145,9 @@ async def create_initial_materials():
                     print(f"⏭️  资料 {material_data['title']} 已存在，跳过")
                     continue
                 
-                # 创建新资料
+                # 创建新资料（使用枚举的字符串值而不是枚举对象）
                 new_material = MaterialLibrary(
-                    category=material_data["category"],
+                    category=material_data["category"].value,
                     title=material_data["title"],
                     description=material_data["description"],
                     baidu_link=material_data["baidu_link"],

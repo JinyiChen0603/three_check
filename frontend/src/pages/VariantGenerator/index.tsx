@@ -3,7 +3,7 @@
  * 允许用户直接输入题目内容生成变体，不依赖数据库中的母题
  */
 
-import { useState } from 'react';
+import { useEffect } from 'react';
 import {
   Card,
   Form,
@@ -30,26 +30,42 @@ import {
 } from '@ant-design/icons';
 import { variantApi } from '../../api';
 import MathRenderer from '../../components/MathRenderer';
+import { useVariantStore, type VariantResult } from '../../store/useVariantStore';
 
 const { TextArea } = Input;
 const { Title, Text, Paragraph } = Typography;
 const { Panel } = Collapse;
 
-interface VariantResult {
-  variant_content: string;
-  variant_explanation: string;
-  variant_answer: string;
-  timestamp: number;
-}
-
 export default function VariantGenerator() {
   const [form] = Form.useForm();
-  const [loading, setLoading] = useState(false);
-  const [batchLoading, setBatchLoading] = useState(false);
-  const [variants, setVariants] = useState<VariantResult[]>([]);
-  const [temperature, setTemperature] = useState(1.5);
-  const [batchMode, setBatchMode] = useState(false);
-  const [batchCount, setBatchCount] = useState(3);
+  
+  // 使用全局store替代本地state
+  const {
+    variants,
+    loading,
+    batchLoading,
+    temperature,
+    batchMode,
+    batchCount,
+    originalProblem,
+    addVariant,
+    addVariants,
+    removeVariant,
+    clearVariants,
+    setLoading,
+    setBatchLoading,
+    setTemperature,
+    setBatchMode,
+    setBatchCount,
+    setOriginalProblem,
+  } = useVariantStore();
+
+  // 恢复表单数据（从全局store）
+  useEffect(() => {
+    if (originalProblem) {
+      form.setFieldsValue(originalProblem);
+    }
+  }, [originalProblem, form]);
 
   // 生成单个变体
   const handleGenerateVariant = async (values: any) => {
@@ -57,6 +73,14 @@ export default function VariantGenerator() {
       message.warning('请填写完整的题目、解析和答案');
       return;
     }
+
+    // 保存原始题目数据
+    setOriginalProblem({
+      original_content: values.original_content,
+      original_explanation: values.original_explanation,
+      original_answer: values.original_answer,
+      modification_requirement: values.modification_requirement,
+    });
 
     setLoading(true);
     try {
@@ -75,8 +99,7 @@ export default function VariantGenerator() {
           variant_answer: result.variant_answer,
           timestamp: Date.now(),
         };
-        setVariants([newVariant, ...variants]);
-        message.success('变体生成成功！');
+        addVariant(newVariant); // 使用store的方法，会自动显示通知
       } else {
         message.error(result.error || '生成失败');
       }
@@ -94,6 +117,14 @@ export default function VariantGenerator() {
       message.warning('请填写完整的题目、解析和答案');
       return;
     }
+
+    // 保存原始题目数据
+    setOriginalProblem({
+      original_content: values.original_content,
+      original_explanation: values.original_explanation,
+      original_answer: values.original_answer,
+      modification_requirement: values.modification_requirement,
+    });
 
     setBatchLoading(true);
     try {
@@ -116,8 +147,7 @@ export default function VariantGenerator() {
             timestamp: Date.now() + Math.random(), // 确保唯一性
           }));
         
-        setVariants([...newVariants, ...variants]);
-        message.success(`成功生成 ${newVariants.length} 个变体！`);
+        addVariants(newVariants); // 使用store的方法，会自动显示通知
         
         if (result.count < result.total) {
           message.warning(`部分变体生成失败：${result.total - result.count} 个`);
@@ -143,13 +173,13 @@ export default function VariantGenerator() {
 
   // 删除变体
   const handleDeleteVariant = (timestamp: number) => {
-    setVariants(variants.filter(v => v.timestamp !== timestamp));
+    removeVariant(timestamp);
     message.success('已删除');
   };
 
   // 清空所有变体
   const handleClearAll = () => {
-    setVariants([]);
+    clearVariants();
     message.success('已清空所有变体');
   };
 
@@ -177,10 +207,13 @@ export default function VariantGenerator() {
   return (
     <div style={{ padding: '24px' }}>
       <Title level={2}>
-        <FireOutlined /> 变体生成（使用期间请勿跳转页面）
+        <FireOutlined /> 变体生成
       </Title>
       <Paragraph type="secondary">
         直接输入题目内容即可生成变体。支持单个生成和批量生成。
+        <Text type="success" style={{ marginLeft: '8px' }}>
+          ✨ 现在可以在生成过程中切换页面，完成时会收到通知！
+        </Text>
       </Paragraph>
 
       <Row gutter={24}>

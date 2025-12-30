@@ -41,6 +41,24 @@ services:
     networks:
       - mathtasks-network
 
+  # Redis（用于缓存和进度追踪）
+  redis:
+    image: redis:7-alpine
+    container_name: mathtasks-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mathtasks-network
+    restart: unless-stopped
+
   # FastAPI 应用
   api:
     build:
@@ -52,8 +70,10 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://mathtasks:mathtasks123@postgres:5432/mathtasks
       - MONGODB_URL=mongodb://admin:mongodb123@mongodb:27017/?authSource=admin
+      - REDIS_URL=redis://redis:6379/0
     volumes:
-      - .:/app
+      # 注释掉开发用的卷挂载，避免 Windows 行尾符问题
+      # - .:/app
       - /app/__pycache__
     ports:
       - "8000:8000"
@@ -61,6 +81,8 @@ services:
       postgres:
         condition: service_healthy
       mongodb:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - mathtasks-network
@@ -86,6 +108,7 @@ services:
 volumes:
   postgres_data:
   mongodb_data:
+  redis_data:
 
 networks:
   mathtasks-network:

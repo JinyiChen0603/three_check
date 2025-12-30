@@ -47,6 +47,12 @@ import MathRenderer from '../../components/MathRenderer';
 import { useTask } from '../../hooks/useTask';
 import { TaskType } from '../../config/constants';
 import { useAuthStore } from '../../store/useAuthStore';
+import { 
+  useValidationStore,
+  type ProblemQueueItem,
+  type ExportListItem,
+  type CheckTaskStatus,
+} from '../../store/useValidationStore';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -83,50 +89,9 @@ interface ProblemFormData {
   explanation: string;
 }
 
-interface ExportListItem {
-  id: number;
-  content?: string;  // 题目内容
-  answer?: string;  // 答案
-  explanation?: string;  // 解析
-  difficulty_passed: boolean | null;
-  originality_passed: boolean | null;
-  rigor_passed: boolean | null;
-  difficulty_validation?: any;  // 完整的难度检测结果
-  originality_check?: any;  // 完整的原创性检测结果
-  rigor_check?: any;  // 完整的严谨性检测结果
-  created_at: string;
-}
-
-// 检测任务状态类型
-type CheckTaskStatus = 'idle' | 'running' | 'completed' | 'error';
-
-// 单项检测任务状态
-interface CheckTaskState {
-  status: CheckTaskStatus;
-  progress: number;              // 0-100
-  result: any | null;
-  passed: boolean | null;
-  taskId?: string;               // SSE任务ID（仅难度检测）
-}
-
-// 多题目队列项类型
-interface ProblemQueueItem {
-  id: string;                    // UUID
-  problem: string;               // 题目内容
-  answer: string;                // 答案
-  explanation: string;           // 解析
-  checks: {
-    difficulty: CheckTaskState;
-    originality: CheckTaskState;
-    rigor: CheckTaskState;
-  };
-  allCompleted: boolean;         // 三项检测是否全部完成
-  saved: boolean;                // 是否已保存到导出列表
-}
-
 // 创建初始检测状态
-const createInitialCheckState = (): CheckTaskState => ({
-  status: 'idle',
+const createInitialCheckState = () => ({
+  status: 'idle' as const,
   progress: 0,
   result: null,
   passed: null,
@@ -135,22 +100,45 @@ const createInitialCheckState = (): CheckTaskState => ({
 export default function TotalPage() {
   const [form] = Form.useForm<ProblemFormData>();
   
-  // 任务管理Hook
+  // 任务管理Hook（现在使用全局 store，避免重复请求）
   const { tasks, refreshTasks } = useTask();
   
   // 用户信息刷新
   const fetchCurrentUser = useAuthStore((state) => state.fetchCurrentUser);
 
-  // 多题目检测队列
-  const [problemQueue, setProblemQueue] = useState<ProblemQueueItem[]>([]);
-  
-  // 用于取消请求的控制器（按题目ID + 检测类型）
+  // 使用全局store替代本地state
+  const {
+    formData,
+    clearAllChecks,
+    // 新增：从 store 获取检测队列和导出列表
+    problemQueue,
+    exportList,
+    exportStats,
+    loadingList,
+    lastExportListFetchTime,
+    exportListInitialized,
+    addToProblemQueue,
+    updateProblemCheck,
+    removeFromProblemQueue,
+    clearProblemQueue,
+    markProblemAsSaved,
+    setExportList,
+    setExportStats,
+    setLoadingList,
+    loadExportListIfNeeded,
+  } = useValidationStore();
+
+  // AbortController引用（用于取消HTTP请求）
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
 
-  // 导出列表
-  const [exportList, setExportList] = useState<ExportListItem[]>([]);
-  const [exportStats, setExportStats] = useState({ total: 0, passed: 0, failed: 0 });
-  const [loadingList, setLoadingList] = useState(false);
+  // 用于取消请求的控制器
+  const [abortControllers, setAbortControllers] = useState<{
+    difficulty?: AbortController;
+    originality?: AbortController;
+    rigor?: AbortController;
+  }>({});
+
+  // 其他本地状态
   const [exporting, setExporting] = useState<'passed' | 'all' | null>(null);
   const [savingToList, setSavingToList] = useState(false);
   
@@ -176,29 +164,7 @@ export default function TotalPage() {
   // 标记难度检测是否已完成（按题目ID存储，用于区分 SSE 正常关闭和真正的错误）
   const difficultyCompletedRef = useRef<Map<string, boolean>>(new Map());
 
-  // 更新单个题目的单项检测状态
-  const updateProblemCheck = useCallback((
-    problemId: string,
-    checkType: 'difficulty' | 'originality' | 'rigor',
-    updates: Partial<CheckTaskState>
-  ) => {
-    setProblemQueue(prev => prev.map(item => {
-      if (item.id !== problemId) return item;
-      
-      const newChecks = {
-        ...item.checks,
-        [checkType]: { ...item.checks[checkType], ...updates }
-      };
-      
-      // 计算是否所有检测都完成
-      const allCompleted = 
-        (newChecks.difficulty.status === 'completed' || newChecks.difficulty.status === 'error') &&
-        (newChecks.originality.status === 'completed' || newChecks.originality.status === 'error') &&
-        (newChecks.rigor.status === 'completed' || newChecks.rigor.status === 'error');
-      
-      return { ...item, checks: newChecks, allCompleted };
-    }));
-  }, []);
+  // updateProblemCheck 现在直接从 store 获取，不需要本地定义
 
   // 清理单个题目的SSE连接
   const cleanupSSE = useCallback((problemId: string) => {
@@ -217,14 +183,24 @@ export default function TotalPage() {
     sseConnectionsRef.current.clear();
   }, []);
 
-  // 组件卸载时清理所有SSE连接和AbortController
+  // 组件卸载时的清理逻辑
+  // 注意：不再清理正在运行的检测，让它们在后台继续完成
+  // 这样用户切换页面后再回来，检测依然会正常完成
   useEffect(() => {
     return () => {
-      cleanupAllSSE();
-      abortControllersRef.current.forEach(controller => controller.abort());
-      abortControllersRef.current.clear();
+      // ✅ 不做任何清理，原因：
+      // 1. SSE 连接会在检测完成时自动关闭（见 onmessage 中的 progress >= 100 逻辑）
+      // 2. SSE 连接在出错时会自动关闭（见 onerror 处理）
+      // 3. HTTP 请求会在完成时自然结束
+      // 4. 如果在这里清理，切换页面会导致检测中断，状态卡在 'running'
+      
+      console.log('[TotalPage] 组件卸载，但保持后台检测继续运行');
+      
+      // 不执行清理：
+      // cleanupAllSSE();  // ← 会断开 SSE，导致难度检测卡住
+      // abortControllersRef.current.forEach(controller => controller.abort());  // ← 会取消请求，导致原创性和严谨性卡住
     };
-  }, [cleanupAllSSE]);
+  }, []);
 
   // 计算队列中有多少题目完成了所有检测
   const completedCount = problemQueue.filter(item => item.allCompleted).length;
@@ -242,6 +218,9 @@ export default function TotalPage() {
       
       // 重置完成标记
       difficultyCompletedRef.current.set(problemId, false);
+
+      // 保存表单数据到全局store
+      setFormData(values);
 
       // 创建 AbortController
       const controller = new AbortController();
@@ -471,8 +450,8 @@ export default function TotalPage() {
         saved: false,
       };
 
-      // 添加到队列
-      setProblemQueue(prev => [...prev, newItem]);
+      // 添加到队列（使用 store 方法）
+      addToProblemQueue(newItem);
 
       // 清空表单，允许继续输入
       form.resetFields();
@@ -589,15 +568,15 @@ export default function TotalPage() {
       
       message.success(`✅ 题目已保存到导出列表${progressMsg}`);
       
-      // 标记为已保存
-      setProblemQueue(prev => prev.map(p => 
-        p.id === problemId ? { ...p, saved: true } : p
-      ));
+      // 标记为已保存（使用 store 方法）
+      markProblemAsSaved(problemId);
       
-      // 刷新列表、任务和用户信息
-      await loadExportList();
-      await refreshTasks();
-      await fetchCurrentUser();
+      // 刷新列表和用户信息（任务会自动智能刷新）
+      await Promise.all([
+        loadExportList(true),  // 强制刷新
+        refreshTasks(),  // 强制刷新任务，因为进度已变化
+        fetchCurrentUser()
+      ]);
     } catch (error: any) {
       console.error('保存失败:', error);
       const errorMsg = error.response?.data?.detail || error.message || '保存失败，请重试';
@@ -607,8 +586,10 @@ export default function TotalPage() {
     }
   };
 
-  // 从队列中移除题目
+  // 从队列中移除题目（手动删除时才清理资源）
   const handleRemoveFromQueue = (problemId: string) => {
+    console.log(`[TotalPage] 手动移除题目: ${problemId}，清理相关资源`);
+    
     // 取消该题目的所有进行中的请求
     ['difficulty', 'originality', 'rigor'].forEach(type => {
       const controllerKey = `${problemId}-${type}`;
@@ -622,11 +603,14 @@ export default function TotalPage() {
     // 清理SSE连接
     cleanupSSE(problemId);
     
-    // 从队列中移除
-    setProblemQueue(prev => prev.filter(p => p.id !== problemId));
+    // 清理完成标记
+    difficultyCompletedRef.current.delete(problemId);
+    
+    // 从队列中移除（使用 store 方法）
+    removeFromProblemQueue(problemId);
   };
 
-  // 清空整个检测队列
+  // 清空整个检测队列（手动清空时才清理所有资源）
   const handleClearQueue = () => {
     if (problemQueue.length === 0) {
       message.info('队列已经是空的');
@@ -640,6 +624,8 @@ export default function TotalPage() {
       cancelText: '取消',
       okType: 'danger',
       onOk: () => {
+        console.log('[TotalPage] 手动清空队列，清理所有资源');
+        
         // 取消所有正在进行的请求
         abortControllersRef.current.forEach(controller => controller.abort());
         abortControllersRef.current.clear();
@@ -647,12 +633,39 @@ export default function TotalPage() {
         // 清理所有SSE连接
         cleanupAllSSE();
         
-        // 清空队列
-        setProblemQueue([]);
+        // 清理所有完成标记
+        difficultyCompletedRef.current.clear();
+        
+        // 清空队列（使用 store 方法）
+        clearProblemQueue();
         
         message.success('队列已清空');
       },
     });
+  };
+
+  // 重置表单和状态
+  const handleReset = () => {
+    form.resetFields();
+    clearAllChecks();
+  };
+
+  // 修改题目（增强版：停止检测并清除报告）
+  const handleModify = () => {
+    // 取消所有正在进行的请求
+    Object.values(abortControllers).forEach(controller => {
+      if (controller) {
+        controller.abort();
+      }
+    });
+
+    // 重置所有检测状态和报告（使用全局store）
+    clearAllChecks();
+    
+    // 清空 AbortController
+    setAbortControllers({});
+    
+    message.info('已清除所有检测结果，可以修改题目');
   };
 
   // 图片识别处理
@@ -715,8 +728,26 @@ export default function TotalPage() {
     return false; // 阻止默认上传行为
   };
 
-  // 加载导出列表
-  const loadExportList = async () => {
+  // 加载导出列表（带缓存检查）
+  const loadExportList = async (force = false) => {
+    const CACHE_DURATION = 5000; // 5秒缓存
+    
+    // 检查是否需要加载
+    if (!force && exportListInitialized) {
+      const timeSinceLastFetch = Date.now() - lastExportListFetchTime;
+      if (timeSinceLastFetch < CACHE_DURATION) {
+        console.log(`[TotalPage] 使用导出列表缓存（${Math.round(timeSinceLastFetch / 1000)}秒前）`);
+        return;
+      }
+    }
+    
+    // 如果正在加载，跳过
+    if (loadingList) {
+      console.log('[TotalPage] 正在加载导出列表，跳过');
+      return;
+    }
+    
+    console.log('[TotalPage] 加载导出列表');
     setLoadingList(true);
     try {
       const data = await problemApi.getExportList();
@@ -750,7 +781,7 @@ export default function TotalPage() {
       window.URL.revokeObjectURL(url);
 
       message.success('✅ 导出成功！');
-      await loadExportList();
+      await loadExportList(true);  // 强制刷新
     } catch (error) {
       console.error('导出失败:', error);
       message.error('导出失败，请重试');
@@ -771,10 +802,12 @@ export default function TotalPage() {
         try {
           await problemApi.clearExportList();
           message.success('✅ 列表已清空，任务进度已重置');
-          // 刷新列表、任务和用户信息（用于更新仪表盘）
-          await loadExportList();
-          await refreshTasks();
-          await fetchCurrentUser();
+          // 刷新列表和用户信息（并行执行）
+          await Promise.all([
+            loadExportList(true),  // 强制刷新
+            refreshTasks(),  // 强制刷新任务，因为进度已变化
+            fetchCurrentUser()
+          ]);
         } catch (error: any) {
           console.error('清空失败:', error);
           const errorMsg = error.response?.data?.detail || error.message || '清空失败，请重试';
@@ -784,11 +817,27 @@ export default function TotalPage() {
     });
   };
 
-  // 初始化加载列表和任务
+  // 初始化加载列表（智能加载，使用缓存）
+  // 注意：不再在这里调用 refreshTasks，useTask hook 会自动智能加载
   useEffect(() => {
-    loadExportList();
-    refreshTasks();
-  }, []);
+    // 使用智能加载，如果有缓存就不加载
+    loadExportList(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // 只在组件挂载时执行一次
+
+  // 恢复表单数据（从全局store）
+  useEffect(() => {
+    if (formData) {
+      form.setFieldsValue(formData);
+    }
+  }, [formData, form]);
+
+  // 恢复表单数据（从全局store）
+  useEffect(() => {
+    if (formData) {
+      form.setFieldsValue(formData);
+    }
+  }, [formData, form]);
 
   // 查看题目详情
   const handleViewProblem = (record: ExportListItem) => {
@@ -814,10 +863,12 @@ export default function TotalPage() {
           
           message.success(`✅ 题目已删除${progressMsg}`);
           
-          // 刷新列表、任务和用户信息（用于更新仪表盘）
-          await loadExportList();
-          await refreshTasks();
-          await fetchCurrentUser();
+          // 刷新列表和用户信息（并行执行）
+          await Promise.all([
+            loadExportList(true),  // 强制刷新
+            refreshTasks(),  // 强制刷新任务，因为进度已变化
+            fetchCurrentUser()
+          ]);
         } catch (error: any) {
           console.error('删除失败:', error);
           const errorMsg = error.response?.data?.detail || error.message || '删除失败，请重试';

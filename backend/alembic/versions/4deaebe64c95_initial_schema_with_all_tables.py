@@ -24,7 +24,7 @@ def upgrade() -> None:
         sa.Column('username', sa.String(length=50), nullable=False),
         sa.Column('email', sa.String(length=100), nullable=True),
         sa.Column('password_hash', sa.String(length=255), nullable=False),
-        sa.Column('role', sa.Enum('ADMIN', 'USER', name='userrole'), nullable=False),
+        sa.Column('role', sa.Enum('admin', 'user', name='userrole'), nullable=False),
         sa.Column('balance', sa.Float(), nullable=False),
         sa.Column('problems_created_count', sa.Integer(), nullable=False),
         sa.Column('reviews_completed_count', sa.Integer(), nullable=False),
