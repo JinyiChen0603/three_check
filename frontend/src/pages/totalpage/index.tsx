@@ -209,6 +209,9 @@ export default function TotalPage() {
       // 重置完成标记
       difficultyCompletedRef.current.set(problemId, false);
 
+      // 保存表单数据到全局store
+      setFormData(values);
+
       // 创建 AbortController
       const controller = new AbortController();
       abortControllersRef.current.set(controllerKey, controller);
@@ -798,6 +801,13 @@ export default function TotalPage() {
     loadExportList(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // 只在组件挂载时执行一次
+
+  // 恢复表单数据（从全局store）
+  useEffect(() => {
+    if (formData) {
+      form.setFieldsValue(formData);
+    }
+  }, [formData, form]);
 
   // 恢复表单数据（从全局store）
   useEffect(() => {
