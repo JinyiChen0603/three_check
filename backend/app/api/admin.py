@@ -26,7 +26,7 @@ from app.models import (
     TransactionStatus
 )
 from app.api.deps import get_current_admin_user
-from app.services import export_service
+from app.services.export_service import export_service
 from app.config import settings
 
 
@@ -353,40 +353,6 @@ async def review_problem(
     problem.admin_review_note = request.note
     problem.admin_reviewed_at = datetime.utcnow()
     
-    # 如果通过审核，发放奖励给出题人
-    if request.approved:
-        # 查询出题人
-        creator_result = await db.execute(
-            select(User).where(User.id == problem.user_id)
-        )
-        creator = creator_result.scalar_one_or_none()
-        
-        if creator:
-            # 创建交易记录（出题奖励）
-            reward_amount = settings.PROBLEM_REWARD
-            
-            # 计算交易后余额（先查询当前余额）
-            current_balance = await creator.calculate_balance(db)
-            new_balance = current_balance + reward_amount
-            
-            transaction = Transaction(
-                user_id=creator.id,
-                amount=reward_amount,
-                transaction_type=TransactionType.PROBLEM_REWARD,
-                related_problem_id=None,  # validated_problem_exports不在problems表中
-                related_task_id=problem.task_id,
-                status=TransactionStatus.CONFIRMED,
-                description=f"题目审核通过 #VPE-{problem.id}",
-                balance_after=new_balance,
-                confirmed_at=datetime.utcnow()
-            )
-            
-            db.add(transaction)
-            
-            # 刷新用户余额缓存
-            await db.flush()  # 确保transaction已保存
-            await creator.refresh_balance(db)
-    
     await db.commit()
     await db.refresh(problem)
     
@@ -400,8 +366,7 @@ async def review_problem(
 
 @router.get("/problems/export", summary="导出题目（管理员）")
 async def export_admin_problems(
-    only_approved: int = Query(0, ge=0, le=1, description="是否只导出通过的题目 (0=全部, 1=仅通过的)"),
-    status_filter: Optional[str] = Query(None, description="审核状态筛选: pending/approved/rejected"),
+    status_filter: Optional[str] = Query(None, description="审核状态筛选: pending/approved/rejected，不传则导出全部"),
     admin_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -409,8 +374,7 @@ async def export_admin_problems(
     导出题目到Excel（管理员）
     
     Args:
-        only_approved: 是否只导出管理员审核通过的题目 (0=全部导出, 1=仅通过的)
-        status_filter: 审核状态筛选
+        status_filter: 审核状态筛选 (pending=待审核, approved=已通过, rejected=已拒绝, 不传=全部)
     
     Returns:
         Excel文件下载
@@ -438,7 +402,7 @@ async def export_admin_problems(
             )
         )
         
-        # 状态筛选
+        # 状态筛选（简化逻辑）
         if status_filter:
             if status_filter == "pending":
                 query = query.where(ValidatedProblemExport.admin_review_status == AdminReviewStatus.PENDING)
@@ -446,10 +410,7 @@ async def export_admin_problems(
                 query = query.where(ValidatedProblemExport.admin_review_status == AdminReviewStatus.APPROVED)
             elif status_filter == "rejected":
                 query = query.where(ValidatedProblemExport.admin_review_status == AdminReviewStatus.REJECTED)
-        
-        # 如果只导出通过的题目
-        if only_approved == 1:
-            query = query.where(ValidatedProblemExport.admin_review_status == AdminReviewStatus.APPROVED)
+        # 如果 status_filter 为 None，则导出全部题目
         
         result = await db.execute(query)
         problems = result.scalars().all()
@@ -529,9 +490,15 @@ async def export_admin_problems(
                 continue
         
         if not problems_data:
+            status_text = {
+                "pending": "待审核",
+                "approved": "已通过",
+                "rejected": "已拒绝"
+            }.get(status_filter, "")
+            detail = f"没有{status_text}的题目可导出" if status_text else "没有可导出的题目"
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="没有通过审核的题目可导出" if only_approved == 1 else "没有可导出的题目"
+                detail=detail
             )
         
         # 生成Excel

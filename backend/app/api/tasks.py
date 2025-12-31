@@ -13,7 +13,8 @@ from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.models import (
-    User, Problem, Task, TaskType, TaskStatus, ProblemStatus, ValidatedProblemExport, Review
+    User, Problem, Task, TaskType, TaskStatus, ProblemStatus, ValidatedProblemExport, Review,
+    Transaction, TransactionType, TransactionStatus
 )
 from app.api.deps import get_current_user
 from app.config import settings
@@ -399,13 +400,44 @@ async def submit_task(
     task.status = TaskStatus.SUBMITTED
     task.submitted_at = datetime.utcnow()
     
+    # 如果是出题任务，立即发放奖励（新逻辑：提交即奖励）
+    if task.task_type == TaskType.CREATE_PROBLEM:
+        completed_count = task.completed_count or 0
+        reward_per_problem = settings.PROBLEM_REWARD  # 每道题50元
+        total_reward = reward_per_problem * completed_count
+        
+        # 计算交易后余额
+        current_balance = await current_user.calculate_balance(db)
+        new_balance = current_balance + total_reward
+        
+        # 创建交易记录
+        transaction = Transaction(
+            user_id=current_user.id,
+            amount=total_reward,
+            transaction_type=TransactionType.PROBLEM_REWARD,
+            related_task_id=task.id,
+            status=TransactionStatus.CONFIRMED,  # 提交即到账
+            description=f"出题任务提交奖励（{completed_count}道题目）",
+            balance_after=new_balance,
+            confirmed_at=datetime.utcnow()
+        )
+        db.add(transaction)
+        
+        # 更新用户统计
+        current_user.problems_created_count += completed_count
+        
+        # 刷新余额缓存
+        await db.flush()
+        await current_user.refresh_balance(db)
+    
     await db.commit()
     
     return {
         "success": True,
-        "message": "任务提交成功",
+        "message": "任务提交成功" + (f"，获得奖励 {total_reward}元" if task.task_type == TaskType.CREATE_PROBLEM else ""),
         "task_id": task.id,
-        "submitted_at": task.submitted_at
+        "submitted_at": task.submitted_at,
+        "reward": total_reward if task.task_type == TaskType.CREATE_PROBLEM else None
     }
 
 

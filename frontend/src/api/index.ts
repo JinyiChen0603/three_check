@@ -552,13 +552,10 @@ export const adminApi = {
     return response.data;
   },
 
-  // 导出题目
-  exportProblems: async (onlyApproved: boolean = false, statusFilter?: string) => {
+  // 导出题目（简化：只使用 status_filter）
+  exportProblems: async (statusFilter?: string) => {
     const response = await apiClient.get('/admin/problems/export', {
-      params: { 
-        only_approved: onlyApproved ? 1 : 0,
-        status_filter: statusFilter
-      },
+      params: statusFilter ? { status_filter: statusFilter } : {},
       responseType: 'blob',
     });
     return response.data;
