@@ -8,7 +8,7 @@ import { message } from 'antd';
 import type { Task, TaskBatchesResponse } from '../types';
 import { TaskType } from '../config/constants';
 import { taskApi } from '../api';
-import { convertBatchesToTasks, getCurrentTaskStats } from '../services/taskService';
+import { convertBatchesToTasks} from '../services/taskService';
 
 interface TaskState {
   // 任务列表
