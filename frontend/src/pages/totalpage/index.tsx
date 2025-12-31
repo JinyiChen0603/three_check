@@ -1149,7 +1149,7 @@ export default function TotalPage() {
       {/* 顶部标题 */}
       <Card style={{ marginBottom: 24 }}>
         <Title level={2}>
-          <FileExcelOutlined /> 题目验证与导出
+          <FileExcelOutlined /> 题目验证与导出（使用过程请勿刷新）
         </Title>
         <Paragraph type="secondary">
           填写题目信息 → 三重检测（难度+原创性+严谨性）→ 保存到列表 → 批量导出Excel
