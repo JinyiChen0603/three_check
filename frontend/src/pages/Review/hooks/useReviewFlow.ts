@@ -105,7 +105,7 @@ export function useReviewFlow({
       message.success(successMessage);
       
       await onFinishOne();
-      resetStatesForProblem();
+
     } catch (error) {
       message.error('提交评分失败');
     } finally {
