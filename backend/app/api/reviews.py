@@ -195,7 +195,8 @@ async def get_next_problem(
         ValidatedProblemExport.id.not_in(user_reviewed_ids_query)
     )
     
-    problem_query = problem_query.order_by(ValidatedProblemExport.created_at.asc()).limit(1)
+    # 随机排序，确保每道题目随机分配给3个人打分
+    problem_query = problem_query.order_by(func.random()).limit(1)
     
     result = await db.execute(problem_query)
     problem = result.scalar_one_or_none()
