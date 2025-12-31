@@ -83,7 +83,7 @@ export function TaskStats({
               valueStyle={{ color: '#52c41a' }}
             />
             <Text type="secondary" style={{ fontSize: 12 }}>
-              通过审核后发放
+              有所变动，以实际金额为准
             </Text>
           </div>
         </Card>

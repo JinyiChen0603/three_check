@@ -23,7 +23,7 @@ from app.models import (
     ValidatedProblemExport  # 新增：已验证题目导出表
 )
 from app.api.deps import get_current_user
-from app.services.ai_service import gpt_service
+from app.services.muti_choice_cre_service import gpt_service
 from app.services.problem_storage import get_problem_storage_service
 from app.config import settings
 

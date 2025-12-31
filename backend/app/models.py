@@ -21,7 +21,6 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import relationship
-from sqlalchemy.ext.hybrid import hybrid_property
 import enum
 
 from app.database import Base
