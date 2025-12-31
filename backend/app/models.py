@@ -355,7 +355,7 @@ class Review(Base):
     
     # 答题验证（正确性验证流程）
     correctness_verification = Column(JSON, nullable=True)  # 正确性验证过程（4选1的记录）
-    is_answer_correct = Column(Boolean, nullable=False)  # 答案是否正确
+    is_answer_correct = Column(Boolean, nullable=True)  # 答案是否正确（领取任务时为NULL，验证后填入）
     
     # 评分维度（0-10分）
     innovation_score = Column(Integer, nullable=True)  # 创新性评分 0-10

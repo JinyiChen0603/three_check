@@ -446,6 +446,13 @@ async def sync_database_schema():
                     "drop_unique": "task_id"
                 },
                 
+                # Step 3.1: reviews 表 - is_answer_correct 改为可空（领取任务时还未验证）
+                {
+                    "name": "reviews.is_answer_correct - make nullable",
+                    "table": "reviews",
+                    "make_nullable": ["is_answer_correct"]
+                },
+                
                 # Step 4: reviews 表 - 添加 validated_problem_id
                 {
                     "name": "reviews.validated_problem_id",
@@ -593,6 +600,7 @@ async def sync_database_schema():
             print("  ✓ validated_problem_exports.avg_innovation_score (平均创新分)")
             print("  ✓ validated_problem_exports.avg_rigor_score (平均严谨分)")
             print("  ✓ reviews.task_id - 删除UNIQUE约束 (允许一个任务多个评分)")
+            print("  ✓ reviews.is_answer_correct - 改为可空 (领取任务时还未验证)")
             print("  ✓ reviews.validated_problem_id (CASCADE)")
             print("  ✓ tasks.validated_problem_id (CASCADE)")
             print("  ✓ validation_records.validated_problem_id (CASCADE)")

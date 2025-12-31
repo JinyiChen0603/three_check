@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.models import (
-    User, Problem, Task, TaskType, TaskStatus, ProblemStatus, ValidatedProblemExport, Review,
+    User, Problem, Task, TaskType, TaskStatus, ProblemStatus, ValidatedProblemExport, Review, ReviewStatus,
     Transaction, TransactionType, TransactionStatus
 )
 from app.api.deps import get_current_user
@@ -64,7 +64,40 @@ async def release_expired_tasks(db: AsyncSession):
     )
     expired_tasks = result.scalars().all()
     
+    # 对于评分任务，删除未完成的Review记录并更新review_count
     for task in expired_tasks:
+        if task.task_type == TaskType.REVIEW_PROBLEM:
+            # 查找该任务下的所有Review记录
+            reviews_result = await db.execute(
+                select(Review).where(Review.task_id == task.id)
+            )
+            reviews = reviews_result.scalars().all()
+            
+            # 收集需要更新review_count的题目ID
+            problem_ids_to_update = set(r.validated_problem_id for r in reviews if r.validated_problem_id)
+            
+            # 删除Review记录
+            for review in reviews:
+                await db.delete(review)
+            
+            await db.flush()  # 确保删除生效
+            
+            # 更新每道题目的review_count
+            for problem_id in problem_ids_to_update:
+                export_result = await db.execute(
+                    select(ValidatedProblemExport)
+                    .where(ValidatedProblemExport.id == problem_id)
+                    .with_for_update()
+                )
+                export = export_result.scalar_one_or_none()
+                if export:
+                    # 重新统计该题目的Review数量
+                    count_result = await db.execute(
+                        select(func.count(Review.id))
+                        .where(Review.validated_problem_id == problem_id)
+                    )
+                    export.review_count = count_result.scalar() or 0
+        
         task.status = TaskStatus.TIMEOUT
     
     await db.commit()
@@ -145,15 +178,15 @@ async def claim_tasks(
             )
         )
         
-        # 查询可用题目数量
+        # 查询可用题目数量（review_count 现在会实时更新，可以直接使用）
         available_count_result = await db.execute(
             select(func.count(ValidatedProblemExport.id))
             .where(
-                # 排除己出的自题目
+                # 排除自己出的题目
                 ValidatedProblemExport.user_id != current_user.id,
                 # 只选择已提交的出题任务的题目
                 ValidatedProblemExport.task_id.in_(submitted_creation_tasks_subquery),
-                # 评分数量还没达到上限（3个评分）
+                # 评分数量还没达到上限（review_count 实时更新，直接使用）
                 ValidatedProblemExport.review_count < 3,
                 # 排除当前用户已经评分过的题目
                 ~exists(
@@ -185,16 +218,61 @@ async def claim_tasks(
             expires_at=expires_at
         )
         db.add(task)
+        await db.flush()  # 确保task已保存，获得task.id
+        
+        # ⭐ 新增：立即为分配的题目创建Review记录，占用名额
+        # 查询可用题目（使用与上面相同的逻辑）
+        problems_query = (
+            select(ValidatedProblemExport)
+            .where(
+                ValidatedProblemExport.user_id != current_user.id,
+                ValidatedProblemExport.task_id.in_(submitted_creation_tasks_subquery),
+                ValidatedProblemExport.review_count < 3,
+                ~exists(
+                    select(1)
+                    .where(
+                        Review.validated_problem_id == ValidatedProblemExport.id,
+                        Review.reviewer_id == current_user.id
+                    )
+                )
+            )
+            .order_by(func.random())  # 随机分配
+            .limit(request.count)
+        )
+        
+        problems_result = await db.execute(problems_query)
+        assigned_problems = problems_result.scalars().all()
+        
+        # 为每道题目创建Review记录（占用名额）
+        for problem in assigned_problems:
+            review = Review(
+                validated_problem_id=problem.id,
+                reviewer_id=current_user.id,
+                task_id=task.id,
+                status=ReviewStatus.PENDING  # 初始状态：已领取但未开始评分
+            )
+            db.add(review)
+            
+            # 使用行锁更新review_count
+            locked_problem = await db.execute(
+                select(ValidatedProblemExport)
+                .where(ValidatedProblemExport.id == problem.id)
+                .with_for_update()
+            )
+            locked_export = locked_problem.scalar_one_or_none()
+            if locked_export:
+                locked_export.review_count = (locked_export.review_count or 0) + 1
         
         await db.commit()
         
         return {
             "success": True,
-            "message": f"成功领取 {request.count} 个评分任务",
+            "message": f"成功领取 {len(assigned_problems)} 个评分任务",
             "batch_id": batch_id,
-            "task_count": request.count,
+            "task_count": len(assigned_problems),
             "expires_at": expires_at,
-            "expires_in_hours": settings.TASK_TIMEOUT_HOURS
+            "expires_in_hours": settings.TASK_TIMEOUT_HOURS,
+            "note": "已为您预留题目，请开始评分"
         }
     
     else:  # CREATE_PROBLEM
@@ -475,10 +553,17 @@ async def abandon_task(
         )
     
     if task.status != TaskStatus.IN_PROGRESS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"任务状态为 {task.status.value}，无法放弃"
-        )
+        # 根据不同状态给出不同的提示
+        if task.status == TaskStatus.SUBMITTED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="任务已提交，无法放弃。已提交的题目不能删除或放弃"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"任务状态为 {task.status.value}，无法放弃"
+            )
     
     # 评分任务：自动放弃整个批次
     if task.task_type == TaskType.REVIEW_PROBLEM and task.batch_id:
@@ -494,7 +579,44 @@ async def abandon_task(
         )
         batch_tasks = batch_tasks_result.scalars().all()
         
-        # 放弃整个批次
+        # 删除该用户在这些任务中创建的所有Review记录
+        task_ids = [t.id for t in batch_tasks]
+        reviews_result = await db.execute(
+            select(Review).where(
+                and_(
+                    Review.task_id.in_(task_ids),
+                    Review.reviewer_id == current_user.id
+                )
+            )
+        )
+        reviews = reviews_result.scalars().all()
+        
+        # 收集需要更新review_count的题目ID
+        problem_ids_to_update = set(r.validated_problem_id for r in reviews if r.validated_problem_id)
+        
+        # 删除Review记录
+        for review in reviews:
+            await db.delete(review)
+        
+        await db.flush()  # 确保删除生效
+        
+        # 更新每道题目的review_count
+        for problem_id in problem_ids_to_update:
+            export_result = await db.execute(
+                select(ValidatedProblemExport)
+                .where(ValidatedProblemExport.id == problem_id)
+                .with_for_update()
+            )
+            export = export_result.scalar_one_or_none()
+            if export:
+                # 重新统计该题目的Review数量
+                count_result = await db.execute(
+                    select(func.count(Review.id))
+                    .where(Review.validated_problem_id == problem_id)
+                )
+                export.review_count = count_result.scalar() or 0
+        
+        # 放弃整个批次的任务
         for batch_task in batch_tasks:
             batch_task.status = TaskStatus.REJECTED
             batch_task.abandoned_count = 1
@@ -503,9 +625,10 @@ async def abandon_task(
         
         return {
             "success": True,
-            "message": f"已放弃整个评分批次（共 {len(batch_tasks)} 个任务）",
+            "message": f"已放弃整个评分批次（共 {len(batch_tasks)} 个任务，删除 {len(reviews)} 条评分记录）",
             "batch_id": task.batch_id,
-            "abandoned_count": len(batch_tasks)
+            "abandoned_count": len(batch_tasks),
+            "deleted_reviews": len(reviews)
         }
     
     # 出题任务：检查是否有已完成的题目

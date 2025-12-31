@@ -10,7 +10,7 @@ from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, exists
+from sqlalchemy import select, and_, or_, func, exists
 from pydantic import BaseModel, Field
 import random
 import re
@@ -69,6 +69,7 @@ async def _get_review_task_or_error(
     """
     now = datetime.utcnow()
     
+    # 先查找 IN_PROGRESS 的任务
     result = await db.execute(
         select(Task).where(
             Task.user_id == user_id,
@@ -78,11 +79,46 @@ async def _get_review_task_or_error(
     )
     
     task = result.scalars().first()
+    
+    # 如果没有 IN_PROGRESS 的任务，检查是否有被错误标记为 SUBMITTED 的任务
+    if not task:
+        # 查找 SUBMITTED 状态的任务
+        result = await db.execute(
+            select(Task).where(
+                Task.user_id == user_id,
+                Task.task_type == TaskType.REVIEW_PROBLEM,
+                Task.status == TaskStatus.SUBMITTED
+            ).order_by(Task.claimed_at.desc())
+        )
+        submitted_task = result.scalars().first()
+        
+        if submitted_task:
+            # 检查是否有未完成的评分
+            review_count_result = await db.execute(
+                select(func.count(Review.id))
+                .where(
+                    and_(
+                        Review.task_id == submitted_task.id,
+                        Review.innovation_score.isnot(None),
+                        Review.rigor_score.isnot(None)
+                    )
+                )
+            )
+            completed_reviews = review_count_result.scalar() or 0
+            
+            # 如果还有未完成的评分，将任务状态改回 IN_PROGRESS
+            if completed_reviews < submitted_task.total_count:
+                submitted_task.status = TaskStatus.IN_PROGRESS
+                submitted_task.submitted_at = None
+                await db.commit()
+                task = submitted_task
+    
     if not task:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="您没有进行中的评分任务，请先领取任务"
         )
+    
     if task.expires_at and now > task.expires_at:
         task.status = TaskStatus.TIMEOUT
         await db.commit()
@@ -154,60 +190,49 @@ async def get_next_problem(
     # 1. 校验用户有进行中的评分任务
     task = await _get_review_task_or_error(db, current_user.id)
     
-    # 2. 查询该任务下已评分的题目ID列表
-    reviewed_ids_result = await db.execute(
-        select(Review.validated_problem_id)
-        .where(Review.task_id == task.id)
-    )
-    reviewed_ids = [row[0] for row in reviewed_ids_result.fetchall()]
-    
-    # 3. 查询已提交的出题任务
-    submitted_creation_tasks_subquery = (
-        select(Task.id)
+    # 2. 查询该任务下的Review记录（新逻辑：领取任务时已创建）
+    # 优先返回已领取但未完成的题目
+    pending_review_result = await db.execute(
+        select(Review, ValidatedProblemExport)
+        .join(ValidatedProblemExport, Review.validated_problem_id == ValidatedProblemExport.id)
         .where(
-            Task.task_type == TaskType.CREATE_PROBLEM,
-            Task.status == TaskStatus.SUBMITTED
+            and_(
+                Review.task_id == task.id,
+                Review.reviewer_id == current_user.id,
+                # 还没完成评分（两种情况：1.还没验证正确性 2.验证了但还没打分）
+                or_(
+                    Review.innovation_score.is_(None),
+                    Review.rigor_score.is_(None)
+                )
+            )
         )
+        .limit(1)
     )
+    result_row = pending_review_result.first()
     
-    # 4. 查询下一个可评分的题目
-    problem_query = (
-        select(ValidatedProblemExport)
-        .where(
-            # 排除自己出的题目
-            ValidatedProblemExport.user_id != current_user.id,
-            # 只选择已提交的题目
-            ValidatedProblemExport.task_id.in_(submitted_creation_tasks_subquery),
-            # 评分数量还没达到上限
-            ValidatedProblemExport.review_count < 3
-        )
-    )
-    
-    # 排除当前任务已评分的题目
-    if reviewed_ids:
-        problem_query = problem_query.where(ValidatedProblemExport.id.not_in(reviewed_ids))
-    
-    # 排除用户在其他任务中评分过的题目
-    user_reviewed_ids_query = select(Review.validated_problem_id).where(
-        Review.reviewer_id == current_user.id
-    )
-    problem_query = problem_query.where(
-        ValidatedProblemExport.id.not_in(user_reviewed_ids_query)
-    )
-    
-    # 随机排序，确保每道题目随机分配给3个人打分
-    problem_query = problem_query.order_by(func.random()).limit(1)
-    
-    result = await db.execute(problem_query)
-    problem = result.scalar_one_or_none()
-    
-    if not problem:
+    if not result_row:
+        # 没有待评分的题目了，任务完成
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="没有可评分的题目了，您的评分任务已完成"
         )
     
-    # 5. 生成3个相似的错误答案
+    review, problem = result_row
+    
+    # 3. 计算进度（查询已完成的评分数量）
+    completed_count_result = await db.execute(
+        select(func.count(Review.id))
+        .where(
+            and_(
+                Review.task_id == task.id,
+                Review.innovation_score.isnot(None),
+                Review.rigor_score.isnot(None)
+            )
+        )
+    )
+    completed_count = completed_count_result.scalar() or 0
+    
+    # 4. 生成3个相似的错误答案
     try:
         similar_result = await gpt_service.generate_similar_answers(
             problem=str(problem.content) if problem.content else "",
@@ -269,7 +294,7 @@ async def get_next_problem(
         "correct_index": correct_index,
         "instruction": "请选择你认为正确的答案：",
         "progress": {
-            "completed": len(reviewed_ids),
+            "completed": completed_count,
             "total": task.total_count
         }
     }
@@ -308,7 +333,7 @@ async def get_problem_choices(
         )
     )
     
-    # 4. 验证请求的题目是否可评分
+    # 4. 验证请求的题目是否可评分（review_count 实时更新，直接使用）
     problem_query = (
         select(ValidatedProblemExport)
         .where(
@@ -317,7 +342,7 @@ async def get_problem_choices(
             ValidatedProblemExport.user_id != current_user.id,
             # 只选择已提交的题目
             ValidatedProblemExport.task_id.in_(submitted_creation_tasks_subquery),
-            # 评分数量还没达到上限
+            # 评分数量还没达到上限（review_count 实时更新，直接使用）
             ValidatedProblemExport.review_count < 3
         )
     )
@@ -449,8 +474,16 @@ async def verify_correctness(
     problem_answer = problem.answer
     problem_explanation = problem.explanation
     
-    if existing_review:
-        # 如果已经有评分记录，返回现有记录（防止重复提交）
+    # ⭐ 新逻辑：Review记录已在领取任务时创建，这里只需更新
+    if not existing_review:
+        # 如果没有Review记录，说明用户没有通过正常流程领取任务
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="未找到评分记录，请先领取评分任务"
+        )
+    
+    # 如果已经完成过正确性验证，直接返回
+    if existing_review.is_answer_correct is not None:
         if existing_review.is_answer_correct:
             return {
                 "success": True,
@@ -478,24 +511,19 @@ async def verify_correctness(
     elif request.correct_index is not None:
         is_correct = (request.selected_index == request.correct_index)
     
-    # 创建评分记录（现在确保不会重复）
-    review = Review(
-        validated_problem_id=problem.id,
-        reviewer_id=current_user.id,
-        task_id=task.id,
-        is_answer_correct=is_correct,
-        correctness_verification={
-            "selected_index": request.selected_index,
-            "selected_answer": request.selected_answer,
-            "correct_index": request.correct_index,
-            "user_judgment": request.user_answer if not is_correct else None
-        },
-        status=ReviewStatus.PENDING
-    )
+    # 更新现有的Review记录
+    existing_review.is_answer_correct = is_correct
+    existing_review.correctness_verification = {
+        "selected_index": request.selected_index,
+        "selected_answer": request.selected_answer,
+        "correct_index": request.correct_index,
+        "user_judgment": request.user_answer if not is_correct else None
+    }
     
-    db.add(review)
     await db.commit()
-    await db.refresh(review)
+    await db.refresh(existing_review)
+    
+    review = existing_review  # 使用现有记录
     
     if is_correct:
         # 选对了，进入评分阶段
@@ -580,21 +608,45 @@ async def submit_score(
     review.status = ReviewStatus.APPROVED
     review.approved_at = datetime.utcnow()
     
+    # ⚠️ 重要：flush 确保后续查询能看到 review 状态的更改
+    await db.flush()
+    
     # 更新题目的平均评分（新设计：使用ValidatedProblemExport）
+    # 使用 FOR UPDATE 锁定行，防止并发问题
     validated_problem_id = review.validated_problem_id
     if validated_problem_id:
         result = await db.execute(
-            select(ValidatedProblemExport).where(ValidatedProblemExport.id == validated_problem_id)
+            select(ValidatedProblemExport)
+            .where(ValidatedProblemExport.id == validated_problem_id)
+            .with_for_update()  # 添加行锁，防止并发更新
         )
         validated_problem = result.scalar_one_or_none()
         
         if validated_problem:
-            # 重新计算平均分
-            result = await db.execute(
+            # 检查是否已经达到3人评分上限（防止并发导致超过3人）
+            current_review_count = await db.execute(
+                select(func.count(Review.id))
+                .where(
+                    and_(
+                        Review.validated_problem_id == validated_problem.id,
+                        Review.status == ReviewStatus.APPROVED
+                    )
+                )
+            )
+            actual_count = current_review_count.scalar() or 0
+            
+            if actual_count > 3:
+                # 如果已经超过3人评分，拒绝本次评分
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="该题目已达到评分人数上限（3人）"
+                )
+            
+            # 重新计算平均分（只计算已完成评分的）
+            avg_result = await db.execute(
                 select(
                     func.avg(Review.innovation_score).label("avg_innovation"),
-                    func.avg(Review.rigor_score).label("avg_rigor"),
-                    func.count(Review.id).label("review_count")
+                    func.avg(Review.rigor_score).label("avg_rigor")
                 )
                 .where(
                     and_(
@@ -603,20 +655,33 @@ async def submit_score(
                     )
                 )
             )
-            stats = result.one()
+            avg_stats = avg_result.one()
             
-            validated_problem.avg_innovation_score = float(stats.avg_innovation) if stats.avg_innovation else None
-            validated_problem.avg_rigor_score = float(stats.avg_rigor) if stats.avg_rigor else None
-            validated_problem.review_count = stats.review_count
+            # 计算所有评分人数（包括PENDING和APPROVED，用于限制3人上限）
+            count_result = await db.execute(
+                select(func.count(Review.id))
+                .where(Review.validated_problem_id == validated_problem.id)
+            )
+            total_review_count = count_result.scalar() or 0
+            
+            validated_problem.avg_innovation_score = float(avg_stats.avg_innovation) if avg_stats.avg_innovation else None
+            validated_problem.avg_rigor_score = float(avg_stats.avg_rigor) if avg_stats.avg_rigor else None
+            validated_problem.review_count = total_review_count  # 使用所有Review的数量，而不只是APPROVED的
     
     # 增加用户的评分完成计数
     current_user.reviews_completed_count += 1
     
-    # 检查任务是否完成（新设计：通过Review记录数判断）
+    # 检查任务是否完成（修正：只统计已完成评分的Review）
     if task:
         review_count_result = await db.execute(
             select(func.count(Review.id))
-            .where(Review.task_id == task.id)
+            .where(
+                and_(
+                    Review.task_id == task.id,
+                    Review.innovation_score.isnot(None),
+                    Review.rigor_score.isnot(None)
+                )
+            )
         )
         completed_reviews = review_count_result.scalar() or 0
         
