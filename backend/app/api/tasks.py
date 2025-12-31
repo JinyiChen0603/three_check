@@ -144,15 +144,15 @@ async def claim_tasks(
             )
         )
         
-        # 查询可用题目数量（新设计：不需要为每道题创建Task，只需要知道有多少题目可评分）
+        # 查询可用题目数量
         available_count_result = await db.execute(
             select(func.count(ValidatedProblemExport.id))
             .where(
-                # 排除自己出的题目
+                # 排除己出的自题目
                 ValidatedProblemExport.user_id != current_user.id,
                 # 只选择已提交的出题任务的题目
                 ValidatedProblemExport.task_id.in_(submitted_creation_tasks_subquery),
-                # 评分数量还没达到上限（假设每道题需要3个评分）
+                # 评分数量还没达到上限（3个评分）
                 ValidatedProblemExport.review_count < 3,
                 # 排除当前用户已经评分过的题目
                 ~exists(

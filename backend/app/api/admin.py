@@ -53,7 +53,10 @@ class ProblemReviewListItem(BaseModel):
     review_count: int = 0
     avg_innovation_score: Optional[float] = None
     avg_rigor_score: Optional[float] = None
-    has_veto: bool = False
+    veto_count: int = 0  # 一票否决的数量
+    
+    # 任务状态
+    task_status: Optional[str] = None  # submitted/in_progress/timeout等
     
     class Config:
         from_attributes = True
@@ -178,26 +181,24 @@ async def get_pending_review_problems(
         )
         user = user_result.scalar_one_or_none()
         
-        # 获取评分统计
-        review_query = select(Review).where(
-            Review.validated_problem_id == problem.id
+        # 获取关联的出题任务状态
+        task_status = None
+        if problem.task_id:
+            task_result = await db.execute(
+                select(Task).where(Task.id == problem.task_id)
+            )
+            task = task_result.scalar_one_or_none()
+            if task:
+                task_status = task.status.value
+        
+        # 统计一票否决的数量
+        veto_count_result = await db.execute(
+            select(func.count(Review.id)).where(
+                Review.validated_problem_id == problem.id,
+                Review.is_vetoed == True
+            )
         )
-        review_result = await db.execute(review_query)
-        reviews = review_result.scalars().all()
-        
-        # 如果没有评分记录，跳过这个题目
-        if not reviews or len(reviews) == 0:
-            continue
-        
-        # 计算平均分
-        innovation_scores = [r.innovation_score for r in reviews if r.innovation_score is not None]
-        rigor_scores = [r.rigor_score for r in reviews if r.rigor_score is not None]
-        
-        avg_innovation = sum(innovation_scores) / len(innovation_scores) if innovation_scores else None
-        avg_rigor = sum(rigor_scores) / len(rigor_scores) if rigor_scores else None
-        
-        # 检查是否有一票否决
-        has_veto = any(r.is_vetoed for r in reviews)
+        veto_count = veto_count_result.scalar() or 0
         
         # 解析三重质检结果
         difficulty_passed = None
@@ -219,10 +220,13 @@ async def get_pending_review_problems(
             "rigor_passed": rigor_passed,
             "admin_review_status": problem.admin_review_status.value,
             "created_at": problem.created_at.isoformat(),
-            "review_count": len(reviews),
-            "avg_innovation_score": round(avg_innovation, 2) if avg_innovation else None,
-            "avg_rigor_score": round(avg_rigor, 2) if avg_rigor else None,
-            "has_veto": has_veto
+            # 直接使用表中的字段
+            "review_count": problem.review_count,
+            "avg_innovation_score": round(problem.avg_innovation_score, 2) if problem.avg_innovation_score else None,
+            "avg_rigor_score": round(problem.avg_rigor_score, 2) if problem.avg_rigor_score else None,
+            "veto_count": veto_count,  # 一票否决的数量
+            # 任务状态信息
+            "task_status": task_status  # submitted/in_progress/timeout等
         })
     
     return {
@@ -468,20 +472,30 @@ async def export_admin_problems(
                 originality_passed = p.originality_check.get('passed', False) if p.originality_check else False
                 rigor_passed = p.rigor_check.get('passed', False) if p.rigor_check else False
                 
-                # 获取评分信息
-                review_query = select(Review).where(Review.validated_problem_id == p.id)
-                review_result = await db.execute(review_query)
-                reviews = review_result.scalars().all()
+                # 统计一票否决的数量
+                veto_count_result = await db.execute(
+                    select(func.count(Review.id)).where(
+                        Review.validated_problem_id == p.id,
+                        Review.is_vetoed == True
+                    )
+                )
+                veto_count = veto_count_result.scalar() or 0
                 
-                # 计算平均分
-                innovation_scores = [r.innovation_score for r in reviews if r.innovation_score is not None]
-                rigor_scores = [r.rigor_score for r in reviews if r.rigor_score is not None]
-                
-                avg_innovation = sum(innovation_scores) / len(innovation_scores) if innovation_scores else None
-                avg_rigor = sum(rigor_scores) / len(rigor_scores) if rigor_scores else None
-                
-                # 检查是否有一票否决
-                has_veto = any(r.is_vetoed for r in reviews)
+                # 获取任务状态
+                task_status = ""
+                if p.task_id:
+                    task_result = await db.execute(
+                        select(Task).where(Task.id == p.task_id)
+                    )
+                    task = task_result.scalar_one_or_none()
+                    if task:
+                        task_status = {
+                            "in_progress": "进行中",
+                            "submitted": "已提交",
+                            "timeout": "已超时",
+                            "approved": "已批准",
+                            "rejected": "已驳回"
+                        }.get(task.status.value, task.status.value)
                 
                 problems_data.append({
                     "id": p.id,
@@ -493,10 +507,11 @@ async def export_admin_problems(
                     "difficulty_passed": "通过" if difficulty_passed else "未通过" if difficulty_passed is False else "未检测",
                     "originality_passed": "通过" if originality_passed else "未通过",
                     "rigor_passed": "通过" if rigor_passed else "未通过",
-                    "review_count": len(reviews),
-                    "avg_innovation_score": round(avg_innovation, 2) if avg_innovation else None,
-                    "avg_rigor_score": round(avg_rigor, 2) if avg_rigor else None,
-                    "has_veto": "是" if has_veto else "否",
+                    "review_count": p.review_count,  # 直接使用表中的字段
+                    "avg_innovation_score": round(p.avg_innovation_score, 2) if p.avg_innovation_score else None,
+                    "avg_rigor_score": round(p.avg_rigor_score, 2) if p.avg_rigor_score else None,
+                    "veto_count": veto_count,  # 一票否决的数量
+                    "task_status": task_status,  # 任务状态
                     "admin_review_status": {
                         "pending": "待审核",
                         "approved": "通过",
