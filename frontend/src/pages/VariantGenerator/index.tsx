@@ -207,7 +207,7 @@ export default function VariantGenerator() {
   return (
     <div style={{ padding: '24px' }}>
       <Title level={2}>
-        <FireOutlined /> 变体生成
+        <FireOutlined /> 变体生成（使用过程请勿刷新）
       </Title>
       <Paragraph type="secondary">
         直接输入题目内容即可生成变体。支持单个生成和批量生成。
