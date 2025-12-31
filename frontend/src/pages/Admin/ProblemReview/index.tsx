@@ -16,7 +16,7 @@ export default function ProblemReview() {
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [selectedProblem, setSelectedProblem] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
-  const [exporting, setExporting] = useState<'approved' | 'all' | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   // 加载题目列表
   const loadProblems = async () => {
@@ -61,16 +61,25 @@ export default function ProblemReview() {
     }
   };
 
-  // 导出题目
-  const handleExport = async (onlyApproved: boolean = false) => {
-    setExporting(onlyApproved ? 'approved' : 'all');
+  // 导出题目（根据当前筛选条件）
+  const handleExport = async () => {
+    setExporting(true);
     try {
-      const blob = await adminApi.exportProblems(onlyApproved, statusFilter);
+      const blob = await adminApi.exportProblems(statusFilter || undefined);
 
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `管理员题目审核_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      
+      // 根据当前筛选条件生成文件名
+      const statusText = {
+        '': '全部',
+        'pending': '待审核',
+        'approved': '已通过',
+        'rejected': '未通过',
+      }[statusFilter] || '全部';
+      
+      link.download = `题目审核_${statusText}_${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -81,7 +90,7 @@ export default function ProblemReview() {
       console.error('导出失败:', error);
       message.error('导出失败，请重试');
     } finally {
-      setExporting(null);
+      setExporting(false);
     }
   };
 
@@ -228,19 +237,10 @@ export default function ProblemReview() {
           <Button
             type="primary"
             icon={<DownloadOutlined />}
-            loading={exporting === 'approved'}
-            onClick={() => handleExport(true)}
-            disabled={exporting !== null}
+            loading={exporting}
+            onClick={handleExport}
           >
-            导出通过的题目
-          </Button>
-          <Button
-            icon={<DownloadOutlined />}
-            loading={exporting === 'all'}
-            onClick={() => handleExport(false)}
-            disabled={exporting !== null}
-          >
-            导出全部题目
+            导出题目
           </Button>
         </Space>
       </Card>
