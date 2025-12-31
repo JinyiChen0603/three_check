@@ -1540,6 +1540,13 @@ async def delete_validated_problem(
                 select(Task).where(Task.id == problem.task_id)
             )
             task = task_result.scalar_one_or_none()
+            
+            # ⭐ 检查任务状态：已提交的任务不能删除题目
+            if task and task.status == TaskStatus.SUBMITTED:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="任务已提交，题目无法删除。已提交的题目不能删除或放弃"
+                )
         
         # 删除题目
         await db.delete(problem)
@@ -1613,6 +1620,24 @@ async def clear_export_list(
         for p in problems:
             if p.task_id:
                 affected_task_ids.add(p.task_id)
+        
+        # ⭐ 检查是否有已提交的任务
+        if affected_task_ids:
+            submitted_tasks_result = await db.execute(
+                select(Task).where(
+                    and_(
+                        Task.id.in_(affected_task_ids),
+                        Task.status == TaskStatus.SUBMITTED
+                    )
+                )
+            )
+            submitted_tasks = submitted_tasks_result.scalars().all()
+            
+            if submitted_tasks:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"有 {len(submitted_tasks)} 个任务已提交，无法清空列表。已提交的题目不能删除或放弃"
+                )
         
         # 删除所有题目
         for p in problems:
