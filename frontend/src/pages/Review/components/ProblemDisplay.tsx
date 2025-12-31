@@ -13,7 +13,7 @@ export function ProblemDisplay({
   showSolution: boolean;
 }) {
   return (
-    <Card title={problemData.problem_title || '题目信息'} style={{ marginBottom: 24 }}>
+    <Card title={problemData.instruction || '题目信息'} style={{ marginBottom: 24 }}>
       <Space orientation="vertical" style={{ width: '100%' }} size="large">
         <div>
           <Text strong>题目内容：</Text>

@@ -10,7 +10,7 @@
 from typing import List, Optional
 from datetime import datetime
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, Form, Query, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 from sqlalchemy.ext.asyncio import AsyncSession

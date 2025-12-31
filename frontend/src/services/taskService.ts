@@ -65,41 +65,6 @@ export function convertBatchesToTasks(batchesResponse: TaskBatchesResponse): Tas
 }
 
 /**
- * 计算指定类型任务的已完成数量（completed_count总和）
- * 只统计已提交（SUBMITTED）的任务，用于计算累计完成数
- * @internal 此函数主要供 getCurrentTaskStats 内部使用
- */
-function calculateCompletedTaskCount(tasks: Task[], taskType: TaskType): number {
-  // 按batch_id去重，只计算每个批次的完成数
-  const batchCompleted = new Map<string, number>();
-  
-  tasks
-    .filter((task) => {
-      // 只统计已提交的任务
-      return (
-        task.task_type === taskType &&
-        task.status === TaskStatus.SUBMITTED
-      );
-    })
-    .forEach((task) => {
-      if (task.batch_id && task.completed_count !== undefined) {
-        // 只记录一次每个批次的完成数
-        if (!batchCompleted.has(task.batch_id)) {
-          batchCompleted.set(task.batch_id, task.completed_count);
-        }
-      }
-    });
-  
-  // 计算总和
-  let total = 0;
-  batchCompleted.forEach((count) => {
-    total += count;
-  });
-  
-  return total;
-}
-
-/**
  * 获取当前进行中任务的统计信息
  * 返回格式：{ total, completed, hasInProgress }
  * - 如果有进行中的任务：返回当前任务的 total_count 和 completed_count

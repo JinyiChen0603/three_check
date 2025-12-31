@@ -125,13 +125,12 @@ class OCRService:
                 "error": f"OCR识别失败: {str(e)}"
             }
     
-    def _parse_ocr_result(self, raw_text: str, has_answer: bool) -> Dict[str, str]:
+    def _parse_ocr_result(self, raw_text: str,) -> Dict[str, str]:
         """
         解析OCR识别结果
         
         Args:
             raw_text: 原始识别文本
-            has_answer: 是否包含答案
             
         Returns:
             Dict: 包含problem, answer, explanation的字典

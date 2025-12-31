@@ -183,10 +183,10 @@ export default function MainLayout() {
 
           <div className="header-right">
             <Space size="large">
-              {/* 余额显示 */}
+              {/* 收入显示 */}
               <Space>
                 <WalletOutlined style={{ fontSize: 18 }} />
-                <Text strong>余额：</Text>
+                <Text strong>收入：</Text>
                 <Text type="success" strong style={{ fontSize: 16 }}>
                   ¥{user?.balance.toFixed(2)}
                 </Text>
