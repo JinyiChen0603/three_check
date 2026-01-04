@@ -241,7 +241,7 @@ async def get_next_problem(
         )
         
         if similar_result["success"]:
-            choices = [problem.answer] + similar_result["similar_answers"][:3]
+            choices = [f"正确答案是：{problem.answer}"] + similar_result["similar_answers"][:3]
         else:
             raise Exception("GPT调用失败")
     except Exception as e:
@@ -295,6 +295,7 @@ async def get_next_problem(
         "instruction": "请选择你认为正确的答案：",
         "progress": {
             "completed": completed_count,
+            "current": min(completed_count + 1, task.total_count),  # 当前正在评第几题
             "total": task.total_count
         }
     }
@@ -396,7 +397,7 @@ async def get_problem_choices(
         )
     
     # 组合正确答案和错误答案
-    choices = [problem_answer] + similar_result["similar_answers"][:3]
+    choices = [f"正确答案是：{problem_answer}"] + similar_result["similar_answers"][:3]
     
     # 记录正确答案的原始位置
     correct_index = 0
@@ -847,7 +848,7 @@ async def get_export_choices(
         )
     
     # 组合正确答案和错误答案
-    choices = [export.answer] + similar_result["similar_answers"][:3]
+    choices = [f"正确答案是：{export.answer}"] + similar_result["similar_answers"][:3]
     
     # 记录正确答案的原始位置
     correct_index = 0
