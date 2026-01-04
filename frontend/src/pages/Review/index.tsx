@@ -70,11 +70,11 @@ export default function Review() {
               { title: '质量评分', icon: <StarOutlined /> },
             ]}
           />
-          {task.currentBatch && (
+          {task.currentBatch && task.problemData?.progress && (
             <Space size="small">
               <Tag color="blue">批次: {task.currentBatch.batch_id}</Tag>
               <Tag color="green">
-                进度: {task.currentBatch.completed_count}/{task.currentBatch.total_count}
+                进度: 第 {task.problemData.progress.current} 题/共 {task.problemData.progress.total} 题
               </Tag>
             </Space>
           )}
