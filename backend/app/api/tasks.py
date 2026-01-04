@@ -383,9 +383,16 @@ async def get_my_tasks(
                 batches[task.batch_id]["status"] = task.status.value
             else:
                 # 评分任务：从数据库实时查询评分记录数（新设计：1个Task=n个题目）
+                # 注意：只统计已完成评分的Review（innovation_score 和 rigor_score 都不为空）
                 review_result = await db.execute(
                     select(func.count(Review.id))
-                    .where(Review.task_id == task.id)
+                    .where(
+                        and_(
+                            Review.task_id == task.id,
+                            Review.innovation_score.isnot(None),
+                            Review.rigor_score.isnot(None)
+                        )
+                    )
                 )
                 task_completed = review_result.scalar() or 0
                 batches[task.batch_id]["total_count"] = task.total_count or 0
