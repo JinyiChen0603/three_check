@@ -11,6 +11,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, exists
+from sqlalchemy.orm import joinedload
 from pydantic import BaseModel, Field
 import random
 import re
@@ -739,9 +740,10 @@ async def get_my_reviews(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """查看当前用户的评分记录"""
+    """查看当前用户的评分记录（包含题目详细信息）"""
     query = (
         select(Review)
+        .options(joinedload(Review.validated_problem))  # 预加载关联的题目信息
         .where(Review.reviewer_id == current_user.id)
         .order_by(Review.created_at.desc())
         .offset(skip)
@@ -749,20 +751,29 @@ async def get_my_reviews(
     )
     
     result = await db.execute(query)
-    reviews = result.scalars().all()
+    reviews = result.scalars().unique().all()  # 使用unique()去重
     
     return {
         "total": len(reviews),
         "reviews": [
             {
                 "id": r.id,
-                "validated_problem_id": r.validated_problem_id,  # 使用新字段
+                "validated_problem_id": r.validated_problem_id,
                 "is_answer_correct": r.is_answer_correct,
+                "correctness_verification": r.correctness_verification,  # 添加用户选择信息
                 "innovation_score": r.innovation_score,
                 "rigor_score": r.rigor_score,
                 "is_vetoed": r.is_vetoed,
+                "veto_reason": r.veto_reason,  # 添加否决理由
                 "status": r.status.value,
-                "created_at": r.created_at.isoformat() if r.created_at else None
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,  # 添加更新时间
+                # 添加题目完整信息
+                "problem": {
+                    "content": r.validated_problem.content,
+                    "answer": r.validated_problem.answer,
+                    "explanation": r.validated_problem.explanation,
+                } if r.validated_problem else None
             }
             for r in reviews
         ]
