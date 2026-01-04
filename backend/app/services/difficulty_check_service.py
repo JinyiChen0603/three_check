@@ -1,14 +1,14 @@
 """
 难度检测服务模块
 使用豆包进行 8 次对抗验证
-使用 GPT-4o 进行答案校验
+使用 gpt52_with_reasoning 进行答案校验
 """
 
 import asyncio
 import re
 from typing import Dict, Any, Optional, List, Callable
 
-from app.services.llm import doubao, gpt4o, LLMClient
+from app.services.llm import doubao, gpt52_with_reasoning, LLMClient
 from app.config import settings
 
 
@@ -18,7 +18,7 @@ class DifficultyCheckService:
     
     使用豆包进行对抗验证：
     - 8 次验证，正确次数 ≤4 才算合格
-    - 使用 GPT-4o 进行答案对比
+    - 使用 GPT-5.2 进行答案对比
     """
     
     def __init__(
@@ -32,11 +32,11 @@ class DifficultyCheckService:
         
         Args:
             validation_client: 用于对抗验证的客户端，默认使用豆包
-            answer_check_client: 用于答案校验的客户端，默认使用 gpt4o
+            answer_check_client: 用于答案校验的客户端，默认使用 gpt52_with_reasoning
             max_concurrent: 最大并发数（8次验证中同时执行的最大数量），默认4
         """
         self.validation_client = validation_client or doubao
-        self.answer_check_client = answer_check_client or gpt4o
+        self.answer_check_client = answer_check_client or gpt52_with_reasoning
         
         # 验证参数
         self.attempts = settings.VALIDATION_ATTEMPTS  # 16次
@@ -185,7 +185,7 @@ class DifficultyCheckService:
             if not ai_answer:
                 ai_answer = LLMClient.extract_content(response)
             
-            # 使用 GPT-4o 进行答案对比
+            # 使用 gpt52_with_reasoning 进行答案对比
             is_correct = await self._check_answer_with_ai(ai_answer, standard_answer)
             
             return {
@@ -199,14 +199,14 @@ class DifficultyCheckService:
     
     async def _check_answer_with_ai(self, ai_answer: str, standard_answer: str) -> bool:
         """
-        使用 GPT-4o 判断答案是否正确
+        使用 gpt52_with_reasoning 判断答案是否正确
         """
         # 先用简单规则快速判断
         quick_result = self._quick_check_answer(ai_answer, standard_answer)
         if quick_result is not None:
             return quick_result
         
-        # 复杂情况使用 GPT-4o 判断
+        # 复杂情况使用 gpt52_with_reasoning 判断
         try:
             messages = [
                 {
@@ -236,7 +236,7 @@ AI模型给出的答案：
             
             response = await self.answer_check_client.chat(
                 messages=messages,
-                temperature=0,
+                temperature=None,  # GPT-5.2 + reasoning_effort 时必须为 None
                 max_tokens=10
             )
             
@@ -504,7 +504,7 @@ AI模型给出的答案：
         """
         严格的答案检查（作为AI检查的回退方案）
         
-        当 GPT-4o 不可用时使用此方法
+        当 gpt52_with_reasoning 不可用时使用此方法
         """
         print(f"[StrictCheck] 开始回退检查...")
         
