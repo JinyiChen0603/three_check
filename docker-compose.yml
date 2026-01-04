@@ -37,8 +37,9 @@ services:
       timeout: 5s
       retries: 5
     networks:
-<<<<<<< Updated upstream
       - mathtasks_network
+    profiles:
+      - mongodb  # 使用 profile，默认不启动
 
   # Redis（用于缓存和进度追踪）
   redis:
@@ -56,11 +57,6 @@ services:
     networks:
       - mathtasks_network
     restart: unless-stopped
-=======
-      - mathtasks-network
-    profiles:
-      - mongodb  # 使用 profile，默认不启动
->>>>>>> Stashed changes
 
   # FastAPI 应用
   api:
@@ -68,18 +64,11 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     environment:
-<<<<<<< Updated upstream
       # 数据库连接（使用环境变量）
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mathtasks}:${POSTGRES_PASSWORD:-mathtasks123}@postgres:5432/${POSTGRES_DB:-mathtasks}
       MONGODB_URL: mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-mongodb123}@mongodb:27017/?authSource=admin
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       INSTANCE_NAME: ${INSTANCE_NAME:-development}
-=======
-      # 数据库连接（覆盖 .env 中的配置）
-      DATABASE_URL: postgresql+asyncpg://mathtasks:mathtasks123@postgres:5432/mathtasks
-      # MongoDB（预留，暂未使用）
-      # MONGODB_URL: mongodb://admin:mongodb123@mongodb:27017/?authSource=admin
->>>>>>> Stashed changes
       # 如果没有 .env 文件，使用默认值
       SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
       DEBUG: ${DEBUG:-true}
@@ -136,15 +125,9 @@ services:
 
 volumes:
   postgres_data:
-<<<<<<< Updated upstream
-  mongodb_data:
-  redis_data:
-=======
   mongodb_data:  # 预留
->>>>>>> Stashed changes
+  redis_data:
 
 networks:
   mathtasks_network:
     driver: bridge
-
-
