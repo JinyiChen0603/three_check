@@ -18,16 +18,17 @@ import io
 #    - 主机: localhost
 #    - 端口: 5434
 #    - 数据库名: mathtasks
-# 生产环境配置（默认）：
+
+
+# 下方四行
+# 生产环境配置（默认）：这一行是本地的！！！！！！！！！！！！
 DATABASE_URL = "postgresql+asyncpg://mathtasks:mathtasks123@localhost:5433/mathtasks_prod?ssl=disable"
-
-# 测试环境配置（取消注释使用）：
+# 生产环境配置，这一行是docker内的，上线使用。
+# DATABASE_URL = "postgresql+asyncpg://mathtasks:mathtasks123@postgres:5433/mathtasks_prod"
+# 测试环境配置（取消注释使用）：这一行是本地的
 # DATABASE_URL = "postgresql+asyncpg://mathtasks:mathtasks123@localhost:5434/mathtasks_test?ssl=disable"
-
-# 其他常见数据库配置示例：
-# PostgreSQL: "postgresql+asyncpg://用户名:密码@主机:端口/数据库名"
-# MySQL:      "mysql+aiomysql://用户名:密码@主机:端口/数据库名"
-# SQLite:     "sqlite+aiosqlite:///./数据库文件名.db"
+# 服务器内docker使用下面这一行 用作测试服。
+# DATABASE_URL = "postgresql+asyncpg://mathtasks:mathtasks123@postgres:5432/mathtasks_test"
 
 # 设置标准输出编码为 UTF-8（Windows 兼容）
 if sys.platform == 'win32':
