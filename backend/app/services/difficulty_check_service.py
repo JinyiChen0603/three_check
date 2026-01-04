@@ -256,88 +256,271 @@ AI模型给出的答案：
             print(f"GPT答案对比失败，回退到正则检查: {str(e)}")
             return self._strict_check_answer(ai_answer, standard_answer)
     
-    def _quick_check_answer(self, ai_answer: str, standard_answer: str) -> Optional[bool]:
-        """快速答案检查（简单情况，无需调用AI）"""
-        def normalize_answer(text):
-            if not text:
-                return ""
-            text = str(text)
-            
-            # 提取 \boxed{} 中的内容（取最后一个）
-            boxed_matches = re.findall(r'\\boxed\s*\{(.*?)\}', text)
-            if boxed_matches:
-                text = boxed_matches[-1]
-            
-            # 移除各种 LaTeX 数学模式标记
-            text = text.replace('\\[', '').replace('\\]', '')
-            text = text.replace('\\(', '').replace('\\)', '')
-            text = text.replace('$', '').replace(' ', '').strip()
-            
+    def _extract_boxed_content(self, text: str) -> str:
+        """
+        健壮地提取 \boxed{} 中的内容，支持嵌套大括号
+        
+        示例:
+            \boxed{10} -> 10
+            \boxed{\frac{1}{2}} -> \frac{1}{2}
+            \boxed{(1,2),(3,4)} -> (1,2),(3,4)
+        """
+        if not text or '\\boxed' not in text:
             return text
         
-        extracted_model = normalize_answer(ai_answer)
-        clean_truth = normalize_answer(standard_answer)
+        # 找到所有 \boxed 匹配，取最后一个
+        matches = list(re.finditer(r'\\boxed\s*\{', text))
+        if not matches:
+            return text
         
-        # 直接字符串匹配
-        if extracted_model and extracted_model == clean_truth:
-            return True
+        # 从最后一个 \boxed 开始
+        last_match = matches[-1]
+        start_pos = last_match.end() - 1  # { 的位置
         
-        # 数字比较
+        # 括号计数法：找到匹配的 }
+        brace_count = 0
+        for i in range(start_pos, len(text)):
+            if text[i] == '{':
+                brace_count += 1
+            elif text[i] == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    # 找到匹配的 }
+                    return text[start_pos + 1:i]
+        
+        # 如果没找到匹配的 }，返回从 { 到末尾的内容
+        return text[start_pos + 1:]
+    
+    def _normalize_math_expression(self, text: str) -> str:
+        """
+        标准化数学表达式，使等价的表达式具有相同的标准形式
+        
+        处理内容：
+        1. 提取 \boxed{} 内容
+        2. 移除 LaTeX 标记
+        3. 统一空格、大小写
+        4. 转换常见 LaTeX 命令
+        5. 标准化符号
+        """
+        if not text:
+            return ""
+        
+        text = str(text).strip()
+        
+        # 1. 提取 boxed 内容
+        text = self._extract_boxed_content(text)
+        
+        # 2. 移除 LaTeX 数学模式标记
+        text = text.replace('\\[', '').replace('\\]', '')
+        text = text.replace('\\(', '').replace('\\)', '')
+        text = text.replace('$', '')
+        
+        # 3. 处理 \frac{a}{b} -> (a)/(b)
+        # 使用递归处理嵌套分数
+        while '\\frac' in text:
+            # 匹配 \frac{分子}{分母}，支持嵌套括号
+            match = re.search(r'\\frac\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}', text)
+            if match:
+                numerator = match.group(1)
+                denominator = match.group(2)
+                # 替换为 (分子)/(分母)
+                text = text[:match.start()] + f'({numerator})/({denominator})' + text[match.end():]
+            else:
+                break
+        
+        # 4. 处理 \sqrt{n} (保留形式)
+        text = re.sub(r'\\sqrt\s*\{([^}]+)\}', r'sqrt(\1)', text)
+        
+        # 5. 移除常见 LaTeX 命令的反斜杠（保留内容）
+        latex_commands = [
+            'sin', 'cos', 'tan', 'cot', 'sec', 'csc',
+            'arcsin', 'arccos', 'arctan',
+            'log', 'ln', 'exp',
+            'angle', 'circ', 'degree', 'cdot', 'times',
+            'alpha', 'beta', 'gamma', 'theta', 'pi',
+            'infty', 'pm', 'mp'
+        ]
+        for cmd in latex_commands:
+            text = text.replace(f'\\{cmd}', cmd)
+        
+        # 6. 统一角度符号
+        text = text.replace('°', 'degree')
+        text = text.replace('度', 'degree')
+        
+        # 7. 统一负号和减号
+        text = text.replace('−', '-')  # 全角转半角
+        text = text.replace('—', '-')  # 破折号
+        
+        # 8. 统一乘号
+        text = text.replace('×', '*')
+        text = text.replace('·', '*')
+        
+        # 9. 移除所有空格
+        text = text.replace(' ', '')
+        
+        # 10. 转小写（对于字母表达式）
+        text = text.lower()
+        
+        # 11. 移除外层括号（如果有）
+        text = text.strip()
+        if text.startswith('(') and text.endswith(')'):
+            # 检查是否整体括号
+            count = 0
+            is_whole = True
+            for i, char in enumerate(text):
+                if char == '(':
+                    count += 1
+                elif char == ')':
+                    count -= 1
+                    if count == 0 and i < len(text) - 1:
+                        is_whole = False
+                        break
+            if is_whole:
+                text = text[1:-1]
+        
+        return text.strip()
+    
+    def _try_evaluate_as_number(self, expr: str) -> Optional[float]:
+        """
+        尝试将表达式计算为数值
+        
+        支持：
+        - 整数：123
+        - 小数：3.14
+        - 分数：(1)/(2) 或 1/2
+        - 带千分位：1,234.56
+        - 科学计数法：1.23e-4
+        """
+        if not expr:
+            return None
+        
         try:
-            num_model = float(extracted_model.replace(',', ''))
-            num_truth = float(clean_truth.replace(',', ''))
-            return abs(num_model - num_truth) < 1e-9
-        except (ValueError, AttributeError):
+            # 1. 移除千分位逗号，尝试直接转换
+            expr_clean = expr.replace(',', '')
+            return float(expr_clean)
+        except ValueError:
             pass
         
-        # 短答案且不同，可能需要AI判断
-        if len(extracted_model) < 50 and len(clean_truth) < 50:
-            if not extracted_model or not clean_truth:
-                return False
-            return None
+        try:
+            # 2. 尝试计算简单分数 (a)/(b) 或 a/b
+            if '/' in expr:
+                # 移除可能的括号
+                expr_clean = expr.replace('(', '').replace(')', '')
+                parts = expr_clean.split('/')
+                if len(parts) == 2:
+                    numerator = float(parts[0].strip())
+                    denominator = float(parts[1].strip())
+                    if denominator != 0:
+                        return numerator / denominator
+        except (ValueError, ZeroDivisionError):
+            pass
         
         return None
     
+    def _compare_as_set(self, expr1: str, expr2: str) -> Optional[bool]:
+        """
+        尝试作为集合/列表比较（顺序无关）
+        
+        支持格式：
+        - 1,2,3
+        - (1,2),(3,4)
+        - {1,2,3}
+        - x=1,y=2
+        """
+        if ',' not in expr1 or ',' not in expr2:
+            return None
+        
+        # 简单情况：直接按逗号分割
+        elements1 = set(e.strip() for e in expr1.split(','))
+        elements2 = set(e.strip() for e in expr2.split(','))
+        
+        if elements1 == elements2:
+            return True
+        
+        # 复杂情况：提取括号内容
+        # 例如：(1,2),(3,4)
+        pattern = r'\([^)]+\)'
+        tuples1 = re.findall(pattern, expr1)
+        tuples2 = re.findall(pattern, expr2)
+        
+        if tuples1 and tuples2:
+            set1 = set(t.replace(' ', '') for t in tuples1)
+            set2 = set(t.replace(' ', '') for t in tuples2)
+            return set1 == set2
+        
+        return None
+    
+    def _quick_check_answer(self, ai_answer: str, standard_answer: str) -> Optional[bool]:
+        """
+        快速答案检查（简单情况，无需调用AI）
+        
+        返回：
+            True: 确定相等
+            False: 确定不相等
+            None: 无法确定，需要 AI 判断
+        """
+        # 标准化
+        normalized_ai = self._normalize_math_expression(ai_answer)
+        normalized_std = self._normalize_math_expression(standard_answer)
+        
+        # 调试日志
+        print(f"[QuickCheck] AI标准化: '{normalized_ai}' | 标准答案: '{normalized_std}'")
+        
+        # 1. 完全相同
+        if normalized_ai == normalized_std:
+            print(f"[QuickCheck] ✓ 字符串完全匹配")
+            return True
+        
+        # 2. 都为空
+        if not normalized_ai or not normalized_std:
+            print(f"[QuickCheck] ✗ 其中一个为空")
+            return False
+        
+        # 3. 数值比较
+        num_ai = self._try_evaluate_as_number(normalized_ai)
+        num_std = self._try_evaluate_as_number(normalized_std)
+        
+        if num_ai is not None and num_std is not None:
+            is_equal = abs(num_ai - num_std) < 1e-9
+            print(f"[QuickCheck] 数值比较: {num_ai} vs {num_std} -> {is_equal}")
+            return is_equal
+        
+        # 4. 集合比较
+        set_result = self._compare_as_set(normalized_ai, normalized_std)
+        if set_result is not None:
+            print(f"[QuickCheck] 集合比较: {set_result}")
+            return set_result
+        
+        # 5. 长答案需要 AI
+        if len(normalized_ai) > 100 or len(normalized_std) > 100:
+            print(f"[QuickCheck] ? 答案过长，需要 AI")
+            return None
+        
+        # 6. 其他情况，需要 AI
+        print(f"[QuickCheck] ? 无法快速判断，需要 AI")
+        return None
+    
     def _strict_check_answer(self, ai_answer: str, standard_answer: str) -> bool:
-        """严格的答案检查（作为AI检查的回退方案）"""
-        def normalize_answer(text):
-            if not text:
-                return ""
-            text = str(text)
-            
-            boxed_matches = re.findall(r'\\boxed\s*\{(.*?)\}', text)
-            if boxed_matches:
-                text = boxed_matches[-1]
-            
-            text = text.replace('\\[', '').replace('\\]', '')
-            text = text.replace('\\(', '').replace('\\)', '')
-            text = text.replace('$', '').replace(' ', '').strip()
-            
-            return text
+        """
+        严格的答案检查（作为AI检查的回退方案）
         
-        extracted_model = normalize_answer(ai_answer)
-        clean_truth = normalize_answer(standard_answer)
+        当 GPT-4o 不可用时使用此方法
+        """
+        print(f"[StrictCheck] 开始回退检查...")
         
-        # 直接匹配
-        if extracted_model and extracted_model == clean_truth:
+        # 复用 quick_check 的逻辑
+        result = self._quick_check_answer(ai_answer, standard_answer)
+        
+        if result is True:
+            print(f"[StrictCheck] ✓ 判定为正确")
             return True
-        
-        # 检查标准答案是否在AI答案末尾
-        if clean_truth and clean_truth in ai_answer.replace(' ', '')[-50:]:
-            return True
-        
-        # 集合匹配
-        if ',' in extracted_model and ',' in clean_truth:
-            model_elements = re.findall(r'\([^)]+\)', extracted_model)
-            truth_elements = re.findall(r'\([^)]+\)', clean_truth)
-            
-            if len(model_elements) > 1 and len(truth_elements) > 1:
-                model_set = set(e.replace(' ', '') for e in model_elements)
-                truth_set = set(e.replace(' ', '') for e in truth_elements)
-                if model_set == truth_set:
-                    return True
-        
-        return False
+        elif result is False:
+            print(f"[StrictCheck] ✗ 判定为错误")
+            return False
+        else:
+            # 无法确定时，保守判定为错误（避免误判）
+            print(f"[StrictCheck] ✗ 无法确定，保守判定为错误")
+            return False
 
 
 # 全局服务实例

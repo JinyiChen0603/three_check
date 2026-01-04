@@ -145,6 +145,16 @@ INITIAL_USERS = [
         "password": "user123",  # 生产环境请修改
         "role": UserRole.USER,
     },
+        {"username": "zuoyuxiang",
+        "email": "zuoyuxian@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+    },
+        {"username": "zhouyu",
+        "email": "zhangyulong@mathtasks.com",
+        "password": "user123",  # 生产环境请修改
+        "role": UserRole.USER,
+        }
 ]
 
 
