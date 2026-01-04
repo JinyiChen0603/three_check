@@ -1,3 +1,9 @@
+export interface ProgressInfo {
+  completed: number;  // 已完成数量
+  current: number;     // 当前是第几题
+  total: number;       // 总题目数
+}
+
 export interface ReviewChoiceResponse {
   validated_problem_id: number;
   problem_content: any;
@@ -5,6 +11,7 @@ export interface ReviewChoiceResponse {
   choices: string[];
   correct_index?: number;
   instruction?: string;
+  progress?: ProgressInfo;  // 进度信息
 }
 
 export interface TaskItem {
