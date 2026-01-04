@@ -41,19 +41,19 @@ export default function ReviewHistory() {
       render: (id) => <Text strong>#{id}</Text>,
     },
     {
-      title: '正确性',
+      title: '评分情况',
       key: 'correctness',
       width: 100,
       render: (_, record) => {
-        const isCorrect = record.correctness_verification?.is_correct;
-        if (isCorrect === undefined) return <Tag>未验证</Tag>;
+        const isCorrect = record.is_answer_correct;
+        if (isCorrect === undefined || isCorrect === null) return <Tag>未验证</Tag>;
         return isCorrect ? (
           <Tag icon={<CheckCircleOutlined />} color="success">
-            正确
+            回答正确
           </Tag>
         ) : (
           <Tag icon={<CloseCircleOutlined />} color="error">
-            错误
+            回答错误
           </Tag>
         );
       },
@@ -89,8 +89,8 @@ export default function ReviewHistory() {
       width: 100,
       render: (status) => {
         const statusMap: Record<string, { text: string; color: string }> = {
-          pending: { text: '待处理', color: 'default' },
-          approved: { text: '已通过', color: 'success' },
+          pending: { text: '待评分', color: 'default' },
+          approved: { text: '已评分', color: 'success' },
           rejected: { text: '已驳回', color: 'error' },
         };
         const config = statusMap[status] || { text: status, color: 'default' };
@@ -112,33 +112,91 @@ export default function ReviewHistory() {
         return <Text type="secondary">-</Text>;
       },
     },
-    {
-      title: '评分时间',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      width: 180,
-      render: (date) => new Date(date).toLocaleString('zh-CN'),
-    },
+    // {
+    //   title: '评分时间',
+    //   dataIndex: 'created_at',
+    //   key: 'created_at',
+    //   width: 180,
+    //   render: (date) => new Date(date).toLocaleString('zh-CN'),
+    // },
   ];
 
   const expandedRowRender = (record: Review) => {
     return (
       <Descriptions bordered size="small" column={1}>
+        {/* 题目信息区域 */}
+        {record.problem && (
+          <>
+            <Descriptions.Item label="📝 题目内容">
+              <div style={{ 
+                whiteSpace: 'pre-wrap', 
+                padding: '12px',
+                background: '#f5f5f5',
+                borderRadius: '6px',
+                lineHeight: '1.6'
+              }}>
+                {record.problem.content}
+              </div>
+            </Descriptions.Item>
+            
+            <Descriptions.Item label="✅ 正确答案">
+              <Text strong style={{ 
+                color: '#52c41a', 
+                fontSize: '16px',
+                padding: '4px 8px',
+                background: '#f6ffed',
+                borderRadius: '4px'
+              }}>
+                {record.problem.answer}
+              </Text>
+            </Descriptions.Item>
+            
+            <Descriptions.Item label="💡 题目解析">
+              <div style={{ 
+                whiteSpace: 'pre-wrap',
+                padding: '12px',
+                background: '#e6f7ff',
+                borderRadius: '6px',
+                lineHeight: '1.6'
+              }}>
+                {record.problem.explanation}
+              </div>
+            </Descriptions.Item>
+          </>
+        )}
+        
+        {/* 用户答题信息 */}
         {record.correctness_verification && (
-          <Descriptions.Item label="用户选择">
-            {record.correctness_verification.user_choice}
+          <Descriptions.Item label="🎯 用户选择">
+            <Space>
+              <Text strong>
+                {record.correctness_verification.selected_answer || 
+                 `选项 ${record.correctness_verification.selected_index}`}
+              </Text>
+              {record.is_answer_correct !== null && record.is_answer_correct !== undefined && (
+                record.is_answer_correct ? (
+                  <Tag icon={<CheckCircleOutlined />} color="success">回答正确</Tag>
+                ) : (
+                  <Tag icon={<CloseCircleOutlined />} color="error">回答错误</Tag>
+                )
+              )}
+            </Space>
           </Descriptions.Item>
         )}
+        
+        {/* 否决理由 */}
         {record.veto_reason && (
-          <Descriptions.Item label="否决理由">
-            <Text type="danger">{record.veto_reason}</Text>
+          <Descriptions.Item label="❌ 否决理由">
+            <Text type="danger" strong>{record.veto_reason}</Text>
           </Descriptions.Item>
         )}
+        
+        {/* 更新时间
         {record.updated_at && (
-          <Descriptions.Item label="更新时间">
+          <Descriptions.Item label="⏰ 更新时间">
             {new Date(record.updated_at).toLocaleString('zh-CN')}
           </Descriptions.Item>
-        )}
+        )} */}
       </Descriptions>
     );
   };
@@ -164,8 +222,10 @@ export default function ReviewHistory() {
           loading={loading}
           expandable={{
             expandedRowRender,
-            rowExpandable: (record) =>
-              !!record.correctness_verification || !!record.veto_reason || !!record.updated_at,
+            rowExpandable: (record) => 
+              record.is_answer_correct !== null && 
+              record.is_answer_correct !== undefined &&
+              !!record.problem,
           }}
           pagination={{
             pageSize: 10,
