@@ -109,7 +109,6 @@ export default function TotalPage() {
   // 使用全局store替代本地state
   const {
     formData,
-    clearAllChecks,
     // 新增：从 store 获取检测队列和导出列表
     problemQueue,
     exportList,
@@ -125,18 +124,10 @@ export default function TotalPage() {
     setExportList,
     setExportStats,
     setLoadingList,
-    loadExportListIfNeeded,
   } = useValidationStore();
 
   // AbortController引用（用于取消HTTP请求）
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
-
-  // 用于取消请求的控制器
-  const [abortControllers, setAbortControllers] = useState<{
-    difficulty?: AbortController;
-    originality?: AbortController;
-    rigor?: AbortController;
-  }>({});
 
   // 其他本地状态
   const [exporting, setExporting] = useState<'passed' | 'all' | null>(null);
@@ -697,29 +688,6 @@ export default function TotalPage() {
     });
   };
 
-  // 重置表单和状态
-  const handleReset = () => {
-    form.resetFields();
-    clearAllChecks();
-  };
-
-  // 修改题目（增强版：停止检测并清除报告）
-  const handleModify = () => {
-    // 取消所有正在进行的请求
-    Object.values(abortControllers).forEach(controller => {
-      if (controller) {
-        controller.abort();
-      }
-    });
-
-    // 重置所有检测状态和报告（使用全局store）
-    clearAllChecks();
-    
-    // 清空 AbortController
-    setAbortControllers({});
-    
-    message.info('已清除所有检测结果，可以修改题目');
-  };
 
   // 图片识别处理
   const [recognizing, setRecognizing] = useState(false);

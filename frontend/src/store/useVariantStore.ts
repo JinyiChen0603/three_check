@@ -49,7 +49,7 @@ interface VariantState {
   setOriginalProblem: (data: OriginalProblemData | null) => void;
 }
 
-export const useVariantStore = create<VariantState>((set, get) => ({
+export const useVariantStore = create<VariantState>((set) => ({
   variants: [],
   loading: false,
   batchLoading: false,

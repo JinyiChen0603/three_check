@@ -3,8 +3,8 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Card, Table, Button, Space, Tag, Select, message, Modal, Descriptions } from 'antd';
-import { EyeOutlined, CheckOutlined, CloseOutlined, DownloadOutlined } from '@ant-design/icons';
+import { Card, Table, Button, Space, Tag, Select, message } from 'antd';
+import { EyeOutlined, DownloadOutlined } from '@ant-design/icons';
 import { adminApi } from '../../../api';
 import { ProblemReviewModal } from './ProblemReviewModal';
 
