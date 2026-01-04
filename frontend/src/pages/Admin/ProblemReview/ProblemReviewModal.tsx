@@ -3,7 +3,7 @@
  */
 
 import { useState } from 'react';
-import { Modal, Descriptions, Tag, Space, Button, Input, Card, Table, Divider } from 'antd';
+import { Modal, Descriptions, Tag, Space, Button, Input, Card, Table } from 'antd';
 import { CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import MathRenderer from '../../../components/MathRenderer';
 

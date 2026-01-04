@@ -11,6 +11,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, exists
+from sqlalchemy.orm import joinedload
 from pydantic import BaseModel, Field
 import random
 import re
@@ -241,7 +242,7 @@ async def get_next_problem(
         )
         
         if similar_result["success"]:
-            choices = [problem.answer] + similar_result["similar_answers"][:3]
+            choices = [f"正确答案是：{problem.answer}"] + similar_result["similar_answers"][:3]
         else:
             raise Exception("GPT调用失败")
     except Exception as e:
@@ -295,6 +296,7 @@ async def get_next_problem(
         "instruction": "请选择你认为正确的答案：",
         "progress": {
             "completed": completed_count,
+            "current": min(completed_count + 1, task.total_count),  # 当前正在评第几题
             "total": task.total_count
         }
     }
@@ -396,7 +398,7 @@ async def get_problem_choices(
         )
     
     # 组合正确答案和错误答案
-    choices = [problem_answer] + similar_result["similar_answers"][:3]
+    choices = [f"正确答案是：{problem_answer}"] + similar_result["similar_answers"][:3]
     
     # 记录正确答案的原始位置
     correct_index = 0
@@ -738,9 +740,10 @@ async def get_my_reviews(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """查看当前用户的评分记录"""
+    """查看当前用户的评分记录（包含题目详细信息）"""
     query = (
         select(Review)
+        .options(joinedload(Review.validated_problem))  # 预加载关联的题目信息
         .where(Review.reviewer_id == current_user.id)
         .order_by(Review.created_at.desc())
         .offset(skip)
@@ -748,20 +751,29 @@ async def get_my_reviews(
     )
     
     result = await db.execute(query)
-    reviews = result.scalars().all()
+    reviews = result.scalars().unique().all()  # 使用unique()去重
     
     return {
         "total": len(reviews),
         "reviews": [
             {
                 "id": r.id,
-                "validated_problem_id": r.validated_problem_id,  # 使用新字段
+                "validated_problem_id": r.validated_problem_id,
                 "is_answer_correct": r.is_answer_correct,
+                "correctness_verification": r.correctness_verification,  # 添加用户选择信息
                 "innovation_score": r.innovation_score,
                 "rigor_score": r.rigor_score,
                 "is_vetoed": r.is_vetoed,
+                "veto_reason": r.veto_reason,  # 添加否决理由
                 "status": r.status.value,
-                "created_at": r.created_at.isoformat() if r.created_at else None
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,  # 添加更新时间
+                # 添加题目完整信息
+                "problem": {
+                    "content": r.validated_problem.content,
+                    "answer": r.validated_problem.answer,
+                    "explanation": r.validated_problem.explanation,
+                } if r.validated_problem else None
             }
             for r in reviews
         ]
@@ -847,7 +859,7 @@ async def get_export_choices(
         )
     
     # 组合正确答案和错误答案
-    choices = [export.answer] + similar_result["similar_answers"][:3]
+    choices = [f"正确答案是：{export.answer}"] + similar_result["similar_answers"][:3]
     
     # 记录正确答案的原始位置
     correct_index = 0

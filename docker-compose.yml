@@ -1,71 +1,94 @@
-name: mathtasks
+name: ${PROJECT:-mathtasks}
 
 services:
   # PostgreSQL 数据库
   postgres:
     image: postgres:16-alpine
-    container_name: mathtasks-db
     environment:
-      POSTGRES_DB: mathtasks
-      POSTGRES_USER: mathtasks
-      POSTGRES_PASSWORD: mathtasks123
+      POSTGRES_DB: ${POSTGRES_DB:-mathtasks}
+      POSTGRES_USER: ${POSTGRES_USER:-mathtasks}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mathtasks123}
       POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mathtasks"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mathtasks}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - mathtasks-network
+      - mathtasks_network
 
   # MongoDB 数据库（用于存储题目内容）
   mongodb:
     image: mongo:7.0
-    container_name: mathtasks-mongodb
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: mongodb123
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD:-mongodb123}
     volumes:
       - mongodb_data:/data/db
     ports:
-      - "27017:27017"
+      - "${MONGODB_PORT:-27017}:27017"
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - mathtasks-network
+      - mathtasks_network
+
+  # Redis（用于缓存和进度追踪）
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mathtasks_network
+    restart: unless-stopped
 
   # FastAPI 应用
   api:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: mathtasks-api
-    env_file:
-      - ./backend/.env
     environment:
-      # 数据库连接（覆盖 .env 中的配置）
-      DATABASE_URL: postgresql+asyncpg://mathtasks:mathtasks123@postgres:5432/mathtasks
-      MONGODB_URL: mongodb://admin:mongodb123@mongodb:27017/?authSource=admin
+      # 数据库连接（使用环境变量）
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mathtasks}:${POSTGRES_PASSWORD:-mathtasks123}@postgres:5432/${POSTGRES_DB:-mathtasks}
+      MONGODB_URL: mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-mongodb123}@mongodb:27017/?authSource=admin
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      INSTANCE_NAME: ${INSTANCE_NAME:-development}
       # 如果没有 .env 文件，使用默认值
       SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
       DEBUG: ${DEBUG:-true}
+      # AI API Keys（从 .env 文件或环境变量读取）
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      CANOPY_WAVE_API_KEY: ${CANOPY_WAVE_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY}
+      DOUBAO_API_KEY: ${DOUBAO_API_KEY}
+      # 业务配置
+      PROBLEM_REWARD: ${PROBLEM_REWARD:-50.0}
+      REVIEW_REWARD: ${REVIEW_REWARD:-10.0}
     ports:
-      # 统一对外暴露 8001（与现有前端代理配置一致）
-      - "8001:8000"
+      - "${API_PORT:-8001}:8000"
     depends_on:
       postgres:
         condition: service_healthy
       mongodb:
         condition: service_healthy
     networks:
-      - mathtasks-network
+      - mathtasks_network
     restart: unless-stopped
     volumes:
       # 挂载代码目录以便热重载（开发模式）
@@ -77,38 +100,36 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: mathtasks-frontend
     ports:
-      # 让访问地址保持和开发端口接近：浏览器打开 http://localhost:5173
-      - "5173:80"
+      - "${FRONTEND_PORT:-5173}:80"
     depends_on:
       - api
     networks:
-      - mathtasks-network
+      - mathtasks_network
 
   # pgAdmin (可选，用于数据库管理)
   pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: mathtasks-pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@mathtasks.com
       PGADMIN_DEFAULT_PASSWORD: admin123
       PGADMIN_CONFIG_SERVER_MODE: "False"
     ports:
-      - "5050:80"
+      - "${PGADMIN_PORT:-5050}:80"
     depends_on:
       - postgres
     networks:
-      - mathtasks-network
+      - mathtasks_network
     profiles:
       - dev
 
 volumes:
   postgres_data:
   mongodb_data:
+  redis_data:
 
 networks:
-  mathtasks-network:
+  mathtasks_network:
     driver: bridge
 
 

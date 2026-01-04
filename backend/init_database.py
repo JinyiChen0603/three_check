@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 # DATABASE_URL = "postgresql+asyncpg://postgres:postgres@postgres:5433/mathtasks"
 
 # 如果在宿主机执行，使用 localhost：
-DATABASE_URL = "postgresql+asyncpg://mathtasks:mathtasks123@localhost:5433/mathtasks?ssl=disable"
+DATABASE_URL = "postgresql+asyncpg://mathtasks:mathtasks123@localhost:5434/mathtasks?ssl=disable"
 # ================================================
 
 

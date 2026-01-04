@@ -140,9 +140,12 @@ export interface Review {
   id: number;
   problem_id: number;
   reviewer_id: number;
+  is_answer_correct?: boolean;  // 答案是否正确
   correctness_verification?: {
-    user_choice: string;
-    is_correct: boolean;
+    selected_index?: number;
+    selected_answer?: string;
+    correct_index?: number;
+    user_judgment?: string;
   };
   innovation_score?: number;
   rigor_score?: number;
@@ -150,6 +153,12 @@ export interface Review {
   status: string;
   created_at: string;
   updated_at: string;
+  // 题目信息
+  problem?: {
+    content: string;
+    answer: string;
+    explanation: string;
+  };
 }
 
 // 资料库

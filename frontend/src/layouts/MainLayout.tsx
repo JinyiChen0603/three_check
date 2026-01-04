@@ -26,7 +26,6 @@ import {
   TeamOutlined,
   WalletOutlined,
   HistoryOutlined,
-  CopyOutlined,
   FileExcelOutlined,
   FireOutlined,
 } from '@ant-design/icons';

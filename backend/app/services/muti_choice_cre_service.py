@@ -78,6 +78,18 @@ class GPTService:
                 answer.split(".", 1)[-1].strip() if "." in answer else answer
                 for answer in similar_answers
             ]
+            # 确保所有答案都有"正确答案是："前缀（后处理保底）
+            processed_answers = []
+            for answer in similar_answers:
+                answer = answer.strip()
+                # 如果已经有前缀，保持原样
+                if answer.startswith("正确答案是：") or answer.startswith("正确答案是:"):
+                    processed_answers.append(answer.replace("正确答案是:", "正确答案是："))  # 统一冒号
+                # 如果没有前缀，手动添加
+                else:
+                    processed_answers.append(f"正确答案是：{answer}")
+
+            similar_answers = processed_answers
             
             return {
                 "success": True,
