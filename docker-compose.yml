@@ -61,8 +61,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    env_file:
-      - ./backend/.env
     environment:
       # 数据库连接（使用环境变量）
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mathtasks}:${POSTGRES_PASSWORD:-mathtasks123}@postgres:5432/${POSTGRES_DB:-mathtasks}
