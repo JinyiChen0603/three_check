@@ -118,6 +118,7 @@ services:
 volumes:
   postgres_data:
   mongodb_data:
+  redis_data:
 
 networks:
   mathtasks_network:
