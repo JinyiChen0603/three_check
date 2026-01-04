@@ -1268,7 +1268,7 @@ export default function TotalPage() {
                   }
                   extra={
                     <Space>
-                      {problemItem.allCompleted && !problemItem.saved && (
+                      {problemItem.allCompleted && !problemItem.saved && problemItem.checks.difficulty.passed && (
                         <Button 
                           type="primary" 
                           size="small" 

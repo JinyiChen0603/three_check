@@ -79,8 +79,6 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     networks:
       - mathtasks_network
     restart: unless-stopped
@@ -120,7 +118,6 @@ services:
 volumes:
   postgres_data:
   mongodb_data:
-  redis_data:
 
 networks:
   mathtasks_network:
