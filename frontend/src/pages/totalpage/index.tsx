@@ -534,7 +534,10 @@ export default function TotalPage() {
     switch (type) {
       case 'difficulty':
         title = '难度检测报告';
-        data = item.checks.difficulty.result;
+        data = {
+          ...item.checks.difficulty.result,
+          user_answer: item.answer,  // 新增：用户输入的答案
+        };
         break;
       case 'originality':
         title = '原创性检测报告';
@@ -1521,6 +1524,11 @@ export default function TotalPage() {
                     <Descriptions.Item label="结论">
                       <MathRenderer content={viewModalContent.data.verdict || '未知'} />
                     </Descriptions.Item>
+                    {viewModalContent.data.user_answer && (
+                      <Descriptions.Item label="用户答案">
+                        <MathRenderer content={viewModalContent.data.user_answer} />
+                      </Descriptions.Item>
+                    )}
                     {viewModalContent.data.recommendation && (
                       <Descriptions.Item label="建议">
                         <MathRenderer content={viewModalContent.data.recommendation} />
