@@ -104,7 +104,7 @@ async def get_my_stats(
     return {
         "id": current_user.id,
         "username": current_user.username,
-        "role": current_user.role.value,
+        "role": current_user.role,
         "balance": current_user.balance,
         "problems_created_count": problems_created_count,  # 从数据库查询
         "reviews_completed_count": reviews_completed_count,  # 从数据库查询
@@ -215,8 +215,8 @@ async def get_my_transactions(
             {
                 "id": t.id,
                 "amount": t.amount,
-                "transaction_type": t.transaction_type.value,
-                "status": t.status.value,
+                "transaction_type": t.transaction_type,
+                "status": t.status,
                 "description": t.description,
                 "balance_after": t.balance_after,
                 "created_at": t.created_at.isoformat(),
@@ -314,7 +314,7 @@ async def list_users(
                 "id": u.id,
                 "username": u.username,
                 "email": u.email,
-                "role": u.role.value,
+                "role": u.role,
                 "balance": u.balance,
                 "problems_created_count": u.problems_created_count,
                 "reviews_completed_count": u.reviews_completed_count,
@@ -352,7 +352,7 @@ async def get_user(
     user_info = {
         "id": user.id,
         "username": user.username,
-        "role": user.role.value,
+        "role": user.role,
         "problems_created_count": user.problems_created_count,
         "reviews_completed_count": user.reviews_completed_count
     }

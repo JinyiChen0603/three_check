@@ -89,7 +89,7 @@ async def login(
     # 创建访问令牌
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": str(user.id), "username": user.username, "role": user.role.value},
+        data={"sub": str(user.id), "username": user.username, "role": user.role},
         expires_delta=access_token_expires
     )
     
@@ -99,7 +99,7 @@ async def login(
         "user_info": {
             "id": user.id,
             "username": user.username,
-            "role": user.role.value,
+            "role": user.role,
             "balance": user.balance,  # 已刷新的余额
             "is_impersonating": user.is_impersonating
         }
@@ -213,7 +213,7 @@ async def impersonate_user(
         data={
             "sub": str(admin_user.id),  # 实际用户ID仍然是管理员
             "username": admin_user.username,
-            "role": admin_user.role.value,
+            "role": admin_user.role,
             "impersonating": True,
             "target_user_id": target_user.id,
             "target_username": target_user.username
@@ -230,7 +230,7 @@ async def impersonate_user(
         "target_user": {
             "id": target_user.id,
             "username": target_user.username,
-            "role": target_user.role.value,
+            "role": target_user.role,
             "balance": target_user.balance
         }
     }
@@ -247,7 +247,7 @@ async def get_current_user_info(
         "id": current_user.id,
         "username": current_user.username,
         "email": current_user.email,
-        "role": current_user.role.value,
+        "role": current_user.role,
         "balance": current_user.balance,
         "problems_created_count": current_user.problems_created_count,
         "reviews_completed_count": current_user.reviews_completed_count,

@@ -81,7 +81,7 @@ function App() {
                 path="review-history" 
                 element={<ReviewHistory />} 
               />
-              {/* 以下2个页面仍保持隐藏 */}
+              {/* 以下页面仍保持隐藏 */}
               {/* <Route 
                 path="problem" 
                 element={<Problem />} 

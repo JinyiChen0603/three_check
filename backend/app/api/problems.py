@@ -902,7 +902,7 @@ async def get_export_list(
                     "difficulty_validation": p.difficulty_validation,  # 完整的难度检测结果
                     "originality_check": p.originality_check,  # 完整的原创性检测结果
                     "rigor_check": p.rigor_check,  # 完整的严谨性检测结果
-                    "admin_review_status": p.admin_review_status.value if p.admin_review_status else "pending",  # 管理员审核状态
+                    "admin_review_status": p.admin_review_status if p.admin_review_status else "pending",  # 管理员审核状态
                     "created_at": created_at_str
                 })
             except Exception as e:

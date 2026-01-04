@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Card,
   Button,
@@ -42,7 +43,7 @@ import {
   ClockCircleOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import { problemApi } from '../../api';
+import { problemApi, variantApi } from '../../api';
 import MathRenderer from '../../components/MathRenderer';
 import { useTask } from '../../hooks/useTask';
 import { TaskType } from '../../config/constants';
@@ -99,6 +100,7 @@ const createInitialCheckState = () => ({
 
 export default function TotalPage() {
   const [form] = Form.useForm<ProblemFormData>();
+  const location = useLocation();
   
   // 任务管理Hook（现在使用全局 store，避免重复请求）
   const { tasks, refreshTasks } = useTask();
@@ -846,6 +848,50 @@ export default function TotalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // 只在组件挂载时执行一次
 
+  // 处理从VariantGenerator跳转过来的变体
+  useEffect(() => {
+    const state = location.state as any;
+    if (state?.variantId && state?.autoFill) {
+      // 加载变体详情并自动添加到检验队列
+      const loadVariant = async () => {
+        try {
+          const variantDetail = await variantApi.getVariantDetail(state.variantId);
+          
+          // 生成唯一ID
+          const problemId = `variant-${state.variantId}-${Date.now()}`;
+
+          // 创建新的队列项
+          const newItem: ProblemQueueItem = {
+            id: problemId,
+            problem: variantDetail.content,
+            answer: variantDetail.answer,
+            explanation: variantDetail.explanation || '',
+            checks: {
+              difficulty: createInitialCheckState(),
+              originality: createInitialCheckState(),
+              rigor: createInitialCheckState(),
+            },
+            allCompleted: false,
+            saved: false,
+          };
+
+          // 添加到队列
+          addToProblemQueue(newItem);
+
+          // 自动开始所有检测
+          startAllChecksForProblem(newItem);
+
+          message.success('已将变体添加到检验队列并开始检测');
+        } catch (error: any) {
+          console.error('加载变体失败:', error);
+          message.error(error.response?.data?.detail || '加载变体失败');
+        }
+      };
+      loadVariant();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
+
   // 恢复表单数据（从全局store）
   useEffect(() => {
     if (formData) {
@@ -1353,7 +1399,7 @@ export default function TotalPage() {
       </Card>
 
       {/* 导出列表区 */}
-      <Card title="导出列表" style={{ marginBottom: 24 }}>
+      <Card title="已验证题目列表" style={{ marginBottom: 24 }}>
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col span={8}>
             <Statistic

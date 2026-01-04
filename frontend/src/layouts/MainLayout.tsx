@@ -89,16 +89,11 @@ export default function MainLayout() {
       icon: <FileTextOutlined />,
       label: '任务管理',
     },
-    // 以下4个页面已隐藏，但保留代码以便将来恢复
+    // 以下页面已隐藏，但保留代码以便将来恢复
     // {
     //   key: '/problem',
     //   icon: <FileTextOutlined />,
     //   label: '出题流程',
-    // },
-    // {
-    //   key: '/my-variants',
-    //   icon: <CopyOutlined />,
-    //   label: '我的变体题目',
     // },
     {
       key: '/totalpage',

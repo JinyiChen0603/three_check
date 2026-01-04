@@ -145,9 +145,9 @@ async def create_initial_materials():
                     print(f"⏭️  资料 {material_data['title']} 已存在，跳过")
                     continue
                 
-                # 创建新资料（使用枚举的字符串值而不是枚举对象）
+                # 创建新资料（使用字符串值）
                 new_material = MaterialLibrary(
-                    category=material_data["category"].value,
+                    category=material_data["category"],
                     title=material_data["title"],
                     description=material_data["description"],
                     baidu_link=material_data["baidu_link"],
@@ -156,7 +156,7 @@ async def create_initial_materials():
                 )
                 
                 session.add(new_material)
-                print(f"✅ 创建资料: {material_data['title']} ({material_data['category'].value})")
+                print(f"✅ 创建资料: {material_data['title']} ({material_data['category']})")
             
             await session.commit()
             print("\n🎉 资料库初始化完成！")

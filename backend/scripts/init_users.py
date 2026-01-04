@@ -186,7 +186,7 @@ async def create_initial_users():
                 )
                 
                 session.add(new_user)
-                print(f"[OK] Created user: {user_data['username']} ({user_data['role'].value})")
+                print(f"[OK] Created user: {user_data['username']} ({user_data['role']})")
             
             await session.commit()
             print("\n[Success] Initial users created successfully!")
