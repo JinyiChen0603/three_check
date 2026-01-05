@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.models import (
-    User, Problem, Task, TaskType, TaskStatus, ProblemStatus, ValidatedProblemExport, Review, ReviewStatus,
+    User, Task, TaskType, TaskStatus, ValidatedProblemExport, Review, ReviewStatus,
     Transaction, TransactionType, TransactionStatus
 )
 from app.api.deps import get_current_user
@@ -34,7 +34,6 @@ class ClaimTasksRequest(BaseModel):
 class TaskResponse(BaseModel):
     """任务响应模型"""
     id: int
-    problem_id: Optional[int]
     task_type: str
     status: str
     claimed_at: Optional[datetime]
@@ -127,13 +126,13 @@ async def claim_tasks(
     await release_expired_tasks(db)
     
     # 验证任务类型
-    try:
-        task_type_enum = TaskType(request.task_type)
-    except ValueError:
+    valid_task_types = [TaskType.CREATE_PROBLEM, TaskType.REVIEW_PROBLEM]
+    if request.task_type not in valid_task_types:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"无效的任务类型: {request.task_type}"
         )
+    task_type_enum = request.task_type
     
     # 检查是否有进行中的任务
     result = await db.execute(
@@ -278,7 +277,6 @@ async def claim_tasks(
     else:  # CREATE_PROBLEM
         # 出题任务：创建一个批次任务记录，从0开始计数
         task = Task(
-            problem_id=None,  # 出题任务没有关联的problem
             user_id=current_user.id,
             task_type=task_type_enum,
             batch_id=batch_id,
@@ -328,11 +326,15 @@ async def get_my_tasks(
     query = select(Task).where(Task.user_id == current_user.id)
     
     if status:
-        try:
-            status_enum = TaskStatus(status)
-            query = query.where(Task.status == status_enum)
-        except ValueError:
-            pass
+        valid_statuses = [
+            TaskStatus.IN_PROGRESS,
+            TaskStatus.SUBMITTED,
+            TaskStatus.COMPLETED,
+            TaskStatus.TIMEOUT,
+            TaskStatus.ABANDONED
+        ]
+        if status in valid_statuses:
+            query = query.where(Task.status == status)
     
     query = query.order_by(Task.created_at.desc())
     
@@ -349,8 +351,8 @@ async def get_my_tasks(
                 # 初始化批次信息
                 batches[task.batch_id] = {
                     "batch_id": task.batch_id,
-                    "task_type": task.task_type.value,
-                    "status": task.status.value,  # 初始状态，后面会更新
+                    "task_type": task.task_type,
+                    "status": task.status,  # 初始状态，后面会更新
                     "total_count": 0,  # 批次总数，累加计算
                     "completed_count": 0,  # 批次完成数，累加计算
                     "claimed_at": task.claimed_at,
@@ -360,11 +362,10 @@ async def get_my_tasks(
                 }
                 batch_tasks_status[task.batch_id] = []
             
-            # 添加任务到批次（新设计：评分任务不关联具体题目）
+            # 添加任务到批次
             batches[task.batch_id]["tasks"].append({
                 "task_id": task.id,
-                "validated_problem_id": task.validated_problem_id,  # 出题任务的题目ID（评分任务为None）
-                "status": task.status.value  # 返回Task状态
+                "status": task.status  # 返回Task状态
             })
             
             # 记录Task状态（用于后续判断批次状态）
@@ -380,7 +381,7 @@ async def get_my_tasks(
                 task_completed = count_result.scalar() or 0
                 batches[task.batch_id]["total_count"] = task.total_count or 0
                 batches[task.batch_id]["completed_count"] = task_completed
-                batches[task.batch_id]["status"] = task.status.value
+                batches[task.batch_id]["status"] = task.status
             else:
                 # 评分任务：从数据库实时查询评分记录数（新设计：1个Task=n个题目）
                 # 注意：只统计已完成评分的Review（innovation_score 和 rigor_score 都不为空）
@@ -397,7 +398,7 @@ async def get_my_tasks(
                 task_completed = review_result.scalar() or 0
                 batches[task.batch_id]["total_count"] = task.total_count or 0
                 batches[task.batch_id]["completed_count"] = task_completed
-                batches[task.batch_id]["status"] = task.status.value
+                batches[task.batch_id]["status"] = task.status
     
     # 新设计：评分任务只有1个Task，批次状态已经在上面设置，这里不需要额外处理
     
@@ -454,7 +455,7 @@ async def submit_task(
     if task.status != TaskStatus.IN_PROGRESS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"任务状态为 {task.status.value}，无法提交"
+            detail=f"任务状态为 {task.status}，无法提交"
         )
     
     # 检查是否过期
@@ -569,7 +570,7 @@ async def abandon_task(
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"任务状态为 {task.status.value}，无法放弃"
+                detail=f"任务状态为 {task.status}，无法放弃"
             )
     
     # 评分任务：自动放弃整个批次
@@ -750,9 +751,15 @@ async def get_task_stats(
         .group_by(Task.status)
     )
     
-    stats = {status.value: 0 for status in TaskStatus}
+    stats = {
+        TaskStatus.IN_PROGRESS: 0,
+        TaskStatus.SUBMITTED: 0,
+        TaskStatus.COMPLETED: 0,
+        TaskStatus.TIMEOUT: 0,
+        TaskStatus.ABANDONED: 0
+    }
     for row in result.all():
-        stats[row.status.value] = row.count
+        stats[row.status] = row.count
     
     return {
         "user_id": current_user.id,

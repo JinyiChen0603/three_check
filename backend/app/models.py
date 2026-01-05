@@ -9,7 +9,6 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
-    Enum,
     Float,
     ForeignKey,
     Integer,
@@ -21,51 +20,26 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import relationship
-import enum
 
 from app.database import Base
 
 
-# ==================== 枚举类型定义 ====================
+# ==================== 字符串常量定义（替代枚举） ====================
 
-class UserRole(str, enum.Enum):
+class UserRole:
     """用户角色"""
     ADMIN = "admin"
     USER = "user"
 
 
-class ProblemSourceType(str, enum.Enum):
-    """题目来源类型"""
-    OCR = "ocr"              # OCR识别
-    MANUAL = "manual"        # 手动输入
-    AI_VARIANT = "ai_variant"  # AI变体
+class ValidatedProblemSourceType:
+    """已验证题目来源类型"""
+    DIRECT = "direct"      # 直接输入（题目验证导出页面）
+    VARIANT = "variant"    # 变体生成（变体生成页面）
+    OCR = "ocr"           # OCR识别（预留）
 
 
-class ProblemValidationStatus(str, enum.Enum):
-    """题目验证状态"""
-    NOT_VALIDATED = "not_validated"  # 未验证
-    VALIDATING = "validating"        # 验证中
-    PASSED = "passed"                # 验证通过（≤4次正确）
-    FAILED = "failed"                # 验证失败（>4次正确）
-
-
-class ProblemStatus(str, enum.Enum):
-    """题目生命周期状态"""
-    DRAFT = "draft"              # 草稿
-    PENDING_REVIEW = "pending_review"  # 待审核
-    PUBLISHED = "published"      # 已发布
-    ARCHIVED = "archived"        # 已下架
-
-
-class HumanReviewStatus(str, enum.Enum):
-    """人工质检状态"""
-    PENDING = "pending"          # 待质检
-    APPROVED = "approved"        # 质检通过
-    REJECTED = "rejected"        # 质检不通过
-    NEED_MODIFICATION = "need_modification"  # 需要修改
-
-
-class MaterialCategory(str, enum.Enum):
+class MaterialCategory:
     """资料库类别"""
     # 大类
     HIGH_SCHOOL_COMPREHENSIVE = "high_school_comprehensive"  # 高中数学联赛综合
@@ -86,13 +60,13 @@ class MaterialCategory(str, enum.Enum):
     COLLEGE_OPTIMIZATION = "college_optimization"  # 最优化方法
 
 
-class TaskType(str, enum.Enum):
+class TaskType:
     """任务类型"""
     REVIEW_PROBLEM = "review_problem"  # 评分任务
-    CREATE_PROBLEM = "create_problem"  # 出题任务（可扩展）
+    CREATE_PROBLEM = "create_problem"  # 出题任务
 
 
-class TaskStatus(str, enum.Enum):
+class TaskStatus:
     """任务状态"""
     PENDING = "pending"          # 待领取
     IN_PROGRESS = "in_progress"  # 进行中
@@ -102,21 +76,21 @@ class TaskStatus(str, enum.Enum):
     TIMEOUT = "timeout"          # 已超时
 
 
-class ReviewStatus(str, enum.Enum):
+class ReviewStatus:
     """评分状态"""
     PENDING = "pending"      # 待审核
     APPROVED = "approved"    # 已通过
     REJECTED = "rejected"    # 已驳回
 
 
-class AdminReviewStatus(str, enum.Enum):
+class AdminReviewStatus:
     """管理员审核状态"""
     PENDING = "pending"      # 待审核
     APPROVED = "approved"    # 已通过
     REJECTED = "rejected"    # 未通过
 
 
-class TransactionType(str, enum.Enum):
+class TransactionType:
     """交易类型"""
     PROBLEM_REWARD = "problem_reward"  # 出题奖励
     REVIEW_REWARD = "review_reward"    # 评分奖励
@@ -124,7 +98,7 @@ class TransactionType(str, enum.Enum):
     ADJUSTMENT = "adjustment"          # 调整
 
 
-class TransactionStatus(str, enum.Enum):
+class TransactionStatus:
     """交易状态"""
     PENDING = "pending"      # 待确认
     CONFIRMED = "confirmed"  # 已到账
@@ -142,7 +116,7 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     email = Column(String(100), unique=True, nullable=True, index=True)
     password_hash = Column(String(255), nullable=False)
-    role = Column(Enum(UserRole, values_callable=lambda x: [e.value for e in x]), default=UserRole.USER, nullable=False)
+    role = Column(String(20), default=UserRole.USER, nullable=False, index=True)
     
     # 财务字段
     balance = Column(Float, default=0.0, nullable=False)
@@ -161,7 +135,6 @@ class User(Base):
     last_login_at = Column(DateTime, nullable=True)
     
     # 关系
-    created_problems = relationship("Problem", back_populates="creator", foreign_keys="Problem.creator_id")
     claimed_tasks = relationship("Task", back_populates="user")
     reviews = relationship("Review", back_populates="reviewer")
     transactions = relationship("Transaction", back_populates="user")
@@ -194,107 +167,17 @@ class User(Base):
         return f"<User(id={self.id}, username={self.username}, role={self.role})>"
 
 
-class Problem(Base):
-    """题目表"""
-    __tablename__ = "problems"
-    
-    # 基础字段
-    id = Column(Integer, primary_key=True, index=True)
-    creator_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    
-    # 母题关系（自关联）
-    parent_problem_id = Column(Integer, ForeignKey("problems.id"), nullable=True, index=True)
-    
-    # MongoDB关联
-    mongo_id = Column(String(24), unique=True, nullable=True, index=True)  # MongoDB ObjectId
-    
-    # 题目内容（已迁移到MongoDB，保留字段用于兼容）
-    title = Column(String(200), nullable=False)
-    content = Column(JSON, nullable=True)  # 题目详细内容（JSON格式）- 已迁移到MongoDB
-    explanation = Column(Text, nullable=True)  # 题目解析 - 已迁移到MongoDB
-    answer = Column(Text, nullable=True)   # 标准答案 - 已迁移到MongoDB
-    difficulty = Column(Integer, nullable=True)  # 难度等级 1-5
-    category = Column(Enum(MaterialCategory, values_callable=lambda x: [e.value for e in x]), nullable=True, index=True)  # 题目分类
-    
-    # 溯源字段
-    source_type = Column(Enum(ProblemSourceType, values_callable=lambda x: [e.value for e in x]), default=ProblemSourceType.MANUAL, nullable=False)
-    ocr_image_url = Column(String(500), nullable=True)  # OCR图片URL
-    version = Column(Integer, default=1, nullable=False)  # 版本号
-    variant_count = Column(Integer, default=0, nullable=False)  # 变形次数（限制≤10）
-    
-    # 验证字段
-    validation_status = Column(
-        Enum(ProblemValidationStatus, values_callable=lambda x: [e.value for e in x]),
-        default=ProblemValidationStatus.NOT_VALIDATED,
-        nullable=False,
-        index=True
-    )
-    validation_result = Column(JSON, nullable=True)  # 验证结果详情（8次AI验证的记录）- 已迁移到MongoDB
-    validation_correct_count = Column(Integer, nullable=True)  # 验证正确次数
-    validation_completed_at = Column(DateTime, nullable=True)
-    
-    # 生命周期状态
-    status = Column(
-        Enum(ProblemStatus, values_callable=lambda x: [e.value for e in x]),
-        default=ProblemStatus.DRAFT,
-        nullable=False,
-        index=True
-    )
-    
-    # 质检字段（三个维度）
-    quality_check = Column(JSON, nullable=True)  # 质检结果 {"difficulty": bool, "originality": bool, "rigor": bool}
-    quality_check_details = Column(JSON, nullable=True)  # 质检详细信息 - 已迁移到MongoDB
-    
-    # 人工质检
-    human_review_status = Column(
-        Enum(HumanReviewStatus, values_callable=lambda x: [e.value for e in x]),
-        default=HumanReviewStatus.PENDING,
-        nullable=False,
-        index=True
-    )
-    human_review_note = Column(Text, nullable=True)  # 人工质检理由/反馈
-    
-    # 审核相关
-    review_count = Column(Integer, default=0, nullable=False)  # 已完成的评分数
-    avg_innovation_score = Column(Float, nullable=True)  # 平均创新性评分
-    avg_rigor_score = Column(Float, nullable=True)  # 平均数学严谨性评分
-    
-    # 时间戳
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    published_at = Column(DateTime, nullable=True)
-    
-    # 关系
-    creator = relationship("User", back_populates="created_problems", foreign_keys=[creator_id])
-    parent_problem = relationship("Problem", remote_side=[id], backref="variants")
-    tasks = relationship("Task", back_populates="problem")
-    reviews = relationship("Review", back_populates="problem")
-    transactions = relationship("Transaction", back_populates="related_problem")
-    # validation_records 已迁移到 ValidatedProblemExport
-    # validation_records = relationship("ValidationRecord", back_populates="problem")
-    
-    # 索引
-    __table_args__ = (
-        Index("idx_creator_status", "creator_id", "status"),
-        Index("idx_validation_status", "validation_status", "status"),
-    )
-    
-    def __repr__(self):
-        return f"<Problem(id={self.id}, title={self.title}, creator_id={self.creator_id})>"
-
-
 class Task(Base):
     """任务领取记录表"""
     __tablename__ = "tasks"
     
     # 基础字段
     id = Column(Integer, primary_key=True, index=True)
-    problem_id = Column(Integer, ForeignKey("problems.id"), nullable=True, index=True)  # 旧题目表（兼容）
-    validated_problem_id = Column(Integer, ForeignKey("validated_problem_exports.id", ondelete="CASCADE"), nullable=True, index=True)  # 新题目表
+    validated_problem_id = Column(Integer, ForeignKey("validated_problem_exports.id", ondelete="CASCADE"), nullable=True, index=True)  # 关联题目
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     
     # 任务类型
-    task_type = Column(Enum(TaskType, values_callable=lambda x: [e.value for e in x]), default=TaskType.REVIEW_PROBLEM, nullable=False)
+    task_type = Column(String(50), default=TaskType.REVIEW_PROBLEM, nullable=False, index=True)
     
     # 批量任务信息
     batch_id = Column(String(50), nullable=True, index=True)  # 批次ID，同一批领取的任务有相同的batch_id
@@ -303,7 +186,7 @@ class Task(Base):
     abandoned_count = Column(Integer, default=0, nullable=False)  # 已放弃数
     
     # 状态
-    status = Column(Enum(TaskStatus, values_callable=lambda x: [e.value for e in x]), default=TaskStatus.PENDING, nullable=False, index=True)
+    status = Column(String(20), default=TaskStatus.PENDING, nullable=False, index=True)
     
     # 时间控制
     claimed_at = Column(DateTime, nullable=True)
@@ -319,15 +202,14 @@ class Task(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
     # 关系
-    problem = relationship("Problem", back_populates="tasks")  # 旧题目表关系（兼容）
-    validated_problem = relationship("ValidatedProblemExport", foreign_keys=[validated_problem_id], back_populates="review_tasks")  # 新题目表关系
+    validated_problem = relationship("ValidatedProblemExport", foreign_keys=[validated_problem_id], back_populates="review_tasks")
     user = relationship("User", back_populates="claimed_tasks")
     reviews = relationship("Review", back_populates="task")  # 一个评分任务批次可以有多个评分记录
     
     # 索引
     __table_args__ = (
         Index("idx_user_status", "user_id", "status"),
-        Index("idx_problem_status", "problem_id", "status"),
+        Index("idx_validated_problem_status", "validated_problem_id", "status"),
         Index("idx_expires_at", "expires_at"),
     )
     
@@ -348,10 +230,9 @@ class Review(Base):
     
     # 基础字段
     id = Column(Integer, primary_key=True, index=True)
-    problem_id = Column(Integer, ForeignKey("problems.id"), nullable=True, index=True)  # 旧题目表（兼容）
-    validated_problem_id = Column(Integer, ForeignKey("validated_problem_exports.id", ondelete="CASCADE"), nullable=True, index=True)  # 新题目表
+    validated_problem_id = Column(Integer, ForeignKey("validated_problem_exports.id", ondelete="CASCADE"), nullable=False, index=True)  # 关联题目
     reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True, index=True)  # 关联评分任务批次（不再unique，一个批次可以有多个评分）
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True, index=True)  # 关联评分任务批次
     
     # 答题验证（正确性验证流程）
     correctness_verification = Column(JSON, nullable=True)  # 正确性验证过程（4选1的记录）
@@ -367,7 +248,7 @@ class Review(Base):
     veto_reason = Column(Text, nullable=True)  # 否决理由
     
     # 状态
-    status = Column(Enum(ReviewStatus, values_callable=lambda x: [e.value for e in x]), default=ReviewStatus.PENDING, nullable=False, index=True)
+    status = Column(String(20), default=ReviewStatus.PENDING, nullable=False, index=True)
     
     # 审核信息
     admin_note = Column(Text, nullable=True)  # 管理员备注
@@ -378,19 +259,18 @@ class Review(Base):
     approved_at = Column(DateTime, nullable=True)
     
     # 关系
-    problem = relationship("Problem", back_populates="reviews")  # 旧题目表关系（兼容）
-    validated_problem = relationship("ValidatedProblemExport", foreign_keys=[validated_problem_id])  # 新题目表关系
+    validated_problem = relationship("ValidatedProblemExport", foreign_keys=[validated_problem_id], back_populates="reviews")
     reviewer = relationship("User", back_populates="reviews")
-    task = relationship("Task", back_populates="reviews")  # 对应Task.reviews（一个任务多个评分）
+    task = relationship("Task", back_populates="reviews")
     
     # 索引
     __table_args__ = (
-        Index("idx_problem_reviewer", "problem_id", "reviewer_id"),
+        Index("idx_validated_problem_reviewer", "validated_problem_id", "reviewer_id"),
         Index("idx_reviewer_status", "reviewer_id", "status"),
     )
     
     def __repr__(self):
-        return f"<Review(id={self.id}, problem_id={self.problem_id}, reviewer_id={self.reviewer_id})>"
+        return f"<Review(id={self.id}, validated_problem_id={self.validated_problem_id}, reviewer_id={self.reviewer_id})>"
 
 
 class Transaction(Base):
@@ -405,15 +285,14 @@ class Transaction(Base):
     amount = Column(Float, nullable=False)  # 金额（可正可负）
     
     # 交易类型
-    transaction_type = Column(Enum(TransactionType, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
+    transaction_type = Column(String(50), nullable=False, index=True)
     
     # 关联信息
-    related_problem_id = Column(Integer, ForeignKey("problems.id"), nullable=True)
     related_task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True)
     
     # 状态
     status = Column(
-        Enum(TransactionStatus, values_callable=lambda x: [e.value for e in x]),
+        String(20),
         default=TransactionStatus.PENDING,
         nullable=False,
         index=True
@@ -432,7 +311,6 @@ class Transaction(Base):
     
     # 关系
     user = relationship("User", back_populates="transactions")
-    related_problem = relationship("Problem", back_populates="transactions")
     
     # 索引
     __table_args__ = (
@@ -451,8 +329,8 @@ class MaterialLibrary(Base):
     # 基础字段
     id = Column(Integer, primary_key=True, index=True)
     
-    # 分类（使用枚举值而不是名称）
-    category = Column(Enum(MaterialCategory, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
+    # 分类
+    category = Column(String(100), nullable=False, index=True)
     
     # 资料信息
     title = Column(String(200), nullable=False)
@@ -520,6 +398,14 @@ class ValidatedProblemExport(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True, index=True)  # 关联出题任务ID
     
+    # 题目来源
+    source_type = Column(
+        String(20),
+        default=ValidatedProblemSourceType.DIRECT,
+        nullable=False,
+        index=True
+    )  # 来源类型：direct=直接输入, variant=变体生成, ocr=OCR识别
+    
     # 题目信息
     content = Column(Text, nullable=False)  # 题目内容
     answer = Column(Text, nullable=False)  # 标准答案
@@ -528,18 +414,18 @@ class ValidatedProblemExport(Base):
     # 难度验证结果
     difficulty_validation = Column(JSON, nullable=True)  # 难度验证结果
     
-    # 二维质检结果
-    originality_check = Column(JSON, nullable=False)  # 原创性检测结果
-    rigor_check = Column(JSON, nullable=False)  # 严谨性检测结果
+    # 二维质检结果（对于草稿可以为空对象）
+    originality_check = Column(JSON, nullable=True)  # 原创性检测结果
+    rigor_check = Column(JSON, nullable=True)  # 严谨性检测结果
     
-    # 评分相关字段（简化设计：题目表包含评分状态）
+    # 评分相关字段
     review_count = Column(Integer, default=0, nullable=False)  # 已完成的评分数
     avg_innovation_score = Column(Float, nullable=True)  # 平均创新性评分
     avg_rigor_score = Column(Float, nullable=True)  # 平均严谨性评分
     
     # 管理员审核相关
     admin_review_status = Column(
-        Enum(AdminReviewStatus, values_callable=lambda x: [e.value for e in x]),
+        String(20),
         default=AdminReviewStatus.PENDING,
         nullable=False,
         index=True
@@ -556,7 +442,14 @@ class ValidatedProblemExport(Base):
     admin_reviewer = relationship("User", foreign_keys=[admin_reviewer_id])
     creation_task = relationship("Task", foreign_keys="[ValidatedProblemExport.task_id]", backref="created_problems")
     review_tasks = relationship("Task", foreign_keys="[Task.validated_problem_id]", back_populates="validated_problem")
+    reviews = relationship("Review", back_populates="validated_problem", cascade="all, delete-orphan")
     validation_records = relationship("ValidationRecord", back_populates="validated_problem", cascade="all, delete-orphan")
     
+    # 索引
+    __table_args__ = (
+        Index("idx_user_source", "user_id", "source_type"),
+        Index("idx_source_task", "source_type", "task_id"),
+    )
+    
     def __repr__(self):
-        return f"<ValidatedProblemExport(id={self.id}, user_id={self.user_id}, admin_review_status={self.admin_review_status})>"
+        return f"<ValidatedProblemExport(id={self.id}, user_id={self.user_id}, source_type={self.source_type})>"

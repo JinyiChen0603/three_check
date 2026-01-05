@@ -8,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import init_db, close_db
-from app.services.problem_storage import init_mongodb, close_mongodb
 from app.services.redis_client import init_redis, close_redis
 
 
@@ -22,13 +21,6 @@ async def lifespan(app: FastAPI):
     print(f"🚀 启动 {settings.APP_NAME} v{settings.VERSION}")
     await init_db()
     print("✅ PostgreSQL连接成功")
-    
-    # 初始化MongoDB
-    if settings.MONGODB_URL:
-        init_mongodb(settings.MONGODB_URL)
-        print("✅ MongoDB连接成功")
-    else:
-        print("⚠️ MongoDB URL未配置，题目内容将存储在PostgreSQL")
     
     # 初始化Redis（用于进度追踪等）
     if settings.REDIS_URL:
@@ -44,8 +36,6 @@ async def lifespan(app: FastAPI):
     # 关闭时
     print("🛑 关闭数据库连接...")
     await close_db()
-    if settings.MONGODB_URL:
-        await close_mongodb()
     if settings.REDIS_URL:
         await close_redis()
     print("👋 再见！")
@@ -106,7 +96,7 @@ async def get_config():
 
 
 # ==================== API 路由 ====================
-from app.api import auth, materials, problems, reviews, tasks, users, deep_transform, admin
+from app.api import auth, materials, problems, reviews, tasks, users, deep_transform, admin, variants
 
 # 认证路由
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
@@ -122,6 +112,9 @@ app.include_router(materials.router, prefix="/api/materials", tags=["资料库"]
 
 # 题目管理路由
 app.include_router(problems.router, prefix="/api/problems", tags=["题目管理"])
+
+# 变体管理路由
+app.include_router(variants.router, prefix="/api/variants", tags=["变体管理"])
 
 # 评分路由
 app.include_router(reviews.router, prefix="/api/reviews", tags=["评分管理"])

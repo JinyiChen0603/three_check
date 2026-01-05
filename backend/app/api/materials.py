@@ -44,18 +44,18 @@ class CategorySummary(BaseModel):
 
 # 类别显示名称映射
 CATEGORY_DISPLAY_NAMES = {
-    MaterialCategory.HIGH_SCHOOL_COMPREHENSIVE: "高中数学联赛综合",
-    MaterialCategory.COLLEGE_COMPREHENSIVE: "大学数学竞赛综合",
-    MaterialCategory.HIGH_SCHOOL_ALGEBRA: "高中数学联赛 - 代数",
-    MaterialCategory.HIGH_SCHOOL_GEOMETRY: "高中数学联赛 - 几何",
-    MaterialCategory.HIGH_SCHOOL_NUMBER_THEORY: "高中数学联赛 - 数论",
-    MaterialCategory.HIGH_SCHOOL_COMBINATORICS: "高中数学联赛 - 组合",
-    MaterialCategory.COLLEGE_ALGEBRA: "大学数学竞赛 - 代数",
-    MaterialCategory.COLLEGE_NUMBER_THEORY: "大学数学竞赛 - 数论",
-    MaterialCategory.COLLEGE_ANALYSIS: "大学数学竞赛 - 分析和方程",
-    MaterialCategory.COLLEGE_COMBINATORICS: "大学数学竞赛 - 组合和概率",
-    MaterialCategory.COLLEGE_GEOMETRY: "大学数学竞赛 - 几何和拓扑",
-    MaterialCategory.COLLEGE_OPTIMIZATION: "大学数学竞赛 - 最优化方法",
+    "high_school_comprehensive": "高中数学联赛综合",
+    "college_comprehensive": "大学数学竞赛综合",
+    "high_school_algebra": "高中数学联赛 - 代数",
+    "high_school_geometry": "高中数学联赛 - 几何",
+    "high_school_number_theory": "高中数学联赛 - 数论",
+    "high_school_combinatorics": "高中数学联赛 - 组合",
+    "college_algebra": "大学数学竞赛 - 代数",
+    "college_number_theory": "大学数学竞赛 - 数论",
+    "college_analysis": "大学数学竞赛 - 分析和方程",
+    "college_combinatorics": "大学数学竞赛 - 组合和概率",
+    "college_geometry": "大学数学竞赛 - 几何和拓扑",
+    "college_optimization": "大学数学竞赛 - 最优化方法",
 }
 
 
@@ -86,8 +86,8 @@ async def get_categories(
     
     return [
         {
-            "category": cat.category.value,
-            "category_display": CATEGORY_DISPLAY_NAMES.get(cat.category, cat.category.value),
+            "category": cat.category,
+            "category_display": CATEGORY_DISPLAY_NAMES.get(cat.category, cat.category),
             "material_count": cat.material_count,
             "total_downloads": cat.total_downloads or 0
         }
@@ -132,8 +132,8 @@ async def list_materials(
     return [
         {
             "id": m.id,
-            "category": m.category.value,
-            "category_display": CATEGORY_DISPLAY_NAMES.get(m.category, m.category.value),
+            "category": m.category,
+            "category_display": CATEGORY_DISPLAY_NAMES.get(m.category, m.category),
             "title": m.title,
             "description": m.description,
             "baidu_link": m.baidu_link,
@@ -171,8 +171,8 @@ async def get_material(
     
     return {
         "id": material.id,
-        "category": material.category.value,
-        "category_display": CATEGORY_DISPLAY_NAMES.get(material.category, material.category.value),
+        "category": material.category,
+        "category_display": CATEGORY_DISPLAY_NAMES.get(material.category, material.category),
         "title": material.title,
         "description": material.description,
         "baidu_link": material.baidu_link,

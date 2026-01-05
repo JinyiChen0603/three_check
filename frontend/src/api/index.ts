@@ -3,7 +3,7 @@
  */
 
 import apiClient from './axios';
-import type { Problem, Task, Review, Ranking, Transaction } from '../types';
+import type { Task, Review, Ranking, Transaction } from '../types';
 
 export { authApi } from './auth';
 export { apiClient };
@@ -85,80 +85,6 @@ export const problemApi = {
     return response.data;
   },
 
-  // 单题验证
-  validateSingle: async (content: string, answer: string, explanation?: string) => {
-    const response = await apiClient.post('/problems/validate', {
-      problem: content,
-      answer,
-      explanation,
-    });
-    return response.data;
-  },
-
-  // 批量验证
-  validateBatch: async (problems: Array<{ content: string; answer: string; explanation?: string }>) => {
-    const response = await apiClient.post('/problems/validate-batch', {
-      problems: problems.map(p => ({
-        problem: p.content,
-        answer: p.answer,
-        explanation: p.explanation,
-      })),
-    });
-    return response.data;
-  },
-
-  // 创建题目
-  createProblem: async (problemData: {
-    title: string;
-    content: any;
-    explanation?: string;
-    answer: string;
-    category: string;
-    source_type?: string;
-    ocr_image_url?: string;
-    parent_problem_id?: number;
-  }) => {
-    const response = await apiClient.post<Problem>('/problems/create', problemData);
-    return response.data;
-  },
-
-  // 生成题目变体（保留同事新增的解析字段）
-  generateVariant: async (
-    parentProblemId: number,
-    customPrompt?: string
-  ) => {
-    const response = await apiClient.post(`/problems/${parentProblemId}/generate-variant`, {
-      custom_prompt: customPrompt,
-    });
-    return response.data;
-  },
-
-  // 质量检查（需要题目ID）
-  qualityCheck: async (problemId: number) => {
-    const response = await apiClient.post(`/problems/${problemId}/quality-check`);
-    return response.data;
-  },
-
-  // 内容质检（无需题目ID，用于延迟写入场景）
-  qualityCheckContent: async (content: any, answer: string, explanation?: string) => {
-    const response = await apiClient.post('/problems/quality-check-content', {
-      content: typeof content === 'string' ? content : JSON.stringify(content),
-      answer,
-      explanation,
-    });
-    return response.data;
-  },
-
-  // 单独检测难度（同步方式）
-  checkDifficulty: async (content: any, answer: string, explanation?: string) => {
-    const response = await apiClient.post('/problems/check-difficulty', {
-      content: typeof content === 'string' ? content : JSON.stringify(content),
-      answer,
-      explanation,
-    });
-    return response.data;
-  },
-
   // 启动异步难度检测，返回task_id
   startDifficultyCheck: async (content: any, answer: string, explanation?: string) => {
     const response = await apiClient.post('/problems/check-difficulty-start', {
@@ -212,49 +138,7 @@ export const problemApi = {
     return response.data;
   },
 
-  // 获取我的题目列表
-  getMyProblems: async (status?: string) => {
-    const response = await apiClient.get('/problems/my-problems', {
-      params: status ? { status } : undefined,
-    });
-    return response.data;
-  },
-
-  // 优化题目
-  optimizeProblem: async (problemId: number, optimizationNote: string) => {
-    const response = await apiClient.post(`/problems/${problemId}/optimize`, {
-      optimization_note: optimizationNote,
-    });
-    return response.data;
-  },
-
-  // 放弃题目
-  abandonProblem: async (problemId: number) => {
-    const response = await apiClient.post(`/problems/${problemId}/abandon`);
-    return response.data;
-  },
-
-  // 提交审核
-  submitForReview: async (problemId: number) => {
-    const response = await apiClient.post(`/problems/${problemId}/submit-for-review`);
-    return response.data;
-  },
-
-  // 获取我的变体题目列表（仅元数据）
-  getMyVariants: async (skip = 0, limit = 20) => {
-    const response = await apiClient.get('/problems/my-variants', {
-      params: { skip, limit }
-    });
-    return response.data;
-  },
-
-  // 获取单个题目详情（包含完整内容）
-  getProblemDetail: async (problemId: number) => {
-    const response = await apiClient.get(`/problems/${problemId}`);
-    return response.data;
-  },
-
-  // ==================== 新增：题目验证和导出相关API ====================
+  // ==================== 题目验证和导出相关API ====================
   
   // 验证并保存题目到导出列表
   validateAndSave: async (data: {
@@ -322,6 +206,8 @@ export const problemApi = {
 
 // 深度变形相关 API（独立的变体生成，不依赖母题）
 export const variantApi = {
+  // ==================== 变体生成相关 ====================
+  
   // 生成单个变体（不依赖母题）
   generateVariantDirect: async (data: {
     original_content: string;
@@ -364,6 +250,92 @@ export const variantApi = {
       use_stream: true,
     });
     return response.data;
+  },
+
+  // ==================== 变体草稿管理相关 ====================
+  
+  // 保存单个变体为草稿
+  saveDraft: async (data: {
+    content: string;
+    answer: string;
+    explanation: string;
+  }) => {
+    const formData = new FormData();
+    formData.append('content', data.content);
+    formData.append('answer', data.answer);
+    formData.append('explanation', data.explanation);
+    
+    const response = await apiClient.post('/variants/save-draft', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data as { success: boolean; id: number; message: string };
+  },
+
+  // 批量保存变体为草稿
+  saveBatch: async (variants: Array<{
+    content: string;
+    answer: string;
+    explanation: string;
+  }>) => {
+    const response = await apiClient.post('/variants/save-batch', variants);
+    return response.data as { success: boolean; count: number; ids: number[]; message: string };
+  },
+
+  // 获取我的变体草稿列表
+  getMyVariants: async () => {
+    const response = await apiClient.get('/variants/my-variants');
+    return response.data as {
+      total: number;
+      variants: Array<{
+        id: number;
+        content: string;
+        answer: string;
+        explanation: string;
+        created_at: string;
+      }>;
+    };
+  },
+
+  // 获取单个变体详情
+  getVariantDetail: async (variantId: number) => {
+    const response = await apiClient.get(`/variants/variant/${variantId}`);
+    return response.data as {
+      id: number;
+      content: string;
+      answer: string;
+      explanation: string;
+      task_id: number | null;
+      created_at: string;
+    };
+  },
+
+  // 删除变体草稿
+  deleteVariant: async (variantId: number) => {
+    const response = await apiClient.delete(`/variants/variant/${variantId}`);
+    return response.data as { success: boolean; message: string };
+  },
+
+  // 准备验证变体（检查任务状态）
+  prepareValidate: async (variantId: number) => {
+    const response = await apiClient.post(`/variants/variant/${variantId}/prepare-validate`);
+    return response.data as {
+      success: boolean;
+      variant: {
+        id: number;
+        content: string;
+        answer: string;
+        explanation: string;
+      };
+      task: {
+        id: number;
+        total_count: number;
+        completed_count: number;
+        remaining: number;
+      };
+      message: string;
+    };
   },
 };
 

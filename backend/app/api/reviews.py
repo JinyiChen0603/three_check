@@ -18,14 +18,13 @@ import re
 
 from app.database import get_db
 from app.models import (
-    User, Problem, ProblemStatus, HumanReviewStatus,
+    User,
     Review, ReviewStatus, Task, TaskStatus, TaskType,
     Transaction, TransactionType, TransactionStatus,
-    ValidatedProblemExport  # 新增：已验证题目导出表
+    ValidatedProblemExport
 )
 from app.api.deps import get_current_user
 from app.services.muti_choice_cre_service import gpt_service
-from app.services.problem_storage import get_problem_storage_service
 from app.config import settings
 
 
@@ -700,7 +699,6 @@ async def submit_score(
         user_id=current_user.id,
         amount=settings.REVIEW_REWARD,
         transaction_type=TransactionType.REVIEW_REWARD,
-        related_problem_id=review.problem_id,
         related_task_id=review.task_id,
         status=TransactionStatus.CONFIRMED,  # 评分奖励立即到账
         description=f"评分题目 #{review.validated_problem_id}",
@@ -764,6 +762,7 @@ async def get_my_reviews(
                 "innovation_score": r.innovation_score,
                 "rigor_score": r.rigor_score,
                 "is_vetoed": r.is_vetoed,
+<<<<<<< Updated upstream
                 "veto_reason": r.veto_reason,  # 添加否决理由
                 "status": r.status.value,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -774,6 +773,10 @@ async def get_my_reviews(
                     "answer": r.validated_problem.answer,
                     "explanation": r.validated_problem.explanation,
                 } if r.validated_problem else None
+=======
+                "status": r.status,
+                "created_at": r.created_at.isoformat() if r.created_at else None
+>>>>>>> Stashed changes
             }
             for r in reviews
         ]
@@ -799,7 +802,7 @@ async def get_review(
         )
     
     # 只有评分者或管理员可以查看
-    if review.reviewer_id != current_user.id and current_user.role.value != "admin":
+    if review.reviewer_id != current_user.id and current_user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权查看该评分"

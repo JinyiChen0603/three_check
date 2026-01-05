@@ -67,11 +67,11 @@ class ReviewDetail(BaseModel):
     id: int
     reviewer_id: int
     reviewer_username: str
-    is_answer_correct: bool
+    is_answer_correct: Optional[bool] = None
     innovation_score: Optional[int] = None
     rigor_score: Optional[int] = None
     comment: Optional[str] = None
-    is_vetoed: bool
+    is_vetoed: Optional[bool] = None
     veto_reason: Optional[str] = None
     created_at: str
     
@@ -189,7 +189,7 @@ async def get_pending_review_problems(
             )
             task = task_result.scalar_one_or_none()
             if task:
-                task_status = task.status.value
+                task_status = task.status
         
         # 统计一票否决的数量
         veto_count_result = await db.execute(
@@ -218,7 +218,7 @@ async def get_pending_review_problems(
             "difficulty_passed": difficulty_passed,
             "originality_passed": originality_passed,
             "rigor_passed": rigor_passed,
-            "admin_review_status": problem.admin_review_status.value,
+            "admin_review_status": problem.admin_review_status,
             "created_at": problem.created_at.isoformat(),
             # 直接使用表中的字段
             "review_count": problem.review_count,
@@ -315,7 +315,7 @@ async def get_problem_review_detail(
         "originality_check": problem.originality_check,
         "rigor_check": problem.rigor_check,
         "reviews": review_details,
-        "admin_review_status": problem.admin_review_status.value,
+        "admin_review_status": problem.admin_review_status,
         "admin_review_note": problem.admin_review_note,
         "admin_reviewed_at": problem.admin_reviewed_at.isoformat() if problem.admin_reviewed_at else None,
         "admin_reviewer_username": admin_reviewer_username,
@@ -360,7 +360,7 @@ async def review_problem(
         "success": True,
         "message": "审核成功",
         "problem_id": problem.id,
-        "status": problem.admin_review_status.value
+        "status": problem.admin_review_status
     }
 
 
@@ -456,7 +456,7 @@ async def export_admin_problems(
                             "timeout": "已超时",
                             "approved": "已批准",
                             "rejected": "已驳回"
-                        }.get(task.status.value, task.status.value)
+                        }.get(task.status, task.status)
                 
                 problems_data.append({
                     "id": p.id,
@@ -477,7 +477,7 @@ async def export_admin_problems(
                         "pending": "待审核",
                         "approved": "通过",
                         "rejected": "未通过"
-                    }.get(p.admin_review_status.value, "待审核"),
+                    }.get(p.admin_review_status, "待审核"),
                     "admin_reviewer": p.admin_reviewer.username if p.admin_reviewer else "",
                     "admin_review_note": p.admin_review_note or "",
                     "admin_reviewed_at": p.admin_reviewed_at.isoformat() if p.admin_reviewed_at else "",
