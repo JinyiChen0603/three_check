@@ -33,6 +33,37 @@ router = APIRouter()
 
 # ==================== 辅助函数 ====================
 
+def clean_answer_prefix(text: str) -> str:
+    """
+    清理答案中的"正确答案是："等前缀
+    
+    Args:
+        text: 原始答案文本
+        
+    Returns:
+        清理后的答案文本
+    """
+    if not text:
+        return text
+    
+    answer = str(text).strip()
+    
+    # 定义需要移除的前缀列表
+    prefixes_to_remove = [
+        "正确答案是：", "正确答案是:", "正确答案：", "正确答案:",
+        "答案是：", "答案是:", "答案：", "答案:",
+        "Answer:", "Answer is:", "answer:", "answer is:"
+    ]
+    
+    # 尝试移除前缀
+    for prefix in prefixes_to_remove:
+        if answer.startswith(prefix):
+            answer = answer[len(prefix):].strip()
+            break
+    
+    return answer
+
+
 def auto_wrap_latex(text: str) -> str:
     """
     自动检测并包裹LaTeX公式
@@ -241,7 +272,10 @@ async def get_next_problem(
         )
         
         if similar_result["success"]:
-            choices = [f"正确答案是：{problem.answer}"] + similar_result["similar_answers"][:3]
+            # 清理正确答案和AI生成答案的前缀
+            correct_answer_clean = clean_answer_prefix(problem.answer)
+            similar_answers_clean = [clean_answer_prefix(ans) for ans in similar_result["similar_answers"][:3]]
+            choices = [correct_answer_clean] + similar_answers_clean
         else:
             raise Exception("GPT调用失败")
     except Exception as e:
@@ -269,8 +303,9 @@ async def get_next_problem(
                 f"2{answer_str}"
             ]
         
-        # 6. 组合正确答案和错误答案
-        choices = [problem.answer] + mock_wrong_answers[:3]
+        # 6. 组合正确答案和错误答案（清理前缀）
+        correct_answer_clean = clean_answer_prefix(problem.answer)
+        choices = [correct_answer_clean] + mock_wrong_answers[:3]
     
     # 7. 自动包裹LaTeX公式
     choices = [auto_wrap_latex(choice) for choice in choices]
@@ -396,8 +431,10 @@ async def get_problem_choices(
             detail="生成选项失败"
         )
     
-    # 组合正确答案和错误答案
-    choices = [f"正确答案是：{problem_answer}"] + similar_result["similar_answers"][:3]
+    # 组合正确答案和错误答案（清理前缀）
+    correct_answer_clean = clean_answer_prefix(problem_answer)
+    similar_answers_clean = [clean_answer_prefix(ans) for ans in similar_result["similar_answers"][:3]]
+    choices = [correct_answer_clean] + similar_answers_clean
     
     # 记录正确答案的原始位置
     correct_index = 0
@@ -856,8 +893,10 @@ async def get_export_choices(
             detail="生成选项失败"
         )
     
-    # 组合正确答案和错误答案
-    choices = [f"正确答案是：{export.answer}"] + similar_result["similar_answers"][:3]
+    # 组合正确答案和错误答案（清理前缀）
+    correct_answer_clean = clean_answer_prefix(export.answer)
+    similar_answers_clean = [clean_answer_prefix(ans) for ans in similar_result["similar_answers"][:3]]
+    choices = [correct_answer_clean] + similar_answers_clean
     
     # 记录正确答案的原始位置
     correct_index = 0

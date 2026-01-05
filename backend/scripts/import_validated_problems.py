@@ -89,13 +89,20 @@ async def import_validated_problems(
         print("[Error] JSON中没有题目数据")
         return
     
-    # 转换审核状态枚举
-    try:
-        review_status = AdminReviewStatus(admin_review_status.lower())
-    except ValueError:
+    # 转换审核状态
+    status_map = {
+        "pending": AdminReviewStatus.PENDING,
+        "approved": AdminReviewStatus.APPROVED,
+        "rejected": AdminReviewStatus.REJECTED
+    }
+    
+    admin_review_status_lower = admin_review_status.lower()
+    if admin_review_status_lower not in status_map:
         print(f"[Error] 无效的审核状态: {admin_review_status}")
         print(f"[Info] 有效值: pending, approved, rejected")
         return
+    
+    review_status = status_map[admin_review_status_lower]
     
     AsyncSessionLocal = _get_session_local()
     
