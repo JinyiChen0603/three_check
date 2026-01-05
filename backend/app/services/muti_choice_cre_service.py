@@ -50,11 +50,19 @@ class GPTService:
             messages = [
                 {
                     "role": "user",
-                    "content": f"""正确答案是：{correct_answer}
+                    "content": f"""给定答案：{correct_answer}
 
-请生成{count}个相似但错误的答案，每行一个。
-不需要有过多的思考，快速生成即可。
-保持与原答案相同的格式："""
+请生成{count}个与此答案相似但错误的答案。
+
+要求：
+1. 只输出答案数字或表达式，不要加任何说明文字
+2. 不要加"正确答案是"、"答案："、"Answer:"等前缀
+3. 每行一个答案
+4. 保持与原答案相同的格式
+
+示例：
+- 如果原答案是 "42"，只输出 "41"、"43"、"44" 这样的纯数字
+- 如果原答案是 "$$x=2$$"，只输出 "$$x=3$$"、"$$x=1$$" 这样的纯表达式"""
                 }
             ]
             
@@ -78,22 +86,29 @@ class GPTService:
                 answer.split(".", 1)[-1].strip() if "." in answer else answer
                 for answer in similar_answers
             ]
-            # 确保所有答案都有"正确答案是："前缀（后处理保底）
+
+            # 去除"正确答案是："、"答案："等前缀
             processed_answers = []
             for answer in similar_answers:
                 answer = answer.strip()
-                # 如果已经有前缀，保持原样
-                if answer.startswith("正确答案是：") or answer.startswith("正确答案是:"):
-                    processed_answers.append(answer.replace("正确答案是:", "正确答案是："))  # 统一冒号
-                # 如果没有前缀，手动添加
-                else:
-                    processed_answers.append(f"正确答案是：{answer}")
-
-            similar_answers = processed_answers
+                # 定义需要移除的前缀列表
+                prefixes_to_remove = [
+                    "正确答案是：", "正确答案是:", "正确答案：", "正确答案:",
+                    "答案是：", "答案是:", "答案：", "答案:",
+                    "Answer:", "Answer is:", "answer:", "answer is:"
+                ]
+                # 尝试移除前缀
+                for prefix in prefixes_to_remove:
+                    if answer.startswith(prefix):
+                        answer = answer[len(prefix):].strip()
+                        break
+                # 只添加非空答案
+                if answer:
+                    processed_answers.append(answer)
             
             return {
                 "success": True,
-                "similar_answers": similar_answers[:count],
+                "similar_answers": processed_answers[:count],
                 "ai_model": self.model_name
             }
         

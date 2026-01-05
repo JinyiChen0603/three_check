@@ -211,41 +211,53 @@ class DifficultyCheckService:
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a math answer comparison expert. Only answer YES or NO."
+                    "content": "你是一个数学答案对比专家。你必须严格遵守输出格式要求。"
                 },
                 {
                     "role": "user",
-                    "content": f"""请判断以下两个数学答案是否等价。
+                    "content": f"""请判断以下两个数学答案在数学意义上是否等价。
 
-AI模型给出的答案：
+【AI模型答案】
 {ai_answer}
 
-标准答案：
+【标准答案】
 {standard_answer}
 
-判断规则：
-1. 数学表达式等价即可（如 2x+1 和 1+2x 是等价的）
-2. 数值答案允许不同的表示形式（如 0.5 和 1/2 是等价的）
-3. 集合答案元素相同即可，顺序无关
-4. LaTeX 格式差异忽略
-5. 只关注最终答案，忽略解题过程
+【判断规则】
+✓ 相等情况：
+- 数值相等（如 0.5 ≈ 1/2）
+- 代数等价（如 2x+1 ≈ 1+2x）
+- 集合元素相同，顺序无关
+- LaTeX格式不同但数学含义相同（如 \\frac{{1}}{{2}} ≈ 1/2）
 
-请只回答 "YES" 或 "NO"，不要解释。"""
+✗ 不相等情况：
+- 单位或符号不同（如 40 ≠ 40°，3 ≠ 3cm）
+- 数值不同（如 40 ≠ 30）
+- 表达式不等价（如 x+1 ≠ 2x）
+- 答案类型不同（如果标准答案有单位，AI答案必须也有对应单位）
+
+【输出格式】
+你必须且只能输出以下两个词之一，不要有任何其他文字、标点或解释：
+YES
+NO
+
+现在请判断："""
                 }
             ]
             
             response = await self.answer_check_client.chat(
                 messages=messages,
                 temperature=None,  # GPT-5.2 + reasoning_effort 时必须为 None
-                max_tokens=10
+                max_completion_tokens=5  # 减少到5，强制简短回答
             )
             
             content = LLMClient.extract_content(response)
-            content_upper = content.strip().upper()
+            content_clean = content.strip().upper().replace(".", "").replace(":", "")
             
-            if "YES" in content_upper:
+            # 更严格的匹配
+            if content_clean == "YES":
                 return True
-            elif "NO" in content_upper:
+            elif content_clean == "NO":
                 return False
             else:
                 # 无法确定，回退到严格检查
