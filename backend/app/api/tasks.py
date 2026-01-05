@@ -433,7 +433,9 @@ async def submit_task(
     """
     提交任务
     
-    注意：评分任务在完成评分时自动提交，此接口主要用于出题任务
+    支持：
+    1. 出题任务：提交已完成的题目，发放奖励
+    2. 评分任务：提交已完成的评分，释放未完成的题目（不发放奖励，因为完成时已发放）
     """
     result = await db.execute(
         select(Task).where(Task.id == task_id)
@@ -467,8 +469,13 @@ async def submit_task(
             detail="任务已超时"
         )
     
-    # 对于出题任务，检查题目数量是否超过任务数量
+    # 根据任务类型进行不同处理
+    completed_count = 0
+    released_count = 0
+    total_reward = 0
+    
     if task.task_type == TaskType.CREATE_PROBLEM:
+        # 出题任务：检查题目数量
         completed_count = task.completed_count or 0
         total_count = task.total_count or 0
         if completed_count > total_count:
@@ -481,15 +488,9 @@ async def submit_task(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="至少需要完成1道题目才能提交"
             )
-    
-    # 更新状态
-    task.status = TaskStatus.SUBMITTED
-    task.submitted_at = datetime.utcnow()
-    
-    # 如果是出题任务，立即发放奖励（新逻辑：提交即奖励）
-    if task.task_type == TaskType.CREATE_PROBLEM:
-        completed_count = task.completed_count or 0
-        reward_per_problem = settings.PROBLEM_REWARD  # 每道题50元
+        
+        # 计算奖励并发放
+        reward_per_problem = settings.PROBLEM_REWARD
         total_reward = reward_per_problem * completed_count
         
         # 计算交易后余额
@@ -502,7 +503,7 @@ async def submit_task(
             amount=total_reward,
             transaction_type=TransactionType.PROBLEM_REWARD,
             related_task_id=task.id,
-            status=TransactionStatus.CONFIRMED,  # 提交即到账
+            status=TransactionStatus.CONFIRMED,
             description=f"出题任务提交奖励（{completed_count}道题目）",
             balance_after=new_balance,
             confirmed_at=datetime.utcnow()
@@ -515,15 +516,80 @@ async def submit_task(
         # 刷新余额缓存
         await db.flush()
         await current_user.refresh_balance(db)
+        
+    elif task.task_type == TaskType.REVIEW_PROBLEM:
+        # 评分任务：查询已完成和未完成的评分
+        reviews_result = await db.execute(
+            select(Review).where(
+                Review.task_id == task.id,
+                Review.reviewer_id == current_user.id
+            )
+        )
+        all_reviews = reviews_result.scalars().all()
+        
+        # 区分已完成和未完成的评分
+        completed_reviews = [r for r in all_reviews if r.innovation_score is not None and r.rigor_score is not None]
+        incomplete_reviews = [r for r in all_reviews if r.innovation_score is None or r.rigor_score is None]
+        
+        completed_count = len(completed_reviews)
+        
+        if completed_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="至少需要完成1个评分才能提交"
+            )
+        
+        # 删除未完成的评分记录，释放题目
+        problem_ids_to_update = set()
+        for review in incomplete_reviews:
+            if review.validated_problem_id:
+                problem_ids_to_update.add(review.validated_problem_id)
+            await db.delete(review)
+        
+        await db.flush()
+        
+        # 更新被释放题目的review_count（重要：确保计数准确）
+        for problem_id in problem_ids_to_update:
+            export_result = await db.execute(
+                select(ValidatedProblemExport)
+                .where(ValidatedProblemExport.id == problem_id)
+                .with_for_update()
+            )
+            export = export_result.scalar_one_or_none()
+            if export:
+                # 重新统计该题目的Review数量（实时统计，确保准确）
+                count_result = await db.execute(
+                    select(func.count(Review.id))
+                    .where(Review.validated_problem_id == problem_id)
+                )
+                export.review_count = count_result.scalar() or 0
+        
+        released_count = len(incomplete_reviews)
+        
+        # ⚠️ 评分任务不在这里发放奖励
+        # 奖励已经在完成每个评分时立即发放了（见 reviews.py submit_score 接口）
+        total_reward = 0
+    
+    # 更新任务状态
+    task.status = TaskStatus.SUBMITTED
+    task.submitted_at = datetime.utcnow()
     
     await db.commit()
     
+    # 构建返回消息
+    if task.task_type == TaskType.CREATE_PROBLEM:
+        message = f"任务提交成功，已完成 {completed_count} 道题目，获得奖励 {total_reward}元"
+    else:
+        message = f"任务提交成功，已完成 {completed_count} 个评分，释放 {released_count} 个未完成的题目"
+    
     return {
         "success": True,
-        "message": "任务提交成功" + (f"，获得奖励 {total_reward}元" if task.task_type == TaskType.CREATE_PROBLEM else ""),
+        "message": message,
         "task_id": task.id,
         "submitted_at": task.submitted_at,
-        "reward": total_reward if task.task_type == TaskType.CREATE_PROBLEM else None
+        "completed_count": completed_count,
+        "released_count": released_count,
+        "reward": total_reward
     }
 
 

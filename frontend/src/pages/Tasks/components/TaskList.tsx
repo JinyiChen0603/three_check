@@ -187,10 +187,27 @@ export function TaskList({
       render: (_: any, record: Task) => {
         const total = record.total_count || 0;
         const completed = record.completed_count || 0;
-        const canSubmit = record.task_type === TaskType.PROBLEM_CREATION && 
-                          record.status === TaskStatus.IN_PROGRESS && 
-                          completed <= total && 
-                          completed > 0;
+        
+        // 判断是否显示提交按钮
+        // 出题任务：完成数 > 0 且 <= 总数时显示"提交"
+        const showSubmitForCreation = record.task_type === TaskType.PROBLEM_CREATION && 
+                                      record.status === TaskStatus.IN_PROGRESS && 
+                                      completed > 0 && 
+                                      completed <= total;
+        
+        // 评分任务：完成数 > 0 时显示"提交"（允许部分提交）
+        const showSubmitForReview = record.task_type === TaskType.PROBLEM_REVIEW && 
+                                    record.status === TaskStatus.IN_PROGRESS && 
+                                    completed > 0;
+        
+        const showSubmit = showSubmitForCreation || showSubmitForReview;
+        
+        // 判断是否显示放弃按钮
+        // 出题任务：始终显示"放弃"按钮
+        // 评分任务：只在进度=0时显示"放弃"按钮
+        const showAbandonForCreation = record.task_type === TaskType.PROBLEM_CREATION;
+        const showAbandonForReview = record.task_type === TaskType.PROBLEM_REVIEW && completed === 0;
+        const showAbandon = showAbandonForCreation || showAbandonForReview;
         
         return (
           <Space>
@@ -206,7 +223,7 @@ export function TaskList({
                 >
                   {record.task_type === TaskType.PROBLEM_CREATION ? '去出题' : '去评分'}
                 </Button>
-                {canSubmit && onSubmit && (
+                {showSubmit && onSubmit && (
                   <Button 
                     type="default" 
                     size="small"
@@ -216,15 +233,17 @@ export function TaskList({
                     提交
                   </Button>
                 )}
-                <Button 
-                  type="link" 
-                  danger 
-                  size="small"
-                  icon={<DeleteOutlined />} 
-                  onClick={() => handleAbandonTask(record.id)}
-                >
-                  放弃
-                </Button>
+                {showAbandon && (
+                  <Button 
+                    type="link" 
+                    danger 
+                    size="small"
+                    icon={<DeleteOutlined />} 
+                    onClick={() => handleAbandonTask(record.id)}
+                  >
+                    放弃
+                  </Button>
+                )}
               </>
             )}
             {record.status === TaskStatus.SUBMITTED && (

@@ -762,9 +762,8 @@ async def get_my_reviews(
                 "innovation_score": r.innovation_score,
                 "rigor_score": r.rigor_score,
                 "is_vetoed": r.is_vetoed,
-<<<<<<< Updated upstream
                 "veto_reason": r.veto_reason,  # 添加否决理由
-                "status": r.status.value,
+                "status": r.status,  # 直接使用字符串，不需要.value
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "updated_at": r.updated_at.isoformat() if r.updated_at else None,  # 添加更新时间
                 # 添加题目完整信息
@@ -773,10 +772,6 @@ async def get_my_reviews(
                     "answer": r.validated_problem.answer,
                     "explanation": r.validated_problem.explanation,
                 } if r.validated_problem else None
-=======
-                "status": r.status,
-                "created_at": r.created_at.isoformat() if r.created_at else None
->>>>>>> Stashed changes
             }
             for r in reviews
         ]

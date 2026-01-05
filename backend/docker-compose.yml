@@ -22,7 +22,7 @@ services:
     networks:
       - mathtasks-network
 
-  # MongoDB 数据库（用于存储题目内容）
+  # MongoDB 数据库（预留，暂未使用）
   mongodb:
     image: mongo:7.0
     container_name: mathtasks-mongodb
@@ -40,6 +40,8 @@ services:
       retries: 5
     networks:
       - mathtasks-network
+    profiles:
+      - mongodb  # 使用 profile，默认不启动
 
   # Redis（用于缓存和进度追踪）
   redis:
@@ -83,8 +85,6 @@ services:
       - "8000:8000"
     depends_on:
       postgres:
-        condition: service_healthy
-      mongodb:
         condition: service_healthy
       redis:
         condition: service_healthy
