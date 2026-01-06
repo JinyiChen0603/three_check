@@ -12,6 +12,11 @@ export interface ReviewChoiceResponse {
   correct_index?: number;
   instruction?: string;
   progress?: ProgressInfo;  // 进度信息
+  existing_review?: {  // 现有评分记录信息
+    review_id: number;
+    has_correctness: boolean;  // 是否已验证正确性
+    is_correct: boolean | null;  // 正确性结果
+  };
 }
 
 export interface TaskItem {

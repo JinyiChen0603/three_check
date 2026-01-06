@@ -332,7 +332,13 @@ async def get_next_problem(
             "completed": completed_count,
             "current": min(completed_count + 1, task.total_count),  # 当前正在评第几题
             "total": task.total_count
-        }
+        },
+        # 返回现有评分记录信息，用于判断是否已完成正确性验证
+        "existing_review": {
+            "review_id": review.id,
+            "has_correctness": review.is_answer_correct is not None,  # 是否已验证正确性
+            "is_correct": review.is_answer_correct,  # 正确性结果
+        } if review else None
     }
 
 

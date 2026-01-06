@@ -29,16 +29,29 @@ export function useReviewFlow({
   const [vetoReason, setVetoReason] = useState('');
 
   const resetStatesForProblem = useCallback(() => {
-    setCurrentStep(0);
-    setUserChoiceIndex(null);
-    setReviewId(null);
-    setIsCorrect(null);
-    setShowSolution(false);
+    // 检查是否有已存在的正确性验证
+    if (problemData?.existing_review?.has_correctness) {
+      // 如果已经验证过正确性，直接跳到步骤1（质量评分）
+      setCurrentStep(1);
+      setReviewId(problemData.existing_review.review_id);
+      setIsCorrect(problemData.existing_review.is_correct ?? null);
+      setShowSolution(true); // 显示解析
+      setUserChoiceIndex(null); // 不显示之前的选择
+    } else {
+      // 否则从步骤0开始
+      setCurrentStep(0);
+      setReviewId(null);
+      setIsCorrect(null);
+      setShowSolution(false);
+      setUserChoiceIndex(null);
+    }
+    
+    // 重置评分相关状态
     setInnovationScore(5);
     setRigorScore(5);
     setIsVeto(false);
     setVetoReason('');
-  }, []);
+  }, [problemData]);
 
   // 当 problemData 变化时，外部调用 reset 更清晰；这里提供一个派生 key 方便判断
   const problemKey = useMemo(() => problemData?.validated_problem_id ?? null, [problemData?.validated_problem_id]);
