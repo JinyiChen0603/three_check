@@ -60,9 +60,9 @@ export function useReviewFlow({
       setReviewId(resp.review_id);
       const correct = resp.is_correct === true;
       setIsCorrect(correct);
-      setShowSolution(!correct);
+      setShowSolution(true); // 始终显示解析，便于评分者评判题目质量
       setCurrentStep(1);
-      message.success(correct ? '答案正确，请继续评分' : '答案不正确，请参考解析并给出评分/否决');
+      message.success(correct ? '答案正确，请参考解析并继续评分' : '答案不正确，请参考解析并给出评分/否决');
     } catch (error) {
       message.error('提交正确性失败');
     } finally {
