@@ -1,23 +1,31 @@
 """
-导入题目到可评分表（ValidatedProblemExport）
-将JSON格式的题目导入到数据库，确保可以立即被评分
+从 Markdown 文件导入题目到可评分表（ValidatedProblemExport）
 
 使用方法：
-    python scripts/import_validated_problems.py [json文件路径] [选项]
-    
+    python scripts/import_validated_problems.py [选项]
+
 选项：
+    --markdown-dir [目录路径]  Markdown 文件目录（默认：scripts/Maths）
     --admin-review-status [pending|approved]  管理员审核状态（默认：approved）
     --user [username]  指定导入者用户名（默认：第一个管理员）
-    --simulate-checks  模拟生成质检结果（如果JSON中没有）
+    --simulate-checks  模拟生成质检结果（默认：开启）
+
+示例：
+    # 导入 Maths 目录下的所有 MD 文件
+    python scripts/import_validated_problems.py
+
+    # 导入指定目录的 MD 文件
+    python scripts/import_validated_problems.py --markdown-dir scripts/OtherMaths
 """
 
 import asyncio
-import json
 import sys
 import argparse
 import os
+import re
 from pathlib import Path
 from datetime import datetime, timedelta
+from typing import List, Dict, Optional
 
 # 设置数据库连接URL（用于测试环境）
 os.environ["DATABASE_URL"] = "postgresql+asyncpg://mathtasks:mathtasks123@postgres:5432/mathtasks_test"
@@ -52,17 +60,103 @@ def generate_mock_quality_check(passed: bool = True):
         }
 
 
+def parse_markdown_file(file_path: str) -> Optional[Dict]:
+    """
+    解析单个 Markdown 文件
+
+    Args:
+        file_path: MD 文件路径
+
+    Returns:
+        包含题目信息的字典，如果解析失败返回 None
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # 跳过 YAML 元数据头部（如果存在）
+        # 元数据格式：--- ... ---
+        yaml_pattern = r'^---\s*\n.*?\n---\s*\n'
+        content = re.sub(yaml_pattern, '', content, flags=re.DOTALL)
+
+        # 提取各个部分
+        # 提取题目内容（## 题目）
+        question_match = re.search(r'##\s*题目\s*\n(.*?)(?=##|$)', content, re.DOTALL)
+        question_text = question_match.group(1).strip() if question_match else ""
+
+        # 提取解答内容（## 解答）
+        solution_match = re.search(r'##\s*解答\s*\n(.*?)(?=##\s*答案|$)', content, re.DOTALL)
+        solution_text = solution_match.group(1).strip() if solution_match else ""
+
+        # 提取答案内容（## 答案）
+        answer_match = re.search(r'##\s*答案\s*\n(.*?)$', content, re.DOTALL)
+        answer_text = answer_match.group(1).strip() if answer_match else ""
+
+        # 验证必需字段
+        if not question_text or not answer_text or not solution_text:
+            return None
+
+        return {
+            'question_text': question_text,
+            'answer': answer_text,
+            'solution': solution_text,
+            'title': Path(file_path).stem  # 使用文件名作为标题
+        }
+
+    except Exception as e:
+        print(f"[Error] 解析文件失败 {file_path}: {e}")
+        return None
+
+
+def load_markdown_problems(markdown_dir: str) -> List[Dict]:
+    """
+    从目录加载所有 MD 文件
+
+    Args:
+        markdown_dir: MD 文件目录路径
+
+    Returns:
+        题目列表
+    """
+    dir_path = Path(markdown_dir)
+
+    if not dir_path.exists():
+        print(f"[Error] 目录不存在: {markdown_dir}")
+        return []
+
+    if not dir_path.is_dir():
+        print(f"[Error] 路径不是目录: {markdown_dir}")
+        return []
+
+    # 扫描所有 .md 文件
+    md_files = sorted(dir_path.glob("*.md"))
+
+    if not md_files:
+        print(f"[Warning] 目录中没有找到 .md 文件: {markdown_dir}")
+        return []
+
+    print(f"[Info] 找到 {len(md_files)} 个 MD 文件")
+
+    problems = []
+    for md_file in md_files:
+        problem = parse_markdown_file(str(md_file))
+        if problem:
+            problems.append(problem)
+
+    return problems
+
+
 async def import_validated_problems(
-    json_file_path: str,
+    markdown_dir: str,
     admin_review_status: str = "approved",
     target_username: str = None,
     simulate_checks: bool = True
 ):
     """
-    从JSON导入题目到ValidatedProblemExport表
+    从 Markdown 文件导入题目到 ValidatedProblemExport 表
 
     Args:
-        json_file_path: JSON文件路径
+        markdown_dir: Markdown 目录路径
         admin_review_status: 管理员审核状态（pending/approved/rejected）
         target_username: 指定导入者用户名
         simulate_checks: 是否模拟生成质检结果
@@ -71,43 +165,34 @@ async def import_validated_problems(
     print(f"\n{'='*70}")
     print(f"📥 导入题目到可评分表（ValidatedProblemExport）")
     print(f"{'='*70}\n")
-    print(f"[Info] JSON文件: {json_file_path}")
+
+    print(f"[Info] 数据源: Markdown 文件")
+    print(f"[Info] 目录: {markdown_dir}")
     print(f"[Info] 审核状态: {admin_review_status}")
 
-    # 读取JSON文件
-    try:
-        with open(json_file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    except Exception as e:
-        print(f"[Error] 无法读取JSON文件: {e}")
-        return
-
-    metadata = data.get('metadata', {})
-    questions = data.get('questions', [])
-
-    print(f"[Info] 批次名称: {metadata.get('batch_name', 'Unknown')}")
-    print(f"[Info] 题目总数: {len(questions)}")
-    print(f"[Info] 导出时间: {metadata.get('export_time', 'Unknown')}\n")
+    questions = load_markdown_problems(markdown_dir)
+    batch_name = Path(markdown_dir).name
+    
+    print(f"[Info] 批次名称: {batch_name}")
+    print(f"[Info] 题目总数: {len(questions)}\n")
 
     if not questions:
-        print("[Error] JSON中没有题目数据")
+        print(f"[Error] 没有找到题目数据")
         return
 
-    # 转换审核状态
+    # 验证并获取审核状态
     status_map = {
-        "pending": AdminReviewStatus.PENDING,
-        "approved": AdminReviewStatus.APPROVED,
-        "rejected": AdminReviewStatus.REJECTED
+        'pending': AdminReviewStatus.PENDING,
+        'approved': AdminReviewStatus.APPROVED,
+        'rejected': AdminReviewStatus.REJECTED
     }
     
-    admin_review_status_lower = admin_review_status.lower()
-    if admin_review_status_lower not in status_map:
+    review_status = status_map.get(admin_review_status.lower())
+    if not review_status:
         print(f"[Error] 无效的审核状态: {admin_review_status}")
         print(f"[Info] 有效值: pending, approved, rejected")
         return
 
-    review_status = status_map[admin_review_status_lower]
-    
     AsyncSessionLocal = _get_session_local()
 
     async with AsyncSessionLocal() as session:
@@ -135,7 +220,6 @@ async def import_validated_problems(
             print(f"[Info] 模拟质检: {'是' if simulate_checks else '否'}\n")
 
             # 🔧 优化：每次导入创建新的虚拟任务，使用唯一的batch_id
-            batch_name = metadata.get('batch_name', Path(json_file_path).stem)
             # 生成唯一的batch_id（基于批次名称和时间戳）
             unique_batch_id = f"imported_{batch_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
 
@@ -190,18 +274,6 @@ async def import_validated_problems(
                         skip_count += 1
                         continue
 
-                    # 检查是否已存在（通过内容哈希或简单匹配）
-                    # 为了性能，这里简化为检查内容前100字符
-                    content_prefix = content[:100] if len(content) >= 100 else content
-                    existing = await session.execute(
-                        select(ValidatedProblemExport).where(
-                            ValidatedProblemExport.content.like(f"{content_prefix}%")
-                        ).limit(1)
-                    )
-                    if existing.scalar_one_or_none():
-                        print(f"[Skip] [{idx}/{len(questions)}] {title[:40]}... (已存在)")
-                        skip_count += 1
-                        continue
 
                     # 准备质检结果
                     if simulate_checks:
@@ -322,7 +394,7 @@ async def import_validated_problems(
             total_problems = len(result.scalars().all())
 
             print(f"\n[Info] 用户 {import_user.username} 当前共有 {total_problems} 道题目")
-            print(f"[Info] 审核状态: {review_status.value}")
+            print(f"[Info] 审核状态: {review_status}")
             print(f"[Info] 关联任务: Task ID={virtual_task.id} (状态: SUBMITTED)")
 
             if review_status == AdminReviewStatus.APPROVED:
@@ -344,13 +416,12 @@ async def import_validated_problems(
 async def main():
     """主函数"""
     parser = argparse.ArgumentParser(
-        description='导入题目到可评分表（ValidatedProblemExport）'
+        description='从 Markdown 文件导入题目到可评分表（ValidatedProblemExport）'
     )
     parser.add_argument(
-        'json_file',
-        nargs='?',
-        default='scripts/01_100.json',
-        help='JSON文件路径（默认：01_100.json）'
+        '--markdown-dir',
+        default='scripts/Maths',
+        help='Markdown 文件目录路径（默认：scripts/Maths）'
     )
     parser.add_argument(
         '--admin-review-status',
@@ -368,27 +439,27 @@ async def main():
         default=True,
         help='模拟生成质检结果（默认：开启）'
     )
-    
+
     args = parser.parse_args()
-    
-    # 解析JSON文件路径
-    json_file = Path(args.json_file)
-    if not json_file.is_absolute():
-        # 相对路径：尝试从backend目录查找
-        json_file = Path(__file__).parent.parent / args.json_file
-    
-    if not json_file.exists():
-        print(f"[Error] JSON文件不存在: {json_file}")
+
+    # 处理 Markdown 目录路径
+    markdown_dir = Path(args.markdown_dir)
+    if not markdown_dir.is_absolute():
+        # 相对路径：从 backend 目录查找
+        markdown_dir = Path(__file__).parent.parent / args.markdown_dir
+
+    if not markdown_dir.exists():
+        print(f"[Error] Markdown 目录不存在: {markdown_dir}")
         print(f"\n使用方法:")
-        print(f"  python scripts/import_validated_problems.py [json文件路径] [选项]")
+        print(f"  python scripts/import_validated_problems.py [选项]")
         print(f"\n选项:")
+        print(f"  --markdown-dir [目录路径]  Markdown 文件目录（默认：scripts/Maths）")
         print(f"  --admin-review-status [pending|approved]  审核状态（默认：approved）")
         print(f"  --user [username]  指定导入者（默认：第一个管理员）")
-        print(f"  --simulate-checks  模拟质检结果（默认：开启）")
         sys.exit(1)
-    
+
     await import_validated_problems(
-        json_file_path=str(json_file),
+        markdown_dir=str(markdown_dir),
         admin_review_status=args.admin_review_status,
         target_username=args.user,
         simulate_checks=args.simulate_checks
