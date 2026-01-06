@@ -501,17 +501,51 @@ class ResponsesAPIClient:
         if reasoning:
             request_body["reasoning"] = reasoning
         
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                self.base_url,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json=request_body
-            )
-            response.raise_for_status()
-            return response.json()
+        # 添加重试机制
+        max_retries = 3
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout,
+                    limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+                ) as client:
+                    response = await client.post(
+                        self.base_url,
+                        headers={
+                            "Authorization": f"Bearer {self.api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json=request_body
+                    )
+                    response.raise_for_status()
+                    return response.json()
+            except httpx.RemoteProtocolError as e:
+                last_error = f"服务器断连: {str(e)}"
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 * (attempt + 1))  # 递增延迟: 2s, 4s, 6s
+                    continue
+            except httpx.ConnectError as e:
+                last_error = f"连接失败: {str(e)}"
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 * (attempt + 1))
+                    continue
+            except httpx.TimeoutException as e:
+                last_error = f"请求超时: {str(e)}"
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 * (attempt + 1))
+                    continue
+            except httpx.HTTPStatusError as e:
+                # HTTP 错误不重试
+                raise Exception(f"HTTP错误 {e.response.status_code}: {e.response.text}")
+            except Exception as e:
+                last_error = str(e)
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 * (attempt + 1))
+                    continue
+        
+        raise Exception(f"请求失败 ({max_retries}次): {last_error}")
     
     async def web_search(
         self,
