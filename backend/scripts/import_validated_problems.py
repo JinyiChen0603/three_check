@@ -15,8 +15,12 @@ import asyncio
 import json
 import sys
 import argparse
+import os
 from pathlib import Path
 from datetime import datetime, timedelta
+
+# 设置数据库连接URL（用于测试环境）
+os.environ["DATABASE_URL"] = "postgresql+asyncpg://mathtasks:mathtasks123@postgres:5432/mathtasks_test"
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -56,20 +60,20 @@ async def import_validated_problems(
 ):
     """
     从JSON导入题目到ValidatedProblemExport表
-    
+
     Args:
         json_file_path: JSON文件路径
         admin_review_status: 管理员审核状态（pending/approved/rejected）
         target_username: 指定导入者用户名
         simulate_checks: 是否模拟生成质检结果
     """
-    
+
     print(f"\n{'='*70}")
     print(f"📥 导入题目到可评分表（ValidatedProblemExport）")
     print(f"{'='*70}\n")
     print(f"[Info] JSON文件: {json_file_path}")
     print(f"[Info] 审核状态: {admin_review_status}")
-    
+
     # 读取JSON文件
     try:
         with open(json_file_path, 'r', encoding='utf-8') as f:
@@ -77,18 +81,18 @@ async def import_validated_problems(
     except Exception as e:
         print(f"[Error] 无法读取JSON文件: {e}")
         return
-    
+
     metadata = data.get('metadata', {})
     questions = data.get('questions', [])
-    
+
     print(f"[Info] 批次名称: {metadata.get('batch_name', 'Unknown')}")
     print(f"[Info] 题目总数: {len(questions)}")
     print(f"[Info] 导出时间: {metadata.get('export_time', 'Unknown')}\n")
-    
+
     if not questions:
         print("[Error] JSON中没有题目数据")
         return
-    
+
     # 转换审核状态
     status_map = {
         "pending": AdminReviewStatus.PENDING,
@@ -101,11 +105,11 @@ async def import_validated_problems(
         print(f"[Error] 无效的审核状态: {admin_review_status}")
         print(f"[Info] 有效值: pending, approved, rejected")
         return
-    
+
     review_status = status_map[admin_review_status_lower]
     
     AsyncSessionLocal = _get_session_local()
-    
+
     async with AsyncSessionLocal() as session:
         try:
             # 1. 查找导入者用户
@@ -126,15 +130,15 @@ async def import_validated_problems(
                 if not import_user:
                     print("[Error] 未找到管理员用户，请先运行 init_users.py")
                     return
-            
+
             print(f"[Info] 导入者: {import_user.username} (ID: {import_user.id})")
             print(f"[Info] 模拟质检: {'是' if simulate_checks else '否'}\n")
-            
+
             # 🔧 优化：每次导入创建新的虚拟任务，使用唯一的batch_id
             batch_name = metadata.get('batch_name', Path(json_file_path).stem)
             # 生成唯一的batch_id（基于批次名称和时间戳）
             unique_batch_id = f"imported_{batch_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
-            
+
             # 直接创建新的虚拟任务（不检查已存在，避免重用）
             virtual_task = Task(
                 user_id=import_user.id,
@@ -149,18 +153,18 @@ async def import_validated_problems(
             )
             session.add(virtual_task)
             await session.flush()  # 获取task.id
-            
+
             print(f"[Info] ✅ 创建新虚拟任务")
             print(f"       - Task ID: {virtual_task.id}")
             print(f"       - Batch ID: {unique_batch_id}")
             print(f"       - 题目数量: {len(questions)}\n")
-            
+
             # 统计
             success_count = 0
             skip_count = 0
             error_count = 0
             error_details = []
-            
+
             # 2. 逐个导入题目
             for idx, question in enumerate(questions, 1):
                 try:
@@ -169,23 +173,23 @@ async def import_validated_problems(
                     answer = question.get('answer', '')
                     explanation = question.get('solution', '')
                     title = question.get('title', f'题目_{idx}')
-                    
+
                     # 验证必需字段
                     if not content:
                         print(f"[Skip] [{idx}/{len(questions)}] {title[:40]}... (缺少题目内容)")
                         skip_count += 1
                         continue
-                    
+
                     if not answer:
                         print(f"[Skip] [{idx}/{len(questions)}] {title[:40]}... (缺少答案)")
                         skip_count += 1
                         continue
-                    
+
                     if not explanation:
                         print(f"[Skip] [{idx}/{len(questions)}] {title[:40]}... (缺少解析)")
                         skip_count += 1
                         continue
-                    
+
                     # 检查是否已存在（通过内容哈希或简单匹配）
                     # 为了性能，这里简化为检查内容前100字符
                     content_prefix = content[:100] if len(content) >= 100 else content
@@ -198,7 +202,7 @@ async def import_validated_problems(
                         print(f"[Skip] [{idx}/{len(questions)}] {title[:40]}... (已存在)")
                         skip_count += 1
                         continue
-                    
+
                     # 准备质检结果
                     if simulate_checks:
                         # 模拟生成质检结果（默认都通过）
@@ -215,13 +219,13 @@ async def import_validated_problems(
                         difficulty_validation = question.get('difficulty_validation')
                         originality_check = question.get('originality_check')
                         rigor_check = question.get('rigor_check')
-                        
+
                         # 验证必需的质检字段
                         if not originality_check:
                             originality_check = generate_mock_quality_check(passed=True)
                         if not rigor_check:
                             rigor_check = generate_mock_quality_check(passed=True)
-                    
+
                     # 创建ValidatedProblemExport记录
                     validated_problem = ValidatedProblemExport(
                         user_id=import_user.id,
@@ -238,13 +242,13 @@ async def import_validated_problems(
                         avg_rigor_score=None,
                         created_at=datetime.utcnow()
                     )
-                    
+
                     session.add(validated_problem)
                     await session.flush()  # 获取ID
-                    
+
                     # 创建ValidationRecord记录（用于追溯）
                     validation_records = []
-                    
+
                     if difficulty_validation:
                         validation_records.append(ValidationRecord(
                             validated_problem_id=validated_problem.id,
@@ -254,7 +258,7 @@ async def import_validated_problems(
                             is_passed=difficulty_validation.get('success', False),
                             created_at=datetime.utcnow()
                         ))
-                    
+
                     if originality_check:
                         validation_records.append(ValidationRecord(
                             validated_problem_id=validated_problem.id,
@@ -264,7 +268,7 @@ async def import_validated_problems(
                             is_passed=originality_check.get('passed', False),
                             created_at=datetime.utcnow()
                         ))
-                    
+
                     if rigor_check:
                         validation_records.append(ValidationRecord(
                             validated_problem_id=validated_problem.id,
@@ -274,16 +278,16 @@ async def import_validated_problems(
                             is_passed=rigor_check.get('passed', False),
                             created_at=datetime.utcnow()
                         ))
-                    
+
                     for record in validation_records:
                         session.add(record)
-                    
+
                     # 提交
                     await session.commit()
-                    
+
                     print(f"[OK] [{idx}/{len(questions)}] ID={validated_problem.id}: {title[:50]}...")
                     success_count += 1
-                    
+
                 except Exception as e:
                     await session.rollback()
                     error_msg = f"[Error] [{idx}/{len(questions)}] {question.get('title', 'Unknown')[:30]}... - {str(e)}"
@@ -291,7 +295,7 @@ async def import_validated_problems(
                     error_details.append(error_msg)
                     error_count += 1
                     continue
-            
+
             # 打印统计结果
             print("\n" + "="*70)
             print("📊 导入完成统计")
@@ -301,14 +305,14 @@ async def import_validated_problems(
             print(f"❌ 失败: {error_count} 条")
             print(f"📋 总计: {len(questions)} 条")
             print("="*70)
-            
+
             if error_details:
                 print("\n❌ 错误详情:")
                 for detail in error_details[:10]:  # 只显示前10个
                     print(f"  {detail}")
                 if len(error_details) > 10:
                     print(f"  ... 还有 {len(error_details) - 10} 个错误")
-            
+
             # 查询导入后的题目状态
             result = await session.execute(
                 select(ValidatedProblemExport).where(
@@ -316,19 +320,19 @@ async def import_validated_problems(
                 )
             )
             total_problems = len(result.scalars().all())
-            
+
             print(f"\n[Info] 用户 {import_user.username} 当前共有 {total_problems} 道题目")
             print(f"[Info] 审核状态: {review_status.value}")
             print(f"[Info] 关联任务: Task ID={virtual_task.id} (状态: SUBMITTED)")
-            
+
             if review_status == AdminReviewStatus.APPROVED:
                 print(f"[Info] ✅ 这些题目现在可以被领取评分！")
                 print(f"[Info] 💡 题目已关联到已提交的虚拟任务，满足评分条件")
             elif review_status == AdminReviewStatus.PENDING:
                 print(f"[Info] ⏳ 这些题目需要管理员审核后才能被评分")
-            
+
             print("\n" + "="*70 + "\n")
-            
+
         except Exception as e:
             await session.rollback()
             print(f"\n[Error] 导入过程发生错误: {e}")
@@ -345,7 +349,7 @@ async def main():
     parser.add_argument(
         'json_file',
         nargs='?',
-        default='01_100.json',
+        default='scripts/01_100.json',
         help='JSON文件路径（默认：01_100.json）'
     )
     parser.add_argument(
