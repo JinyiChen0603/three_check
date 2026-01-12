@@ -16,9 +16,11 @@ interface MathRendererProps {
  * - 支持LaTeX环境（itemize, enumerate等）
  * - 支持LaTeX文本格式命令（\textbf, \textit等）
  * - 支持数学公式渲染（行内和块级）
+ * - 自动检测并包装孤立的 LaTeX 数学命令
  * - 自动处理换行和段落
  * 
  * 渲染流程：
+ * 0. 自动检测孤立的 LaTeX 命令（如 \boxed, \frac, \arctan 等）并包装为数学公式
  * 1. 预处理LaTeX环境和命令 → HTML
  * 2. 处理块级公式 \[...\] 和 $$...$$ → KaTeX displayMode
  * 3. 处理行内公式 \(...\) 和 $...$ → KaTeX inline
@@ -27,12 +29,84 @@ interface MathRendererProps {
  * 支持的数学公式定界符：
  * - 块级公式：\[...\] 或 $$...$$
  * - 行内公式：\(...\) 或 $...$
+ * - 自动检测：\boxed{...}、\frac{...}{...}、\arctan(...) 等孤立命令
  */
 export default function MathRenderer({ content, className, style }: MathRendererProps) {
   const rendered = useMemo(() => {
     if (!content) return '';
     
     let result = String(content);
+    
+    // 步骤0: 自动检测并包装孤立的 LaTeX 数学命令
+    // 保护已经在数学模式中的内容（使用占位符）
+    const mathBlocks: string[] = [];
+    let blockIndex = 0;
+    
+    // 保护 $$...$$ 块
+    result = result.replace(/\$\$([\s\S]+?)\$\$/g, (match) => {
+      const placeholder = `___MATH_BLOCK_${blockIndex}___`;
+      mathBlocks[blockIndex++] = match;
+      return placeholder;
+    });
+    
+    // 保护 \[...\] 块
+    result = result.replace(/\\\[([\s\S]+?)\\\]/g, (match) => {
+      const placeholder = `___MATH_BLOCK_${blockIndex}___`;
+      mathBlocks[blockIndex++] = match;
+      return placeholder;
+    });
+    
+    // 保护 $...$ 行内公式
+    result = result.replace(/\$([^$\n]+?)\$/g, (match) => {
+      const placeholder = `___MATH_BLOCK_${blockIndex}___`;
+      mathBlocks[blockIndex++] = match;
+      return placeholder;
+    });
+    
+    // 保护 \(...\) 行内公式
+    result = result.replace(/\\\(([^)]+?)\\\)/g, (match) => {
+      const placeholder = `___MATH_BLOCK_${blockIndex}___`;
+      mathBlocks[blockIndex++] = match;
+      return placeholder;
+    });
+    
+    // 检测并包装孤立的 LaTeX 命令
+    // 1. 检测以 \boxed 开头的表达式（独立行或片段）
+    result = result.replace(/(?:^|[\s\n])(\\boxed\{(?:[^{}]|\{[^{}]*\})*\})(?=[\s\n]|$)/gm, (match, boxed) => {
+      return match.replace(boxed, `$${boxed}$`);
+    });
+    
+    // 2. 检测包含多个常见 LaTeX 数学命令的行（如 \dfrac, \frac, \left, \right, \arctan 等）
+    // 这些行很可能是数学表达式但没有被定界符包围
+    const mathCommandPattern = /^[\s]*\\(?:boxed|frac|dfrac|tfrac|cfrac|sqrt|arctan|arcsin|arccos|arcsinh|arccosh|arctanh|sin|cos|tan|cot|sec|csc|ln|log|exp|lim|sum|prod|int|oint|partial|nabla|infty|pm|mp|times|div|cdot|leq|geq|neq|approx|equiv|left|right|big|Big|bigg|Bigg)\b/;
+    
+    result = result.split('\n').map(line => {
+      // 跳过占位符行
+      if (line.includes('___MATH_BLOCK_')) return line;
+      // 跳过 HTML 标签行
+      if (line.trim().startsWith('<') || line.trim().endsWith('>')) return line;
+      // 跳过已经在数学模式的行
+      if (line.includes('$') || line.includes('\\[') || line.includes('\\(')) return line;
+      
+      // 如果行包含数学命令且不在数学模式中，包装它
+      if (mathCommandPattern.test(line.trim())) {
+        return `$${line.trim()}$`;
+      }
+      
+      // 检测行内是否有未包装的 LaTeX 命令序列
+      // 例如: \arctan\left(\dfrac{\sqrt{3}}{3}\right)
+      const inlineMathPattern = /\\(?:arctan|arcsin|arccos|sin|cos|tan|ln|log|exp|sqrt|frac|dfrac|left|right)\b[^$\n]*?(?:\{[^}]*\}|\([^)]*\))+/g;
+      if (inlineMathPattern.test(line) && !line.includes('$') && !line.includes('\\[')) {
+        return line.replace(inlineMathPattern, (match) => `$${match}$`);
+      }
+      
+      return line;
+    }).join('\n');
+    
+    // 恢复保护的数学块
+    for (let i = 0; i < mathBlocks.length; i++) {
+      result = result.replace(`___MATH_BLOCK_${i}___`, mathBlocks[i]);
+    }
     
     // 步骤1: 预处理LaTeX环境（列表、格式等）
     result = preprocessLatexEnvironments(result);
