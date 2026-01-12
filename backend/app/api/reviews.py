@@ -237,6 +237,7 @@ async def get_next_problem(
                 )
             )
         )
+        .order_by(Review.id.asc())  # 按Review ID升序排列，确保固定顺序
         .limit(1)
     )
     result_row = pending_review_result.first()

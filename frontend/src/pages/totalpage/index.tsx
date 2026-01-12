@@ -1209,7 +1209,7 @@ export default function TotalPage() {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
-                label="标准答案"
+                label="标准答案(仅输入答案，不要输入如‘x=’或正确答案是等字样)"
                 name="answer"
                 rules={[{ required: true, message: '请输入标准答案' }]}
               >
