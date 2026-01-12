@@ -73,11 +73,7 @@ function unescapeText(text: string | undefined | null): string {
     .replace(/\\n/g, '\n')
     .replace(/\\t/g, '\t')
     .replace(/\\r/g, '\r')
-    // 括号
-    .replace(/\\\(/g, '(')
-    .replace(/\\\)/g, ')')
-    .replace(/\\\[/g, '[')
-    .replace(/\\\]/g, ']')
+    // 花括号（保留 \( \) \[ \] 这些 LaTeX 数学定界符，不进行替换）
     .replace(/\\\{/g, '{')
     .replace(/\\\}/g, '}')
     // 反斜杠（必须放在最后）
@@ -1209,7 +1205,7 @@ export default function TotalPage() {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
-                label="标准答案"
+                label="标准答案(仅输入答案，不要输入如‘x=’或‘正确答案是’等字样)"
                 name="answer"
                 rules={[{ required: true, message: '请输入标准答案' }]}
               >
