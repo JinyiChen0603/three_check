@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
-import { preprocessLatexEnvironments, processParagraphs } from '../utils/latexPreprocessor';
+import { preprocessLatexEnvironments } from '../utils/latexPreprocessor';
 
 interface MathRendererProps {
   content: string;
