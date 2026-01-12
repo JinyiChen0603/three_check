@@ -105,7 +105,7 @@ export default function MainLayout() {
       icon: <FireOutlined />,
       label: '变体生成',
     },
-    {
+    /* {
       key: '/review',
       icon: <CheckCircleOutlined />,
       label: '评分流程',
@@ -114,7 +114,7 @@ export default function MainLayout() {
       key: '/review-history',
       icon: <HistoryOutlined />,
       label: '我的评分记录',
-    },
+    }, */
     {
       key: '/materials',
       icon: <BookOutlined />,

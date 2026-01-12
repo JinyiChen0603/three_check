@@ -53,3 +53,137 @@ code {
 ::-webkit-scrollbar-track {
   background: #f0f0f0;
 }
+
+/* ========== LaTeX环境和数学公式渲染样式 ========== */
+
+/* 数学内容容器 */
+.math-content {
+  line-height: 1.8;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* LaTeX列表样式 */
+.math-content ul.latex-list,
+.math-content ol.latex-list {
+  margin-left: 25px;
+  margin-bottom: 12px;
+  margin-top: 8px;
+  padding-left: 0;
+}
+
+.math-content ul.latex-list {
+  list-style-type: disc;
+}
+
+.math-content ol.latex-list {
+  list-style-type: decimal;
+}
+
+.math-content .latex-list li {
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+
+.math-content .latex-list li strong {
+  font-weight: bold;
+  color: #333;
+}
+
+/* 嵌套列表 */
+.math-content ul.latex-list ul.latex-list,
+.math-content ol.latex-list ul.latex-list,
+.math-content ul.latex-list ol.latex-list,
+.math-content ol.latex-list ol.latex-list {
+  margin-top: 5px;
+  margin-bottom: 5px;
+}
+
+/* LaTeX段落 */
+.math-content p {
+  margin-bottom: 12px;
+}
+
+.math-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* LaTeX代码 */
+.math-content code.latex-code {
+  background: #f0f0f0;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+/* LaTeX间距 */
+.math-content .latex-smallskip {
+  height: 6px;
+}
+
+.math-content .latex-medskip {
+  height: 12px;
+}
+
+.math-content .latex-bigskip {
+  height: 20px;
+}
+
+.math-content .latex-vspace {
+  height: 10px;
+}
+
+.math-content .latex-hspace {
+  display: inline-block;
+  width: 10px;
+}
+
+.math-content .latex-quad {
+  display: inline-block;
+  width: 1em;
+}
+
+.math-content .latex-qquad {
+  display: inline-block;
+  width: 2em;
+}
+
+/* LaTeX章节标题 */
+.math-content h2.latex-section {
+  font-size: 1.3em;
+  font-weight: bold;
+  margin: 16px 0 10px 0;
+  color: #333;
+}
+
+.math-content h3.latex-subsection {
+  font-size: 1.15em;
+  font-weight: bold;
+  margin: 14px 0 8px 0;
+  color: #444;
+}
+
+.math-content h4.latex-subsubsection {
+  font-size: 1.05em;
+  font-weight: bold;
+  margin: 12px 0 6px 0;
+  color: #555;
+}
+
+/* KaTeX数学公式增强 */
+.math-content .katex {
+  font-size: 1.1em;
+}
+
+.math-content .katex-block {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* 响应式：小屏幕上减小公式大小 */
+@media (max-width: 768px) {
+  .math-content .katex {
+    font-size: 1em;
+  }
+}

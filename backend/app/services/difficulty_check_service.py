@@ -6,6 +6,7 @@
 
 import asyncio
 import re
+import traceback
 from typing import Dict, Any, Optional, List, Callable
 
 from app.services.llm import doubao, gpt52_with_reasoning, LLMClient
@@ -138,7 +139,8 @@ class DifficultyCheckService:
                 "attempts_details": valid_attempts,
                 "verdict": "难度合格" if is_passed else "难度不合格",
                 "summary": f"豆包{'通过' if is_passed else '未通过'}({correct_count}/{attempts})",
-                "ai_model": f"豆包 ({self.validation_client.model})"
+                "ai_model": f"豆包 ({self.validation_client.model})",
+                "user_answer": answer  # 添加用户答案，供前端显示
             }
         
         except Exception as e:
@@ -171,8 +173,8 @@ class DifficultyCheckService:
         standard_answer: str
     ) -> Dict[str, Any]:
         """单次验证尝试"""
+        # 1. 调用豆包获取答案
         try:
-            # 调用豆包
             response = await self.validation_client.chat(
                 messages=messages,
                 temperature=0.7
@@ -184,18 +186,25 @@ class DifficultyCheckService:
             
             if not ai_answer:
                 ai_answer = LLMClient.extract_content(response)
-            
-            # 使用 gpt52_with_reasoning 进行答案对比
-            is_correct = await self._check_answer_with_ai(ai_answer, standard_answer)
-            
+        except Exception as e:
+            # 豆包调用失败，记录日志但不暴露给前端
+            print(f"[DifficultyCheck] 豆包调用失败: {str(e)}")
+            # 返回一个失败结果，标记为不正确
             return {
                 "success": True,
-                "ai_answer": ai_answer[-200:] if ai_answer else "",
-                "is_correct": is_correct
+                "ai_answer": "\\boxed{调用失败}",
+                "is_correct": False
             }
         
-        except Exception as e:
-            raise Exception(f"验证失败: {str(e)}")
+        # 2. 使用 GPT-5.2 进行答案对比（已有完善的异常处理和回退机制）
+        is_correct = await self._check_answer_with_ai(ai_answer, standard_answer)
+        
+        # 3. 返回结果（只包含必要信息，不包含 GPT-5.2 的详细输出）
+        return {
+            "success": True,
+            "ai_answer": ai_answer[-200:] if ai_answer else "",  # 只取豆包回答的最后200字符
+            "is_correct": is_correct  # 只返回对比结果（True/False）
+        }
     
     async def _check_answer_with_ai(self, ai_answer: str, standard_answer: str) -> bool:
         """
@@ -211,7 +220,7 @@ class DifficultyCheckService:
             messages = [
                 {
                     "role": "system",
-                    "content": "你是一个数学答案对比专家。你必须严格遵守输出格式要求。"
+                    "content": "你是一个数学答案对比专家。你可以进行详细的数学推理和计算，但必须严格遵守最终输出格式。"
                 },
                 {
                     "role": "user",
@@ -226,7 +235,9 @@ class DifficultyCheckService:
 【判断规则】
 ✓ 相等情况：
 - 数值相等（如 0.5 ≈ 1/2）
+- 三角函数值相等（如 arctan(√3/3) ≈ π/6 ≈ 30°）
 - 代数等价（如 2x+1 ≈ 1+2x）
+- 区间等价（需计算端点数值判断，如 (0, π/6) 和 (arctan(√3/3), π/6) 可能等价）
 - 集合元素相同，顺序无关
 - LaTeX格式不同但数学含义相同（如 \\frac{{1}}{{2}} ≈ 1/2）
 
@@ -234,38 +245,111 @@ class DifficultyCheckService:
 - 单位或符号不同（如 40 ≠ 40°，3 ≠ 3cm）
 - 数值不同（如 40 ≠ 30）
 - 表达式不等价（如 x+1 ≠ 2x）
+- 区间端点数值不同
 - 答案类型不同（如果标准答案有单位，AI答案必须也有对应单位）
 
-【输出格式】
-你必须且只能输出以下两个词之一，不要有任何其他文字、标点或解释：
-YES
-NO
+【输出要求】
+1. 你可以先进行详细的数学推理、计算和验证
+2. 如果涉及三角函数、反三角函数等，请计算具体数值进行比对
+3. 推理完成后，必须在最后单独一行明确输出最终判断
+4. 最终判断的格式必须是：
+
+最终判断：YES
+
+或
+
+最终判断：NO
 
 现在请判断："""
                 }
             ]
             
+            # 不限制token，让GPT-5.2有足够空间进行完整推理
             response = await self.answer_check_client.chat(
                 messages=messages,
-                temperature=None,  # GPT-5.2 + reasoning_effort 时必须为 None
-                max_completion_tokens=5  # 减少到5，强制简短回答
+                max_completion_tokens=16000  # 给予充足的token空间
             )
             
-            content = LLMClient.extract_content(response)
-            content_clean = content.strip().upper().replace(".", "").replace(":", "")
+            # ========== 详细日志输出 ==========
+            print(f"\n{'='*80}")
+            print(f"[DifficultyCheck] GPT-5.2 完整响应:")
+            print(f"{'='*80}")
+            print(f"{response}")
+            print(f"{'='*80}\n")
             
-            # 更严格的匹配
+            content = LLMClient.extract_content(response)
+            print(f"[DifficultyCheck] 提取的内容长度: {len(content) if content else 0} 字符")
+            print(f"[DifficultyCheck] 提取的完整内容:\n{content}\n")
+            
+            if not content:
+                print(f"[DifficultyCheck] ⚠️ 提取内容为空，回退到严格检查")
+                return self._strict_check_answer(ai_answer, standard_answer)
+            
+            # ========== 多种方式提取最终判断 ==========
+            
+            # 方式1：查找"最终判断：YES/NO"（最优先）
+            final_match = re.search(r'最终判断[：:]\s*(YES|NO)', content, re.IGNORECASE)
+            if final_match:
+                result = final_match.group(1).upper()
+                print(f"[DifficultyCheck] ✓ 成功匹配格式：最终判断：{result}")
+                if result == "YES":
+                    print(f"[DifficultyCheck] ✓ AI判定为正确")
+                    return True
+                else:
+                    print(f"[DifficultyCheck] ✗ AI判定为错误")
+                    return False
+            
+            # 方式2：查找最后出现的YES或NO
+            yes_matches = list(re.finditer(r'\bYES\b', content, re.IGNORECASE))
+            no_matches = list(re.finditer(r'\bNO\b', content, re.IGNORECASE))
+            all_matches = yes_matches + no_matches
+            
+            if all_matches:
+                last_match = max(all_matches, key=lambda m: m.start())
+                result = last_match.group().upper()
+                print(f"[DifficultyCheck] ⚠️ 未找到标准格式，使用最后出现的：{result}（位置：{last_match.start()}）")
+                if result == "YES":
+                    print(f"[DifficultyCheck] ✓ AI判定为正确（从内容提取）")
+                    return True
+                else:
+                    print(f"[DifficultyCheck] ✗ AI判定为错误（从内容提取）")
+                    return False
+            
+            # 方式3：原有的简单匹配（作为最后备选）
+            content_clean = content.strip().upper().replace(".", "").replace(":", "")
             if content_clean == "YES":
+                print(f"[DifficultyCheck] ✓ AI判定为正确（完全匹配）")
                 return True
             elif content_clean == "NO":
+                print(f"[DifficultyCheck] ✗ AI判定为错误（完全匹配）")
                 return False
-            else:
-                # 无法确定，回退到严格检查
-                print(f"GPT答案对比返回不明确结果: {content}")
-                return self._strict_check_answer(ai_answer, standard_answer)
+            
+            # 无法确定，回退到严格检查
+            print(f"[DifficultyCheck] ❌ 无法从以下内容中提取YES/NO判断：")
+            print(f"[DifficultyCheck] 内容前500字符: {content[:500]}")
+            print(f"[DifficultyCheck] 内容后500字符: {content[-500:]}")
+            print(f"[DifficultyCheck] 回退到严格检查")
+            return self._strict_check_answer(ai_answer, standard_answer)
         
         except Exception as e:
-            print(f"GPT答案对比失败，回退到正则检查: {str(e)}")
+            # 打印详细错误信息
+            error_msg = str(e) if str(e) else repr(e)
+            print(f"[DifficultyCheck] GPT答案对比失败!")
+            print(f"[DifficultyCheck] 异常类型: {type(e).__name__}")
+            print(f"[DifficultyCheck] 异常信息: {error_msg}")
+            print(f"[DifficultyCheck] 完整堆栈:")
+            traceback.print_exc()
+            
+            # 如果是 HTTP 错误，尝试提取更多信息
+            if hasattr(e, 'response'):
+                try:
+                    resp = e.response
+                    print(f"[DifficultyCheck] HTTP 状态码: {resp.status_code}")
+                    print(f"[DifficultyCheck] HTTP 响应内容: {resp.text[:1000]}")
+                except:
+                    pass
+            
+            print(f"[DifficultyCheck] 回退到严格检查")
             return self._strict_check_answer(ai_answer, standard_answer)
     
     def _extract_boxed_content(self, text: str) -> str:
