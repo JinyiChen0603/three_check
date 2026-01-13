@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     # 业务配置
     PROBLEM_REWARD: float = 50.0
     REVIEW_REWARD: float = 10.0
+    MAX_TASKS_PER_CLAIM: int = 50
+    TASK_TIMEOUT_HOURS: int = 12
+    VALIDATION_ATTEMPTS: int = 8
+    VALIDATION_MAX_CORRECT: int = 4
+    VALIDATION_CONCURRENT_PROBLEMS: int = 1
+    ADMIN_APPROVAL_ENABLED: bool = False
+    
+    # JWT 配置
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080
     
     @property
     def cors_origins_list(self) -> List[str]:
