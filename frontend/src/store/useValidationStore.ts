@@ -30,6 +30,10 @@ export interface ProblemQueueItem {
   problem: string;               // 题目内容
   answer: string;                // 答案
   explanation: string;           // 解析
+  translations?: {               // 翻译结果（可选）
+    problem?: string | null;
+    explanation?: string | null;
+  };
   checks: {
     difficulty: CheckTaskState;
     originality: CheckTaskState;

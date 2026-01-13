@@ -81,6 +81,7 @@ export default function QualityCheckPage() {
     problemQueue,
     addToProblemQueue,
     updateProblemCheck,
+    updateProblemInQueue,
     removeFromProblemQueue,
     clearProblemQueue,
   } = useValidationStore();
@@ -104,12 +105,6 @@ export default function QualityCheckPage() {
     problem: boolean;
     explanation: boolean;
   }>({ problem: false, explanation: false });
-
-  // 翻译结果
-  const [translations, setTranslations] = useState<{
-    problem: string | null;
-    explanation: string | null;
-  }>({ problem: null, explanation: null });
 
   // SSE连接引用（按题目ID存储）
   const sseConnectionsRef = useRef<Map<string, EventSource>>(new Map());
@@ -437,13 +432,35 @@ export default function QualityCheckPage() {
 
   // 翻译处理函数
   const handleTranslate = async (field: 'problem' | 'explanation', text: string) => {
+    if (!selectedProblemForView) return;
+    
+    const problemId = selectedProblemForView.id;
     setTranslating(prev => ({ ...prev, [field]: true }));
     
     try {
       const result = await problemApi.translate(text);
       
       if (result.success) {
-        setTranslations(prev => ({ ...prev, [field]: result.translated }));
+        // 使用函数式更新，获取最新的 state 值避免竞态条件
+        setSelectedProblemForView(prev => {
+          if (!prev || prev.id !== problemId) return prev;
+          
+          const newTranslations = {
+            ...prev.translations,
+            [field]: result.translated
+          };
+          
+          // 同时更新 store
+          updateProblemInQueue(problemId, {
+            translations: newTranslations
+          });
+          
+          return {
+            ...prev,
+            translations: newTranslations
+          };
+        });
+        
         message.success(`${field === 'problem' ? '题目内容' : '题目解析'}翻译成功`);
       } else {
         message.error(result.error || '翻译失败');
@@ -456,10 +473,10 @@ export default function QualityCheckPage() {
     }
   };
 
-  // 关闭Modal时清空翻译
+  // 关闭Modal
   const handleCloseProblemDetailsModal = () => {
     setViewProblemDetailsModalVisible(false);
-    setTranslations({ problem: null, explanation: null });
+    // 翻译结果已保存在 store 中，下次打开会从 store 读取
   };
 
   // 从队列中移除题目
@@ -1012,7 +1029,7 @@ export default function QualityCheckPage() {
                   loading={translating.problem}
                   onClick={() => handleTranslate('problem', selectedProblemForView.problem)}
                 >
-                  {translations.problem ? '重新翻译' : '翻译'}
+                  {selectedProblemForView.translations?.problem ? '重新翻译' : '翻译'}
                 </Button>
               </div>
               
@@ -1029,7 +1046,7 @@ export default function QualityCheckPage() {
               </div>
               
               {/* 翻译结果 */}
-              {translations.problem && (
+              {selectedProblemForView.translations?.problem && (
                 <div
                   style={{
                     padding: '16px',
@@ -1042,7 +1059,7 @@ export default function QualityCheckPage() {
                   <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
                     📝 翻译：
                   </Text>
-                  <MathRenderer content={translations.problem} />
+                  <MathRenderer content={selectedProblemForView.translations.problem} />
                 </div>
               )}
             </div>
@@ -1074,7 +1091,7 @@ export default function QualityCheckPage() {
                     loading={translating.explanation}
                     onClick={() => handleTranslate('explanation', selectedProblemForView.explanation)}
                   >
-                    {translations.explanation ? '重新翻译' : '翻译'}
+                    {selectedProblemForView.translations?.explanation ? '重新翻译' : '翻译'}
                   </Button>
                 </div>
                 
@@ -1091,7 +1108,7 @@ export default function QualityCheckPage() {
                 </div>
                 
                 {/* 翻译结果 */}
-                {translations.explanation && (
+                {selectedProblemForView.translations?.explanation && (
                   <div
                     style={{
                       padding: '16px',
@@ -1104,7 +1121,7 @@ export default function QualityCheckPage() {
                     <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
                       📝 翻译：
                     </Text>
-                    <MathRenderer content={translations.explanation} />
+                    <MathRenderer content={selectedProblemForView.translations.explanation} />
                   </div>
                 )}
               </div>
