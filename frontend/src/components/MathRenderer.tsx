@@ -141,6 +141,21 @@ export default function MathRenderer({ content, className, style }: MathRenderer
       }
     });
 
+    // 步骤2c: 处理跨行的独立 $ 公式（作为块级公式显示）
+    // 匹配独立成行或跨行的 $...$ 公式
+    result = result.replace(/(?:^|\n)\s*\$\s*\n([\s\S]+?)\n\s*\$\s*(?:\n|$)/gm, (_, formula) => {
+      try {
+        return `<div class="katex-block" style="text-align: center; margin: 12px 0;">${katex.renderToString(formula.trim(), { 
+          displayMode: true, 
+          throwOnError: false,
+          strict: false
+        })}</div>`;
+      } catch (e) {
+        console.error('KaTeX 跨行块级公式渲染失败:', formula, e);
+        return `<div style="color: #d32f2f; text-align: center; margin: 12px 0;"><code title="LaTeX渲染失败: ${e}">$${formula}$</code></div>`;
+      }
+    });
+
     // 步骤3a: 先处理 LaTeX 原生行内公式 \(...\)（不跨行）
     result = result.replace(/\\\(([^)]+?)\\\)/g, (_, formula) => {
       try {

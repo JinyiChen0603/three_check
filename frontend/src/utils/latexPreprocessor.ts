@@ -17,7 +17,36 @@ export function autoWrapMathExpressions(content: string): string {
   let blockIndex = 0;
   
   // 保护所有已有的数学定界符内容
-  result = result.replace(/\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\$[^$\n]+?\$|\\\([^)]+?\\\)/g, (match) => {
+  // 1. 先保护块级公式 $$...$$（可以跨行）
+  result = result.replace(/\$\$[\s\S]+?\$\$/g, (match) => {
+    const placeholder = `___PROTECTED_${blockIndex}___`;
+    protectedBlocks[blockIndex++] = match;
+    return placeholder;
+  });
+  
+  // 2. 保护 \[...\] 块级公式（可以跨行）
+  result = result.replace(/\\\[[\s\S]+?\\\]/g, (match) => {
+    const placeholder = `___PROTECTED_${blockIndex}___`;
+    protectedBlocks[blockIndex++] = match;
+    return placeholder;
+  });
+  
+  // 3. 保护独立成行的跨行 $ 公式（这种应该是块级公式）
+  result = result.replace(/(?:^|\n)\s*\$\s*\n[\s\S]+?\n\s*\$\s*(?:\n|$)/gm, (match) => {
+    const placeholder = `___PROTECTED_${blockIndex}___`;
+    protectedBlocks[blockIndex++] = match;
+    return placeholder;
+  });
+  
+  // 4. 保护 \(...\) 行内公式（通常不跨行）
+  result = result.replace(/\\\([^\)]+?\\\)/g, (match) => {
+    const placeholder = `___PROTECTED_${blockIndex}___`;
+    protectedBlocks[blockIndex++] = match;
+    return placeholder;
+  });
+  
+  // 5. 最后保护普通的行内 $ 公式（不跨行）
+  result = result.replace(/\$[^$\n]+?\$/g, (match) => {
     const placeholder = `___PROTECTED_${blockIndex}___`;
     protectedBlocks[blockIndex++] = match;
     return placeholder;
@@ -25,12 +54,20 @@ export function autoWrapMathExpressions(content: string): string {
   
   // 1. 检测并包装含有下标的表达式（如 v_1, S_A, w_B）
   // 匹配模式：字母后跟 _{ 或 _ 加字母/数字
-  result = result.replace(/\b([a-zA-Z]+)_\{([^}]+)\}/g, '$$$1_{$2}$$');
-  result = result.replace(/\b([a-zA-Z]+)_([a-zA-Z0-9]+)\b/g, '$$$1_$2$$');
+  result = result.replace(/\b([a-zA-Z]+)_\{([^}]+)\}/g, (_match, base, subscript) => {
+    return `$${base}_{${subscript}}$`;
+  });
+  result = result.replace(/\b([a-zA-Z]+)_([a-zA-Z0-9]+)\b/g, (_match, base, subscript) => {
+    return `$${base}_${subscript}$`;
+  });
   
   // 2. 检测并包装含有上标的表达式（如 x^2, y^2）
-  result = result.replace(/\b([a-zA-Z]+)\^\{([^}]+)\}/g, '$$$1^{$2}$$');
-  result = result.replace(/\b([a-zA-Z]+)\^([0-9]+)\b/g, '$$$1^$2$$');
+  result = result.replace(/\b([a-zA-Z]+)\^\{([^}]+)\}/g, (_match, base, superscript) => {
+    return `$${base}^{${superscript}}$`;
+  });
+  result = result.replace(/\b([a-zA-Z]+)\^([0-9]+)\b/g, (_match, base, superscript) => {
+    return `$${base}^${superscript}$`;
+  });
   
   // 3. 检测复合表达式（如 x^2+y^2=1）
   // 匹配包含 +, -, =, < , >, \le, \ge 等运算符的表达式
@@ -168,7 +205,9 @@ export function autoWrapMathExpressions(content: string): string {
   // 11. 合并相邻的数学模式（避免 $x$ $+$ $y$ 这种情况）
   // 多次运行以处理多个相邻的情况
   for (let i = 0; i < 3; i++) {
-    result = result.replace(/\$([^$\n]+)\$\s*\$([^$\n]+)\$/g, '$$$1 $2$$');
+    result = result.replace(/\$([^$\n]+)\$\s*\$([^$\n]+)\$/g, (_match, left, right) => {
+      return `$${left} ${right}$`;
+    });
   }
   
   // 恢复保护的内容
