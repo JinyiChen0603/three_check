@@ -1,5 +1,5 @@
 """
-FastAPI 应用入口
+FastAPI 应用入口 - 数学题目三重质检工具
 """
 
 from contextlib import asynccontextmanager
@@ -7,7 +7,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import init_db, close_db
 from app.services.redis_client import init_redis, close_redis
 
 
@@ -15,17 +14,15 @@ from app.services.redis_client import init_redis, close_redis
 async def lifespan(app: FastAPI):
     """
     应用生命周期管理
-    启动时初始化数据库，关闭时清理资源
     """
     # 启动时
     print(f"🚀 启动 {settings.APP_NAME} v{settings.VERSION}")
-    await init_db()
-    print("✅ PostgreSQL连接成功")
     
-    # 初始化Redis（用于进度追踪等）
+    # 初始化Redis（用于进度追踪）
     if settings.REDIS_URL:
         try:
             await init_redis()
+            print("✅ Redis连接成功")
         except Exception as e:
             print(f"⚠️ Redis连接失败: {e}，进度追踪功能将不可用")
     else:
@@ -34,8 +31,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # 关闭时
-    print("🛑 关闭数据库连接...")
-    await close_db()
+    print("🛑 关闭服务...")
     if settings.REDIS_URL:
         await close_redis()
     print("👋 再见！")
@@ -43,19 +39,19 @@ async def lifespan(app: FastAPI):
 
 # 创建 FastAPI 应用
 app = FastAPI(
-    title=settings.APP_NAME,
-    description="数学题目众包平台 API",
+    title="数学题目三重质检工具",
+    description="提供难度、原创性、严谨性三重质检服务",
     version=settings.VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
 )
 
-# 配置 CORS
+# 配置 CORS（无需认证）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
+    allow_credentials=False,  # 不需要cookie认证
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -67,10 +63,11 @@ app.add_middleware(
 async def root():
     """根路径"""
     return {
-        "name": settings.APP_NAME,
+        "name": "数学题目三重质检工具",
         "version": settings.VERSION,
         "status": "running",
         "docs": "/docs",
+        "features": ["难度检测", "原创性检测", "严谨性检测", "OCR识别"],
     }
 
 
@@ -79,51 +76,14 @@ async def health_check():
     """健康检查"""
     return {
         "status": "healthy",
-        "database": "connected",
-    }
-
-
-@app.get("/api/config")
-async def get_config():
-    """获取前端配置（公开接口，无需认证）"""
-    return {
-        "max_tasks_per_claim": settings.MAX_TASKS_PER_CLAIM,
-        "task_timeout_hours": settings.TASK_TIMEOUT_HOURS,
-        "reward_per_problem": settings.PROBLEM_REWARD,
-        "reward_per_review": settings.REVIEW_REWARD,
-        "max_problems_total": settings.MAX_PROBLEMS_TOTAL,  # 用户总出题数上限
     }
 
 
 # ==================== API 路由 ====================
-from app.api import auth, materials, problems, reviews, tasks, users, deep_transform, admin, variants
+from app.api import problems
 
-# 认证路由
-app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
-
-# 用户路由
-app.include_router(users.router, prefix="/api/users", tags=["用户管理"])
-
-# 管理员路由
-app.include_router(admin.router, prefix="/api/admin", tags=["管理员"])
-
-# 资料库路由
-app.include_router(materials.router, prefix="/api/materials", tags=["资料库"])
-
-# 题目管理路由
-app.include_router(problems.router, prefix="/api/problems", tags=["题目管理"])
-
-# 变体管理路由
-app.include_router(variants.router, prefix="/api/variants", tags=["变体管理"])
-
-# 评分路由
-app.include_router(reviews.router, prefix="/api/reviews", tags=["评分管理"])
-
-# 任务路由
-app.include_router(tasks.router, prefix="/api/tasks", tags=["任务管理"])
-
-# 深度变形路由
-app.include_router(deep_transform.router, prefix="/api/deep-transform", tags=["深度变形"])
+# 题目质检路由（包含三重检测和OCR）
+app.include_router(problems.router, prefix="/api/problems", tags=["题目质检"])
 
 
 if __name__ == "__main__":
