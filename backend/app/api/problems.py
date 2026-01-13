@@ -191,3 +191,104 @@ async def check_rigor_only(
         "rigor": result,
         "is_rigorous": result.get("is_rigorous", False),
     }
+
+
+# ==================== 翻译 API ====================
+
+class TranslateRequest(BaseModel):
+    """翻译请求"""
+    text: str = Field(..., description="需要翻译的文本")
+    target_lang: str = Field(default="zh", description="目标语言：zh=中文, en=英文")
+    source_lang: str = Field(default="auto", description="源语言：auto=自动检测")
+
+
+@router.post("/translate", summary="翻译文本（支持数学公式）")
+async def translate_text(request: TranslateRequest):
+    """
+    使用 OpenAI GPT-4o-mini 翻译文本
+    
+    特点：
+    - 保留 LaTeX 数学公式格式
+    - 支持中英互译
+    - 自动识别源语言
+    """
+    try:
+        from app.services.llm.clients import gpt4o_mini
+        
+        # 构建翻译提示词
+        lang_map = {
+            "zh": "简体中文",
+            "en": "English",
+            "ja": "日本語",
+            "ko": "한국어",
+            "fr": "Français",
+            "de": "Deutsch",
+            "es": "Español",
+        }
+        
+        target_language = lang_map.get(request.target_lang, "简体中文")
+        
+        # 自动检测源语言
+        if request.source_lang == "auto":
+            # 简单检测：如果包含中文字符，则为中文，否则默认英文
+            import re
+            has_chinese = bool(re.search(r'[\u4e00-\u9fff]', request.text))
+            source_hint = "（检测到中文内容）" if has_chinese else "（检测到英文内容）"
+        else:
+            source_language = lang_map.get(request.source_lang, "自动检测")
+            source_hint = f"（源语言：{source_language}）"
+        
+        prompt = f"""请将以下文本翻译成{target_language}。
+
+重要要求：
+1. 保持 LaTeX 数学公式不变（如 $x^2$、\\frac{{a}}{{b}} 等）
+2. 保持数学符号和公式的准确性
+3. 翻译要自然、流畅、符合目标语言习惯
+4. 只返回翻译结果，不要添加任何解释或说明
+
+原文{source_hint}：
+{request.text}"""
+
+        messages = [
+            {
+                "role": "system",
+                "content": "你是一位专业的数学内容翻译专家，擅长翻译包含数学公式的文本，能够准确保留 LaTeX 格式。"
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+        
+        # 调用 OpenAI API（使用 gpt-4o-mini 更快更便宜）
+        response = await gpt4o_mini.chat(
+            messages=messages,
+            temperature=0.3,  # 较低温度确保翻译准确性
+            max_tokens=2000
+        )
+        
+        # 提取翻译结果
+        translated_text = gpt4o_mini.extract_content(response)
+        
+        if not translated_text:
+            raise Exception("翻译结果为空")
+        
+        return {
+            "success": True,
+            "original": request.text,
+            "translated": translated_text.strip(),
+            "source_lang": request.source_lang,
+            "target_lang": request.target_lang
+        }
+        
+    except Exception as e:
+        import traceback
+        error_detail = traceback.format_exc()
+        print(f"翻译失败: {error_detail}")
+        
+        return {
+            "success": False,
+            "error": str(e),
+            "original": request.text,
+            "translated": None
+        }

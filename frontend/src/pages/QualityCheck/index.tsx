@@ -35,6 +35,7 @@ import {
   LoadingOutlined,
   ClockCircleOutlined,
   ExclamationCircleOutlined,
+  TranslationOutlined,
 } from '@ant-design/icons';
 import { problemApi } from '../../api';
 import MathRenderer from '../../components/MathRenderer';
@@ -97,6 +98,18 @@ export default function QualityCheckPage() {
   // 查看题目详情的Modal状态
   const [viewProblemDetailsModalVisible, setViewProblemDetailsModalVisible] = useState(false);
   const [selectedProblemForView, setSelectedProblemForView] = useState<ProblemQueueItem | null>(null);
+
+  // 翻译状态
+  const [translating, setTranslating] = useState<{
+    problem: boolean;
+    explanation: boolean;
+  }>({ problem: false, explanation: false });
+
+  // 翻译结果
+  const [translations, setTranslations] = useState<{
+    problem: string | null;
+    explanation: string | null;
+  }>({ problem: null, explanation: null });
 
   // SSE连接引用（按题目ID存储）
   const sseConnectionsRef = useRef<Map<string, EventSource>>(new Map());
@@ -420,6 +433,33 @@ export default function QualityCheckPage() {
   const handleViewProblemDetails = (item: ProblemQueueItem) => {
     setSelectedProblemForView(item);
     setViewProblemDetailsModalVisible(true);
+  };
+
+  // 翻译处理函数
+  const handleTranslate = async (field: 'problem' | 'explanation', text: string) => {
+    setTranslating(prev => ({ ...prev, [field]: true }));
+    
+    try {
+      const result = await problemApi.translate(text);
+      
+      if (result.success) {
+        setTranslations(prev => ({ ...prev, [field]: result.translated }));
+        message.success(`${field === 'problem' ? '题目内容' : '题目解析'}翻译成功`);
+      } else {
+        message.error(result.error || '翻译失败');
+      }
+    } catch (error: any) {
+      console.error('翻译失败:', error);
+      message.error('翻译失败，请重试');
+    } finally {
+      setTranslating(prev => ({ ...prev, [field]: false }));
+    }
+  };
+
+  // 关闭Modal时清空翻译
+  const handleCloseProblemDetailsModal = () => {
+    setViewProblemDetailsModalVisible(false);
+    setTranslations({ problem: null, explanation: null });
   };
 
   // 从队列中移除题目
@@ -952,9 +992,9 @@ export default function QualityCheckPage() {
       <Modal
         title="题目详情"
         open={viewProblemDetailsModalVisible}
-        onCancel={() => setViewProblemDetailsModalVisible(false)}
+        onCancel={handleCloseProblemDetailsModal}
         footer={[
-          <Button key="close" onClick={() => setViewProblemDetailsModalVisible(false)}>
+          <Button key="close" onClick={handleCloseProblemDetailsModal}>
             关闭
           </Button>,
         ]}
@@ -964,18 +1004,47 @@ export default function QualityCheckPage() {
           <Space direction="vertical" style={{ width: '100%' }} size="large">
             {/* 题目内容 */}
             <div>
-              <Text strong style={{ fontSize: 16, color: '#1890ff' }}>题目内容</Text>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text strong style={{ fontSize: 16, color: '#1890ff' }}>题目内容</Text>
+                <Button
+                  size="small"
+                  icon={<TranslationOutlined />}
+                  loading={translating.problem}
+                  onClick={() => handleTranslate('problem', selectedProblemForView.problem)}
+                >
+                  {translations.problem ? '重新翻译' : '翻译'}
+                </Button>
+              </div>
+              
+              {/* 原文 */}
               <div
                 style={{
                   padding: '16px',
                   background: '#f5f5f5',
                   borderRadius: '8px',
-                  marginTop: '8px',
                   border: '1px solid #d9d9d9',
                 }}
               >
                 <MathRenderer content={selectedProblemForView.problem} />
               </div>
+              
+              {/* 翻译结果 */}
+              {translations.problem && (
+                <div
+                  style={{
+                    padding: '16px',
+                    background: '#e6f7ff',
+                    borderRadius: '8px',
+                    marginTop: '8px',
+                    border: '1px solid #91d5ff',
+                  }}
+                >
+                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                    📝 翻译：
+                  </Text>
+                  <MathRenderer content={translations.problem} />
+                </div>
+              )}
             </div>
 
             {/* 标准答案 */}
@@ -997,18 +1066,47 @@ export default function QualityCheckPage() {
             {/* 题目解析 */}
             {selectedProblemForView.explanation && (
               <div>
-                <Text strong style={{ fontSize: 16, color: '#faad14' }}>题目解析</Text>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <Text strong style={{ fontSize: 16, color: '#faad14' }}>题目解析</Text>
+                  <Button
+                    size="small"
+                    icon={<TranslationOutlined />}
+                    loading={translating.explanation}
+                    onClick={() => handleTranslate('explanation', selectedProblemForView.explanation)}
+                  >
+                    {translations.explanation ? '重新翻译' : '翻译'}
+                  </Button>
+                </div>
+                
+                {/* 原文 */}
                 <div
                   style={{
                     padding: '16px',
                     background: '#fffbe6',
                     borderRadius: '8px',
-                    marginTop: '8px',
                     border: '1px solid #ffe58f',
                   }}
                 >
                   <MathRenderer content={selectedProblemForView.explanation} />
                 </div>
+                
+                {/* 翻译结果 */}
+                {translations.explanation && (
+                  <div
+                    style={{
+                      padding: '16px',
+                      background: '#e6f7ff',
+                      borderRadius: '8px',
+                      marginTop: '8px',
+                      border: '1px solid #91d5ff',
+                    }}
+                  >
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                      📝 翻译：
+                    </Text>
+                    <MathRenderer content={translations.explanation} />
+                  </div>
+                )}
               </div>
             )}
           </Space>

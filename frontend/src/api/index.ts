@@ -77,4 +77,14 @@ export const problemApi = {
     });
     return response.data;
   },
+
+  // 翻译文本
+  translate: async (text: string, targetLang: string = 'zh', sourceLang: string = 'auto') => {
+    const response = await apiClient.post('/problems/translate', {
+      text,
+      target_lang: targetLang,
+      source_lang: sourceLang,
+    });
+    return response.data;
+  },
 };
