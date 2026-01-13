@@ -94,6 +94,10 @@ export default function QualityCheckPage() {
     data: any;
   } | null>(null);
 
+  // 查看题目详情的Modal状态
+  const [viewProblemDetailsModalVisible, setViewProblemDetailsModalVisible] = useState(false);
+  const [selectedProblemForView, setSelectedProblemForView] = useState<ProblemQueueItem | null>(null);
+
   // SSE连接引用（按题目ID存储）
   const sseConnectionsRef = useRef<Map<string, EventSource>>(new Map());
   
@@ -412,6 +416,12 @@ export default function QualityCheckPage() {
     setViewModalVisible(true);
   };
 
+  // 查看题目完整信息
+  const handleViewProblemDetails = (item: ProblemQueueItem) => {
+    setSelectedProblemForView(item);
+    setViewProblemDetailsModalVisible(true);
+  };
+
   // 从队列中移除题目
   const handleRemoveFromQueue = (problemId: string) => {
     ['difficulty', 'originality', 'rigor'].forEach(type => {
@@ -561,7 +571,7 @@ export default function QualityCheckPage() {
       {/* 顶部标题 */}
       <Card style={{ marginBottom: 24 }}>
         <Title level={2}>
-          🔬 数学题目三重质检工具
+          🔬 数学题目三重质检工具（使用过程请勿刷新页面）
         </Title>
         <Paragraph type="secondary">
           提供难度检测、原创性检测、严谨性检测三项AI质检服务，不保存任何数据
@@ -692,14 +702,23 @@ export default function QualityCheckPage() {
                     </Space>
                   }
                   extra={
-                    <Button 
-                      danger 
-                      size="small" 
-                      icon={<DeleteOutlined />}
-                      onClick={() => handleRemoveFromQueue(problemItem.id)}
-                    >
-                      移除
-                    </Button>
+                    <Space>
+                      <Button 
+                        size="small" 
+                        type="default"
+                        onClick={() => handleViewProblemDetails(problemItem)}
+                      >
+                        查看
+                      </Button>
+                      <Button 
+                        danger 
+                        size="small" 
+                        icon={<DeleteOutlined />}
+                        onClick={() => handleRemoveFromQueue(problemItem.id)}
+                      >
+                        移除
+                      </Button>
+                    </Space>
                   }
                 >
                   {/* 题目内容预览 */}
@@ -926,6 +945,73 @@ export default function QualityCheckPage() {
               </Descriptions>
             )}
           </div>
+        )}
+      </Modal>
+
+      {/* 查看题目详情Modal */}
+      <Modal
+        title="题目详情"
+        open={viewProblemDetailsModalVisible}
+        onCancel={() => setViewProblemDetailsModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setViewProblemDetailsModalVisible(false)}>
+            关闭
+          </Button>,
+        ]}
+        width={800}
+      >
+        {selectedProblemForView && (
+          <Space direction="vertical" style={{ width: '100%' }} size="large">
+            {/* 题目内容 */}
+            <div>
+              <Text strong style={{ fontSize: 16, color: '#1890ff' }}>题目内容</Text>
+              <div
+                style={{
+                  padding: '16px',
+                  background: '#f5f5f5',
+                  borderRadius: '8px',
+                  marginTop: '8px',
+                  border: '1px solid #d9d9d9',
+                }}
+              >
+                <MathRenderer content={selectedProblemForView.problem} />
+              </div>
+            </div>
+
+            {/* 标准答案 */}
+            <div>
+              <Text strong style={{ fontSize: 16, color: '#52c41a' }}>标准答案</Text>
+              <div
+                style={{
+                  padding: '16px',
+                  background: '#f6ffed',
+                  borderRadius: '8px',
+                  marginTop: '8px',
+                  border: '1px solid #b7eb8f',
+                }}
+              >
+                <MathRenderer content={selectedProblemForView.answer} />
+              </div>
+            </div>
+
+            {/* 题目解析 */}
+            {selectedProblemForView.explanation && (
+              <div>
+                <Text strong style={{ fontSize: 16, color: '#faad14' }}>题目解析</Text>
+                <div
+                  style={{
+                    padding: '16px',
+                    background: '#fffbe6',
+                    borderRadius: '8px',
+                    marginTop: '8px',
+                    border: '1px solid #ffe58f',
+                  }}
+                >
+                  <MathRenderer content={selectedProblemForView.explanation} />
+                </div>
+              </div>
+            )}
+          </Space>
         )}
       </Modal>
     </div>

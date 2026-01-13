@@ -10,9 +10,10 @@ interface MathRendererProps {
 }
 
 /**
- * MathRenderer 组件（增强版）
+ * MathRenderer 组件（增强版 - 高宽容度）
  * 
  * 功能：
+ * - 自动识别并包装数学表达式（高宽容度模式）
  * - 支持LaTeX环境（itemize, enumerate等）
  * - 支持LaTeX文本格式命令（\textbf, \textit等）
  * - 支持数学公式渲染（行内和块级）
@@ -20,8 +21,9 @@ interface MathRendererProps {
  * - 自动处理换行和段落
  * 
  * 渲染流程：
- * 0. 自动检测孤立的 LaTeX 命令（如 \boxed, \frac, \arctan 等）并包装为数学公式
- * 1. 预处理LaTeX环境和命令 → HTML
+ * 0a. 自动识别不规范的数学表达式（如裸露的下标、上标）
+ * 0b. 自动检测孤立的 LaTeX 命令（如 \boxed, \frac, \arctan 等）并包装为数学公式
+ * 1. 预处理LaTeX环境和命令 → HTML（包含自动包装）
  * 2. 处理块级公式 \[...\] 和 $$...$$ → KaTeX displayMode
  * 3. 处理行内公式 \(...\) 和 $...$ → KaTeX inline
  * 4. 处理段落和换行符
@@ -29,7 +31,7 @@ interface MathRendererProps {
  * 支持的数学公式定界符：
  * - 块级公式：\[...\] 或 $$...$$
  * - 行内公式：\(...\) 或 $...$
- * - 自动检测：\boxed{...}、\frac{...}{...}、\arctan(...) 等孤立命令
+ * - 自动检测：下标(_)、上标(^)、LaTeX命令等
  */
 export default function MathRenderer({ content, className, style }: MathRendererProps) {
   const rendered = useMemo(() => {
