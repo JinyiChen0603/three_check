@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     VALIDATION_CONCURRENT_PROBLEMS: int = 1
     ADMIN_APPROVAL_ENABLED: bool = False
     
+    # 进度追踪配置
+    PROGRESS_EXPIRE_SECONDS: int = 3600  # Redis中进度数据的过期时间（1小时）
+    
     # JWT 配置
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080
