@@ -639,24 +639,24 @@ export default function QualityCheckPage() {
             />
           </Form.Item>
 
-          <Space direction="horizontal" style={{ width: '100%' }} size={16}>
-            <Form.Item
-              label="标准答案"
-              name="answer"
-              rules={[{ required: true, message: '请输入标准答案' }]}
-              style={{ flex: 1, minWidth: 200 }}
-            >
-              <Input placeholder="请输入标准答案" />
-            </Form.Item>
-            <Form.Item
-              label="题目解析"
-              name="explanation"
-              rules={[{ required: true, message: '请输入题目解析' }]}
-              style={{ flex: 1, minWidth: 200 }}
-            >
-              <Input placeholder="请输入题目解析" />
-            </Form.Item>
-          </Space>
+          <Form.Item
+            label="标准答案"
+            name="answer"
+            rules={[{ required: true, message: '请输入标准答案' }]}
+          >
+            <Input placeholder="请输入标准答案" />
+          </Form.Item>
+
+          <Form.Item
+            label="题目解析"
+            name="explanation"
+            rules={[{ required: true, message: '请输入题目解析' }]}
+          >
+            <TextArea
+              rows={4}
+              placeholder="请输入题目解析"
+            />
+          </Form.Item>
         </Form>
 
         <Space style={{ marginTop: 16 }}>
